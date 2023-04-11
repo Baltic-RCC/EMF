@@ -1,0 +1,65 @@
+{
+  "@context": "https://example.com/schemas/process.jsonld",
+  "@id": "https://example.com/processes/CGM_CREATION",
+  "@type": "Process",
+  "description": "",
+  "time_zone": "Europe/Brussels",
+  "tags": [],
+  "properties": {},
+  "runs": [
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "05 07,15,23 * * *",
+      "time_frame": "H-8",
+      "tags": [],
+      "properties": {
+        "data_timestamps": "30 * * * *",
+        "data_resolution": "PT1H",
+        "merge_type": "CGM",
+        "time_horizon": "ID"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/DayAheadCGM",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT6H",
+      "gate_close": "PT5H",
+      "run_at": "50 18 * * *",
+      "time_frame": "D-1",
+      "properties": {
+        "data_timestamps": "30 * * * *",
+        "data_resolution": "PT1H",
+        "merge_type": "CGM",
+        "time_horizon": "1D"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/TwoDaysAheadCGM",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "P1DT5H",
+      "gate_close": "P1DT4H",
+      "run_at": "50 19 * * *",
+      "time_frame": "D-2",
+      "properties": {
+        "data_timestamps": "30 * * * *",
+        "data_resolution": "PT1H",
+        "merge_type": "CGM"
+      }
+    }
+  ]
+}

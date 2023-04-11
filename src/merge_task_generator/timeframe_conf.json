@@ -1,0 +1,83 @@
+[
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/ID",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running continuously within given day",
+        "period_duration": "P1D",
+        "period_start": "P0D",
+        "reference_time": "currentDayStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/H-8",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running 8 hours ahead in intraday",
+        "period_duration": "PT8H",
+        "period_start": "PT1H",
+        "reference_time": "currentHourStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/D-1",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs day before the targeted day",
+        "period_duration": "P1D",
+        "period_start": "P1D",
+        "reference_time": "currentDayStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/D-2",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs two days before the targeted day",
+        "period_duration": "P1D",
+        "period_start": "P2D",
+        "reference_time": "currentDayStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/D-7",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs day before the targeted day and covers time window of 7 days",
+        "period_duration": "P7D",
+        "period_start": "P1D",
+        "reference_time": "currentDayStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/W-0",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs for current week",
+        "period_duration": "P1W",
+        "period_start": "P0W",
+        "reference_time": "currentWeekStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/W-1",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs in current week for next week",
+        "period_duration": "P1W",
+        "period_start": "P1W",
+        "reference_time": "currentWeekStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/M-1",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs in current month for next month",
+        "period_duration": "P1M",
+        "period_start": "P1M",
+        "reference_time": "currentMonthStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/Y-1",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process that runs in current year for next year",
+        "period_duration": "P1Y",
+        "period_start": "P1Y",
+        "reference_time": "currentYearStart"
+    }
+]

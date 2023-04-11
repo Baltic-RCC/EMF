@@ -1,0 +1,20 @@
+{
+  "@context": "https://example.com/task_context.jsonld",
+  "@type": "Task",
+  "@id": "urn:uuid:<uuid4>",
+  "process_id": "https://example.com/processes/CGM_CREATION",
+  "run_id": "https://example.com/runs/DayAheadCGM",
+  "task_type": "automatic",
+  "task_initiator": "system_id_or_username",
+  "task_priority": "high",
+  "task_creation_time": "2023-03-04T19:30:00Z",
+  "task_dependencies": [],
+  "task_tags": [],
+  "task_retry_count": 0,
+  "task_timeout": "PT1H",
+  "task_properties": {
+    "merge_type": "CGM",
+    "time_horizon": "1D",
+    "scenario_time": "2023-03-05T16:30Z"
+  }
+}
