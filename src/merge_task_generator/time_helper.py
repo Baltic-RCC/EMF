@@ -153,6 +153,35 @@ def get_quarter_start(date_time):
     return date_time.replace(month=quarter_start_month, day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+@with_default_datetime_now
+def get_minute_start(date_time):
+    """
+    Returns the datetime object corresponding to the start of the minute.
+
+    If no datetime is provided, the current datetime is used.
+
+    Args:
+        date_time (datetime.datetime, optional): The datetime to use. If None,
+            the current datetime is used.
+
+    Returns:
+        datetime.datetime: The datetime object corresponding to the start of the
+        minute.
+    """
+    return date_time.replace(second=0, microsecond=0)
+
+
+reference_times = {
+    "currentMinuteStart": get_minute_start,
+    "currentHourStart": get_hour_start,
+    "currentDayStart": get_day_start,
+    "currentWeekStart": get_week_start,
+    "currentMonthStart": get_month_start,
+    "currentQuarterStart": get_quarter_start,
+    "currentYearStart": get_year_start
+}
+
+
 def parse_duration(iso8601_duration_string):
     """
     Parses an ISO 8601 duration string and returns the corresponding timedelta object.

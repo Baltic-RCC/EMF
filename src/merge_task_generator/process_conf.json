@@ -9,19 +9,57 @@
   "runs": [
     {
       "@context": "https://example.com/schemas/run.jsonld",
-      "@id": "https://example.com/runs/IntraDayCGM",
+      "@id": "https://example.com/runs/IntraDayCGM/1",
       "@type": "Run",
       "process_id": "https://example.com/processes/CGM_CREATION",
       "valid_from": "",
       "valid_to": "",
       "gate_open": "PT1H",
       "gate_close": "PT45M",
-      "run_at": "05 07,15,23 * * *",
+      "run_at": "05 23 * * *",
       "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
       "tags": [],
       "properties": {
-        "data_timestamps": "30 * * * *",
-        "data_resolution": "PT1H",
+        "merge_type": "CGM",
+        "time_horizon": "ID"
+      }
+    },
+        {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM/2",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "05 07 * * *",
+      "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "CGM",
+        "time_horizon": "ID"
+      }
+    },
+        {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM/3",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "05 15 * * *",
+      "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
         "merge_type": "CGM",
         "time_horizon": "ID"
       }
@@ -37,9 +75,9 @@
       "gate_close": "PT5H",
       "run_at": "50 18 * * *",
       "time_frame": "D-1",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
       "properties": {
-        "data_timestamps": "30 * * * *",
-        "data_resolution": "PT1H",
         "merge_type": "CGM",
         "time_horizon": "1D"
       }
@@ -55,10 +93,11 @@
       "gate_close": "P1DT4H",
       "run_at": "50 19 * * *",
       "time_frame": "D-2",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
       "properties": {
-        "data_timestamps": "30 * * * *",
-        "data_resolution": "PT1H",
-        "merge_type": "CGM"
+        "merge_type": "CGM",
+        "time_horizon": "2D"
       }
     }
   ]
