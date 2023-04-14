@@ -1,0 +1,32 @@
+{
+    "@context": "https://example.com/task_context.jsonld",
+    "@type": "Task",
+    "@id": "urn:uuid:84969ee9-16e4-492b-bbd3-928000e5c8c2",
+    "process_id": "https://example.com/processes/CGM_CREATION",
+    "run_id": "https://example.com/runs/IntraDayCGM/1",
+    "job_id": "urn:uuid:097a0666-cdbf-46e4-8eb9-89e8cc145862",
+    "task_type": "automatic",
+    "task_initiator": "kristjan.vilgo",
+    "task_priority": "normal",
+    "task_creation_time": "2023-04-14T13:16:19.730930",
+    "task_status": "created",
+    "task_status_trace": [
+        {
+            "status": "created",
+            "timestamp": "2023-04-14T13:16:19.730930"
+        }
+    ],
+    "task_dependencies": [],
+    "task_tags": [],
+    "task_retry_count": 0,
+    "task_timeout": "PT1H",
+    "task_gate_open": "2023-04-14T21:00:00+00:00",
+    "task_gate_close": "2023-04-14T21:15:00+00:00",
+    "job_period_start": "2023-04-14T22:00:00+00:00",
+    "job_period_end": "2023-04-15T06:00:00+00:00",
+    "task_properties": {
+        "timestamp_utc": "2023-04-14T22:30:00+00:00",
+        "merge_type": "CGM",
+        "time_horizon": "ID"
+    }
+}
