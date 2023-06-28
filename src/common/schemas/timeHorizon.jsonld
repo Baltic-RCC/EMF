@@ -1,0 +1,43 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://example.com/timeHorizon.jsonld",
+    "type": "array",
+    "items": {
+      "type": "object",
+      "required": [
+        "@context",
+        "@id",
+        "@type",
+        "description",
+        "period_duration",
+        "period_start",
+        "reference_time"
+      ],
+      "properties": {
+        "@context": {
+          "type": "string",
+          "format": "uri"
+        },
+        "@id": {
+          "type": "string",
+          "format": "uri"
+        },
+        "@type": {
+          "type": "string",
+          "format": "uri"
+        },
+        "description": {
+          "type": "string"
+        },
+        "period_duration": {
+          "type": "string"
+        },
+        "period_start": {
+          "type": "string"
+        },
+        "reference_time": {
+          "type": "string"
+        }
+      }
+    }
+  }
