@@ -3,7 +3,7 @@ from uuid import uuid4
 from io import BytesIO
 import logging
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 # TODO - Addcomments and docstring
 def package_for_pypowsybl(opdm_components):

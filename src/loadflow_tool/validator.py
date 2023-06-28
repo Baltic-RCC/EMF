@@ -2,7 +2,7 @@ import pypowsybl
 from helper import package_for_pypowsybl
 import logging
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 # https://pypowsybl.readthedocs.io/en/stable/reference/loadflow/parameters.html#pypowsybl.loadflow.Parameters
