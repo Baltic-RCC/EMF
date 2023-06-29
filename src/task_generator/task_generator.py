@@ -156,8 +156,8 @@ if __name__ == "__main__":
 
     task_window_duration = "P1D"
     task_window_reference = "currentDayStart"
-    timeframe_conf = "../examples/timeframe_conf.json"
-    process_conf = "../examples/process_conf.json"
+    timeframe_conf = "../../config/task_generator/timeframe_conf.json"
+    process_conf = "../../config/task_generator/process_conf.json"
 
     tasks = list(generate_tasks(task_window_duration, task_window_reference, process_conf, timeframe_conf))
 

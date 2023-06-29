@@ -3,7 +3,7 @@ from uuid import uuid4
 from io import BytesIO
 import logging
 
-# Initiate logger
+
 logger = logging.getLogger(__name__)
 
 # TODO - Add comments and docstring

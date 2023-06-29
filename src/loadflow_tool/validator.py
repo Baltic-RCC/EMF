@@ -4,14 +4,8 @@ import logging
 import sys
 import settings
 
-## Start logger
-STREAM_LOG_FORMAT = "%(levelname) -10s %(asctime) -10s %(name) -25s %(funcName) -25s %(lineno) -5d: %(message)s"
 logger = logging.getLogger(__name__)
-logging.basicConfig(stream=sys.stdout,
-                    format=STREAM_LOG_FORMAT,
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO,
-                    )
+
 
 class ModelValidator:
 

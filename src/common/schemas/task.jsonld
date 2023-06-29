@@ -1,0 +1,100 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://example.com/task.json",
+    "title": "Task",
+    "type": "object",
+    "required": [
+        "@context",
+        "@type",
+        "@id",
+        "process_id",
+        "run_id",
+        "task_type",
+        "task_initiator",
+        "task_priority",
+        "task_creation_time",
+        "task_dependencies",
+        "task_tags",
+        "task_retry_count",
+        "task_timeout",
+        "task_properties"],
+    "properties": {
+      "@context": {
+        "type": "string",
+        "const": "https://example.com/task.jsonld"
+      },
+      "@type": {
+        "type": "string",
+        "const": "Task"
+      },
+      "@id": {
+        "type": "string",
+        "pattern": "^urn:uuid:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[8|9|aA|bB][a-f0-9]{3}-[a-f0-9]{12}$"
+      },
+      "process_id": {
+        "type": "string",
+        "format": "uri"
+      },
+      "run_id": {
+        "type": "string",
+        "format": "uri"
+      },
+      "job_id": {
+        "type": "string",
+        "format": "uri"
+      },
+      "task_type": {
+        "type": "string",
+        "enum": ["automatic", "manual"]
+      },
+      "task_initiator": {
+        "type": "string"
+      },
+      "task_priority": {
+        "type": "string",
+        "enum": ["high", "medium", "low"]
+      },
+      "task_creation_time": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "task_dependencies": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "task_tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "task_retry_count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "task_timeout": {
+        "type": "string",
+        "pattern": "^PT\\d+[HMS]$"
+      },
+      "task_properties": {
+        "type": "object",
+        "properties": {
+          "merge_type": {
+            "type": "string"
+          },
+          "time_horizon": {
+            "type": "string"
+          },
+          "scenario_time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["merge_type", "time_horizon"]
+      }
+    }
+  }
+  
