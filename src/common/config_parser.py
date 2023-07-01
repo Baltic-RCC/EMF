@@ -1,11 +1,21 @@
 import configparser
 import logging
 import os
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
-def parse_app_properties(caller_globals, path, section="MAIN", sanitize_mask="****"):
+def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str = "MAIN", sanitize_mask: str = "****") -> None:
+    """Parse application properties and assign values to caller_globals dictionary.
+
+    Args:
+        caller_globals (dict): The dictionary of caller's globals to assign the parsed properties.
+        path (str): The path to the directory containing the application.properties file.
+        section (str, optional): The section name in the properties file to parse. Defaults to "MAIN".
+        sanitize_mask (str, optional): The mask to use for sanitizing sensitive values. Defaults to "****".
+    """
+
     # Configure settings parser
     raw_settings = configparser.RawConfigParser()
     raw_settings.optionxform = str
@@ -49,6 +59,8 @@ def parse_app_properties(caller_globals, path, section="MAIN", sanitize_mask="**
 
         # Assign value to globals with upper letters
         caller_globals[parameter_name] = parameter_value
+
+        # TODO - maybe return globals, so any dict could be used. Also create dict in the beginning if no globals were provided
 
 # TEST
 if __name__ == "__main__":
