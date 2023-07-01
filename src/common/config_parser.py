@@ -1,48 +1,72 @@
 import configparser
 import logging
 import os
-import inspect
 
 logger = logging.getLogger(__name__)
 
-def parse_app_properties(caller_globals):
 
-    caller_path = os.path.abspath((inspect.stack()[1])[1])
-    directory_of_caller = os.path.dirname(caller_path)
-
-    settings = os.path.join(directory_of_caller, "application.properties")
-    section = "MAIN"
-
-    ## Parse application.properties configuration file
+def parse_app_properties(caller_globals, path, section="MAIN", sanitize_mask="****"):
+    # Configure settings parser
     raw_settings = configparser.RawConfigParser()
     raw_settings.optionxform = str
-    raw_settings.read(settings)
+
+    # Load settings
+    settings_path = os.path.join(path, "application.properties")
+    raw_settings.read(settings_path)
 
     for setting in raw_settings.items(section):
 
-        parameter_name, parameter_default_value = setting
+        # Get parameter name and value from settings
+        parameter_name, parameter_config_value = setting
 
-        # First, lets see if parameter is defined in ENV
-        parameter_value = os.getenv(parameter_name)
+        # Force parameter name to upper, to follow python PEP and also force that all settings are defined with cappital letters
+        parameter_name = parameter_name.upper()
 
-        # Check if parameter is defined in ENV
-        if parameter_value:
-            # If parameter values has commas - split into list
-            if ',' in parameter_value:
-                parameter_value = parameter_value.split(',')
-            caller_globals[parameter_name] = parameter_value
-            if "password" not in parameter_name.lower():
-                logger.info(f"Parameter {parameter_name} defined in ENV -> {parameter_value}")
-            else:
-                logger.info(f"Parameter {parameter_name} defined in ENV -> ****")
+        # Get parameter value from ENV, if available
+        parameter_env_value = os.getenv(parameter_name)
+
+        # Check if password needs to be sanitized
+        # TODO - maybe add list of keywords to function call and then here list comprehension and any()
+        sanitize = "PASSWORD" in parameter_name
+
+        # If parameter is defined in ENV
+        if parameter_env_value:
+            defined_in = "ENVIRONMENT"
+            parameter_value = parameter_env_value
+
+        # If not, take the default value form config
         else:
-            # If parameter values has commas - split into list
-            if ',' in parameter_default_value:
-                parameter_default_value = parameter_default_value.split(',')
-            caller_globals[parameter_name] = parameter_default_value
-            if "password" not in parameter_name.lower():
-                logger.info(f"Parameter {parameter_name} not defined in ENV using default value from application.properties -> {parameter_default_value}")
-            else:
-                logger.info(f"Parameter {parameter_name} not defined in ENV using default value from application.properties -> ****")
+            defined_in = "PROPERTIES"
+            parameter_value = parameter_config_value
 
-    return caller_globals
+        # Sanitize parameter value for logging
+        sanitized_parameter_value = sanitize_mask if sanitize else parameter_value
+
+        logger.info(f"{parameter_name} = {sanitized_parameter_value} [{defined_in}]",
+                    extra={"parameter_defined_in": defined_in,
+                           "parameter_name": parameter_name,
+                           "parameter_value": sanitized_parameter_value})
+
+        # Assign value to globals with upper letters
+        caller_globals[parameter_name] = parameter_value
+
+# TEST
+if __name__ == "__main__":
+
+    import sys
+    logging.basicConfig(
+        format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+        level=logging.DEBUG,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
+    os.environ["OPDM_PASSWORD"] = "1"
+
+    parse_app_properties(globals(), path="../../config/opdm_integration")
+
+
+
+
+
+
