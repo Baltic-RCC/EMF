@@ -1,23 +1,31 @@
 import OPDM as opdm_api
 import requests
-import pandas as pd
+import pandas
 import logging
-import settings
 import sys
 import base64
 import os
+import config
+from src.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 
+parse_app_properties(globals(), config.paths.opdm_integration.opdm)
+
+
 class OPDM(opdm_api.create_client):
 
-    def query_object(self, object_type, meta=None):
+    def __init__(self, server=OPDM_SERVER, username=OPDM_USERNAME, password=OPDM_PASSWORD, debug=False, verify=False):
+        super().__init__(server, username, password, debug, verify)
+
+    # TODO - update query function in OPDM module
+    def query(self, object_type, meta=None):
 
         logger.info(f"Sending query to OPDM for {object_type} with parameters {meta}")
         if meta is None:
             meta = {}
 
-        query_id, raw_response = self.service.query_object(object_type, meta)
+        query_id, raw_response = self.query_object(object_type, meta)
         response = raw_response['sm:QueryResult']['sm:part'][1:]
 
         if type(response) == str:
@@ -36,7 +44,7 @@ class OPDM(opdm_api.create_client):
                 file_path = os.path.join(output_dir, file_name)
 
                 logger.info(f"Downloading {file_name} with ID -> {file_id}")
-                response = self.service.get_content(file_id, return_payload=True)
+                response = self.get_content(file_id, return_payload=True)
 
                 with open(file_path, 'wb') as file_object:
                     message64_bytes = response['sm:GetContentResult']['sm:part'][1]['opdm:Profile'][
@@ -61,7 +69,7 @@ class OPDM(opdm_api.create_client):
                 # If file is not available on local client, lets request it and download it
                 if not content_data:
                     logger.warning("File not present on local client, requesting from OPDM service")
-                    content_meta = self.service.get_content(model_part_meta['opde:Id'])
+                    #content_meta = self.get_content(model_part_meta['opde:Id'])
                     content_data = self.get_file(model_part_name)
 
                 if not content_data:
@@ -76,28 +84,33 @@ class OPDM(opdm_api.create_client):
     def get_file(self, file_id):
 
         logger.info(f"Retrieving file from OPDM local storage with ID -> {file_id}")
-        auth = (settings.WEBDAV_USERNAME, settings.WEBDAV_PASSWORD)
+        auth = (WEBDAV_USERNAME, WEBDAV_PASSWORD)
         response = requests.request("GET",
-                                    f"{settings.WEBDAV_SERVER}/{file_id}",
+                                    f"{WEBDAV_SERVER}/{file_id}",
                                     verify=False,
                                     auth=auth)
 
         if response.status_code == 200:
-            # logger.info(f"Retrieved file with ID -> {file_id}")
+            logger.info(f"Retrieved file with ID -> {file_id}")
             return response.content
         else:
             logger.warning(f"Not available, file with ID -> {file_id}")
             logger.warning(f"Status Code {response.status_code}; Message: {response.content}")
             return None
 
-    def get_latest_models_and_download(self, tso, time_horizon, scenario_date):
+    def get_latest_models_and_download(self, time_horizon, scenario_date, tso=None):
 
-        models_metadata_raw = self.query_object(object_type="IGM", meta={'pmd:scenarioDate': scenario_date, 'pmd:timeHorizon': time_horizon, 'pmd:TSO': tso})
+        meta = {'pmd:scenarioDate': scenario_date, 'pmd:timeHorizon': time_horizon}
+
+        if tso:
+            meta['pmd:TSO'] = tso
+
+        models_metadata_raw = self.query(object_type="IGM", meta=meta)
 
         models_downloaded = []
         if models_metadata_raw:
             # Sort for highest timeHorizon (for intraday) and for highest version
-            models = pd.DataFrame([x['opdm:OPDMObject'] for x in models_metadata_raw])
+            models = pandas.DataFrame([x['opdm:OPDMObject'] for x in models_metadata_raw])
             latest_models = models.sort_values(["pmd:timeHorizon", "pmd:versionNumber"], ascending=[True, False]).groupby("pmd:modelPartReference").first()
 
             for model in latest_models.to_dict("records"):
@@ -107,21 +120,21 @@ class OPDM(opdm_api.create_client):
                     logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
                     logger.error(sys.exc_info())
         else:
-            logger.warning(f"Model for {tso} not available on OPDE")
+            logger.warning(f"Models not available on OPDE")
 
         return models_downloaded
 
     def get_latest_boundary(self):
 
         # Query data from OPDM
-        boundaries = self.query_object("BDS")
+        boundaries = self.query("BDS")
 
         # Convert to dataframe for sorting out the latest boundary
-        boundary_data = pd.DataFrame([x['opdm:OPDMObject'] for x in boundaries])
+        boundary_data = pandas.DataFrame([x['opdm:OPDMObject'] for x in boundaries])
 
         # Convert date and version to respective formats
-        boundary_data['date_time'] = pd.to_datetime(boundary_data['pmd:scenarioDate'])
-        boundary_data['version'] = pd.to_numeric(boundary_data['pmd:versionNumber'])
+        boundary_data['date_time'] = pandas.to_datetime(boundary_data['pmd:scenarioDate'])
+        boundary_data['version'] = pandas.to_numeric(boundary_data['pmd:versionNumber'])
 
         # Sort out official boundary
         official_boundary_data = boundary_data[boundary_data["opde:Context"] == {'opde:IsOfficial': 'true'}]
