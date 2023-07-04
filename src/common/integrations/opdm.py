@@ -9,16 +9,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-class OPDM:
-
-    def __init__(self, server, username, password):
-        self.server = server
-        self.username = username
-        self.password = password
-
-        # Create connection to OPDM
-        self.service = opdm_api.create_client(self.server, self.username, password=self.password)
-        logger.info(f"Connection created to OPDM at {self.server} as {self.username}")
+class OPDM(opdm_api.create_client):
 
     def query_object(self, object_type, meta=None):
 
@@ -143,4 +134,6 @@ class OPDM:
 
 
 if __name__ == '__main__':
+    # TODO add tests
+    # TODO add dock-strings and type hints
     pass
