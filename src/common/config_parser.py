@@ -11,7 +11,7 @@ def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str
 
     Args:
         caller_globals (dict): The dictionary of caller's globals to assign the parsed properties.
-        path (str): The path to the directory containing the application.properties file.
+        path (str): The path to the .properties file.
         section (str, optional): The section name in the properties file to parse. Defaults to "MAIN".
         sanitize_mask (str, optional): The mask to use for sanitizing sensitive values. Defaults to "****".
     """
@@ -21,8 +21,7 @@ def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str
     raw_settings.optionxform = str
 
     # Load settings
-    settings_path = os.path.join(path, "application.properties")
-    raw_settings.read(settings_path)
+    raw_settings.read(path)
 
     for setting in raw_settings.items(section):
 
@@ -66,6 +65,8 @@ def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str
 if __name__ == "__main__":
 
     import sys
+    import config
+
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -75,7 +76,9 @@ if __name__ == "__main__":
 
     os.environ["OPDM_PASSWORD"] = "1"
 
-    parse_app_properties(globals(), path="../../config/opdm_integration")
+    parse_app_properties(globals(), config.paths.opdm_integration.opdm)
+
+
 
 
 
