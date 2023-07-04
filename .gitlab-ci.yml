@@ -1,0 +1,10 @@
+sync-with-github:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - when: manual
+  script:
+    - apk add --no-cache git
+    - git clone --bare https://github.com/Baltic-RCC/EMF.git
+    - cd EMF.git
+    - git push --mirror https://$USERNAME:$ACCESS_TOKEN@$REPOSITORY_URL
