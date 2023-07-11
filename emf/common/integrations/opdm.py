@@ -6,7 +6,7 @@ import sys
 import base64
 import os
 import config
-from src.common.config_parser import parse_app_properties
+from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 

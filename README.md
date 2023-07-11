@@ -81,13 +81,13 @@ _TODO: add links_
 
 [Process Configuration Example](config/task_generator/process_conf.json)
 
-[Process Configuration Schema](src/common/schemas/process.jsonld)
+[Process Configuration Schema](emf/common/schemas/process.jsonld)
 
 ### Timeframe configuration 
 
 [Timeframe Configuration Example](config/task_generator/timeframe_conf.json)
 
-[Timeframe Configuration Schema](src/common/schemas/timeHorizon.jsonld)
+[Timeframe Configuration Schema](emf/common/schemas/timeHorizon.jsonld)
 
 
 ## Process Scheduler
@@ -110,7 +110,7 @@ _TODO: add links_
 
 [Merge Task Example](examples/merge_task_example.json)
 
-[Task Schema](src/common/schemas/task.jsonld)
+[Task Schema](emf/common/schemas/task.jsonld)
 
 
 ## Task Manager
