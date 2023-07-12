@@ -1,7 +1,9 @@
 services:
-  dev:
-    container_name: emf_dev
-    build: .
+  powsybl:
+    container_name: pypowsybl
+    build:
+      context: ./
+      dockerfile: ./docker/base/Dockerfile
     volumes:
-      - .:/code
+      - ./:/code
     tty: true

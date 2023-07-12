@@ -1,5 +1,0 @@
-pandas
-aniso8601
-lxml
-edx
-opdm-api
