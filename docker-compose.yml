@@ -1,0 +1,7 @@
+services:
+  dev:
+    container_name: emf_dev
+    build: .
+    volumes:
+      - .:/code
+    tty: true
