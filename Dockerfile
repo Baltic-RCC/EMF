@@ -17,8 +17,13 @@ RUN apt-get update \
 
 # Crashes here upon trying to install pypowsybl ...
 # RUN pip install pypowsybl
+
+# This is a temporary solution for all other packages
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
 # Install packages to the system without creating virtual environment
-RUN pip install pipenv
+# RUN pip install pipenv
 # RUN python3-m pipenv install --system --deploy
 
 CMD ["bash"]
