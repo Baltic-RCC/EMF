@@ -1,0 +1,11 @@
+| name                                              | description                                     | type        | default           | possible_values                              |
+|:--------------------------------------------------|:------------------------------------------------|:------------|:------------------|:---------------------------------------------|
+| iidm.export.cgmes.base-name                       | Basename for output files                       | STRING      |                   |                                              |
+| iidm.export.cgmes.cim-version                     | CIM version to export                           | STRING      |                   | [14, 16, 100]                                |
+| iidm.export.cgmes.export-boundary-power-flows     | Export boundaries' power flows                  | BOOLEAN     | true              |                                              |
+| iidm.export.cgmes.export-power-flows-for-switches | Export power flows for switches                 | BOOLEAN     | true              |                                              |
+| iidm.export.cgmes.naming-strategy                 | Configure what type of naming strategy you want | STRING      | identity          | [identity, cgmes, cgmes-fix-all-invalid-ids] |
+| iidm.export.cgmes.profiles                        | Profiles to export                              | STRING_LIST | [EQ, TP, SSH, SV] | [EQ, TP, SSH, SV]                            |
+| iidm.export.cgmes.boundary-EQ-identifier          | Boundary EQ model identifier                    | STRING      |                   |                                              |
+| iidm.export.cgmes.boundary-TP-identifier          | Boundary TP model identifier                    | STRING      |                   |                                              |
+| iidm.export.cgmes.modeling-authority-set          | Modeling authority set                          | STRING      | powsybl.org       |                                              |
