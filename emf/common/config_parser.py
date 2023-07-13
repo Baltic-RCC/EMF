@@ -1,12 +1,17 @@
 import configparser
 import logging
 import os
+import ast
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
-def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str = "MAIN", sanitize_mask: str = "****") -> None:
+def parse_app_properties(caller_globals: Dict[str, Any],
+                         path: str,
+                         section: str = "MAIN",
+                         sanitize_mask: str = "****",
+                         eval_types: bool = False) -> None:
     """Parse application properties and assign values to caller_globals dictionary.
 
     Args:
@@ -14,6 +19,7 @@ def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str
         path (str): The path to the .properties file.
         section (str, optional): The section name in the properties file to parse. Defaults to "MAIN".
         sanitize_mask (str, optional): The mask to use for sanitizing sensitive values. Defaults to "****".
+        eval_types (bool, optional): Flag to convert strings to native datatypes. Defaults to False.
     """
 
     # Configure settings parser
@@ -55,6 +61,10 @@ def parse_app_properties(caller_globals: Dict[str, Any], path: str, section: str
                     extra={"parameter_defined_in": defined_in,
                            "parameter_name": parameter_name,
                            "parameter_value": sanitized_parameter_value})
+
+        # Convert string parameters to native datatypes
+        if eval_types:
+            parameter_value = ast.literal_eval(parameter_value)
 
         # Assign value to globals with upper letters
         caller_globals[parameter_name] = parameter_value
