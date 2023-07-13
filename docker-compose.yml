@@ -1,9 +1,0 @@
-services:
-  powsybl:
-    container_name: pypowsybl
-    build:
-      context: ./
-      dockerfile: ./docker/base/Dockerfile
-    volumes:
-      - ./:/code
-    tty: true

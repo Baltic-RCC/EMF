@@ -10,7 +10,7 @@ WORKDIR /code
 COPY Pipfile .
 COPY Pipfile.lock .
 RUN python -m pipenv install --system --deploy
-CMD [ "bash" ]
+# CMD [ "bash" ]
 
 
 # Run from root folder

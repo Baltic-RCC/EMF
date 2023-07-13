@@ -4,4 +4,4 @@
 # @Description: Development Docker container cluster build script
 
 # Launch in detached mode
-sudo docker compose up -d
+docker compose up -d
