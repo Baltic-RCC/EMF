@@ -75,54 +75,16 @@ igm_validation_lf_settings = pypowsybl.loadflow.Parameters(
     provider_parameters=igm_lf_parameters,
 )
 
-
-cgm_lf_parameters = {
-                                      "slackBusSelectionMode": 'MOST_MESHED',
-                                      'slackBusesIds': '',
-                                      'lowImpedanceBranchMode': 'REPLACE_BY_ZERO_IMPEDANCE_LINE',
-                                      'voltageRemoteControl': True,
-                                      'throwsExceptionInCaseOfSlackDistributionFailure': False,
-                                      'loadPowerFactorConstant': False,  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
-                                      'plausibleActivePowerLimit': 5000.0,
-                                      'slackBusPMaxMismatch': 1.0,
-                                      'voltagePerReactivePowerControl': False,
-                                      'reactivePowerRemoteControl': False,
-                                      'maxNewtonRaphsonIterations': 15,
-                                      'maxOuterLoopIterations': 30,  # eumd:PowerFlowSettings.maxIterationNumber "20"
-                                      'newtonRaphsonConvEpsPerEq': 1.0E-4,
-                                      'voltageInitModeOverride': None,
-                                      'transformerVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',
-                                      'shuntVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',
-                                      'minPlausibleTargetVoltage': 0.8,
-                                      'maxPlausibleTargetVoltage': 1.2,
-                                      'minRealisticVoltage': 0.5,
-                                      'maxRealisticVoltage': 2.0,
-                                      'reactiveRangeCheckMode': 'MAX',
-                                      'lowImpedanceThreshold': 1.0E-5,  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
-                                      'networkCacheEnabled': False,
-                                      'svcVoltageMonitoring': True,
-                                      'stateVectorScalingMode': None,
-                                      'maxSlackBusCount': 1,
-                                      #'debugDir': '',
-                                      'incrementalTransformerVoltageControlOuterLoopMaxTapShift': 3,
-                                      'secondaryVoltageControl': False,
-                                      'controllerToPilotPointVoltageSensiEpsilon': 0.01,
-                                      'reactiveLimitsMaxPqPvSwitch': 3,
-                                      'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
-                                      'maxActivePowerMismatch': 0.1,  # cim:PowerFlowSettings.activePowerTolerance "0.1"
-                                      'maxReactivePowerMismatch': 0.1,  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
-                                      'maxVoltageMismatch': 1.0E-4,  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
-                                      'maxAngleMismatch': 1.0E-5,  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
-                                      'maxRatioMismatch': 1.0E-5,
-                                      'maxSusceptanceMismatch': 1.0E-4,
-                                      'phaseShifterControlMode': 'CONTINUOUS_WITH_DISCRETISATION',
-                                      'alwaysUpdateNetwork': False,
-                                      'mostMeshedSlackBusSelectorMaxNominalVoltagePercentile': 95.0,
-                                      #'reportedFeatures': '',
-                                      #'slackBusCountryFilter': [],
-                                      #'actionableSwitchesIds': [],
-                                      'asymmetrical': False,
-                                      'minNominalVoltageTargetVoltageCheck': 20.0}
+CGM_DEFAULT_PROVIDER_PARAMETERS = {
+    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "20"
+    'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
+    'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
+    'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
+    'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
+    'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
+    'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
+}
 
 # https://pypowsybl.readthedocs.io/en/stable/reference/loadflow/parameters.html#pypowsybl.loadflow.Parameters
 # https://www.powsybl.org/pages/documentation/simulation/powerflow/
@@ -134,7 +96,7 @@ cgm_lf_parameters = {
 # TODO - NOT AVAILABLE - cim:PowerFlowSettings.transformerRatioTapControlPriority "1" ;
 # TODO - USE IN SCALING - eumd:PowerFlowSettings.maxIterationNumberAIC "15" ;
 
-cgm_lf_settings = pypowsybl.loadflow.Parameters(
+CGM_DEFAULT = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,
     no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
@@ -148,7 +110,7 @@ cgm_lf_settings = pypowsybl.loadflow.Parameters(
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN
-    provider_parameters=cgm_lf_parameters,
+    provider_parameters=CGM_DEFAULT_PROVIDER_PARAMETERS,
 )
 
 cgm_lf_parameters_1 = {
