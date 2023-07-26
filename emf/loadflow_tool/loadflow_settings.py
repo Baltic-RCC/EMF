@@ -29,7 +29,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'maxNewtonRaphsonIterations': '15',
     'maxOuterLoopIterations': '20',  # eumd:PowerFlowSettings.maxIterationNumber
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
-    'voltageInitModeOverride': 'None',
+    # 'voltageInitModeOverride': None,
     'transformerVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
     'shuntVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
     'minPlausibleTargetVoltage': '0.8',
@@ -40,7 +40,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'lowImpedanceThreshold': '1.0E-8',  # cim:PowerFlowSettings.impedanceThreshold
     'networkCacheEnabled': 'False',
     'svcVoltageMonitoring': 'True',
-    'stateVectorScalingMode': 'None',
+    # 'stateVectorScalingMode': None,
     'maxSlackBusCount': '1',  # TODO - check this
     'debugDir': '',
     'incrementalTransformerVoltageControlOuterLoopMaxTapShift': '3',  # TODO - check this
@@ -57,9 +57,9 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'phaseShifterControlMode': 'CONTINUOUS_WITH_DISCRETISATION',
     'alwaysUpdateNetwork': 'False',
     'mostMeshedSlackBusSelectorMaxNominalVoltagePercentile': '95.0',
-    'reportedFeatures': '',
-    'slackBusCountryFilter': '',
-    'actionableSwitchesIds': '',
+    # 'reportedFeatures': [],
+    # 'slackBusCountryFilter': [],
+    # 'actionableSwitchesIds': [],
     'asymmetrical': 'False',
     'minNominalVoltageTargetVoltageCheck': '20.0'
 }
