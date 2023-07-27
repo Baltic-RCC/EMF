@@ -42,7 +42,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'svcVoltageMonitoring': 'True',
     # 'stateVectorScalingMode': None,
     'maxSlackBusCount': '1',  # TODO - check this
-    'debugDir': '',
+    # 'debugDir': '',
     'incrementalTransformerVoltageControlOuterLoopMaxTapShift': '3',  # TODO - check this
     'secondaryVoltageControl': 'False',
     'controllerToPilotPointVoltageSensiEpsilon': '0.01',
