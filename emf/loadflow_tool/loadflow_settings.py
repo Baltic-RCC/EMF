@@ -77,7 +77,7 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
     balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_P_MAX,  # cim:PowerFlowSettings.slackDistributionKind
     dc_use_transformer_ratio=True,
     countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN - defines islands to be solved
     provider_parameters=OPENLOADFLOW_DEFAULT_PROVIDER,
 )
 
@@ -152,7 +152,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_PARTICIPATION_FACTOR, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionParticipationFactor ;
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,
     provider_parameters=IGM_VALIDATION_PROVIDER,
 )
 
@@ -169,7 +169,7 @@ CGM_DEFAULT = pypowsybl.loadflow.Parameters(
     balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=CGM_DEFAULT_PROVIDER,
 )
 
@@ -186,7 +186,7 @@ CGM_RELAXED_1 = pypowsybl.loadflow.Parameters(
     balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=CGM_RELAXED_1_PROVIDER,
 )
 
@@ -203,6 +203,6 @@ CGM_RELAXED_2 = pypowsybl.loadflow.Parameters(
     balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN
-    provider_parameters=CGM_RELAXED_2_PROVIDER
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
+    provider_parameters=CGM_RELAXED_2_PROVIDER,
 )
