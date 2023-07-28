@@ -10,15 +10,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 # TODO - Add comments and docstring
-def package_for_pypowsybl(opdm_objects):
+def package_for_pypowsybl(opdm_objects: list, return_zip: bool = False):
     """
-    Method to transform OPDM components into sufficient format zip package
-    :param opdm_components:
-    :return: zip package file name
+    Method to transform OPDM objects into sufficient format binary buffer or zip package
+    :param opdm_objects: list of OPDM objects
+    :param return_zip: flag to save OPDM objects as zip package in local directory
+    :return: binary buffer or zip package file name
     """
-    with ZipFile(f"{uuid4()}.zip", "w") as global_zip:
-        logging.info(f"Adding files to {global_zip.filename}")
+    output_object = BytesIO()
+    if return_zip:
+        output_object = f"{uuid4()}.zip"
+        logging.info(f"Adding files to {output_object}")
 
+    with ZipFile(output_object, "w") as global_zip:
         for opdm_components in opdm_objects:
             for instance in opdm_components['opdm:OPDMObject']['opde:Component']:
                 with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
@@ -26,7 +30,7 @@ def package_for_pypowsybl(opdm_objects):
                         logging.info(f"Adding file: {file_name}")
                         global_zip.writestr(file_name, instance_zip.open(file_name).read())
 
-    return global_zip.filename
+    return output_object
 
 
 def attr_to_dict(object):
