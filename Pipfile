@@ -10,8 +10,10 @@ aniso8601 = "*"
 lxml = "*"
 edx = "*"
 opdm-api = "*"
+triplets = "*"
 
 [dev-packages]
+tabulate = "*"
 
 [requires]
 python_version = "3.11"
