@@ -50,11 +50,11 @@ def attr_to_dict(object):
 
 def load_model(opdm_objects):
 
-    model_data = {"model_meta": opdm_objects}
+    model_data = {} #"model_meta": opdm_objects}
 
     import_report = pypowsybl.report.Reporter()
 
-    network = pypowsybl.network.load(package_for_pypowsybl(opdm_objects),
+    network = pypowsybl.network.load_from_binary_buffer(package_for_pypowsybl(opdm_objects),
                                      reporter=import_report,
 #                                     parameters={"iidm.import.cgmes.store-cgmes-model-as-network-extension": True,
 #                                                 "iidm.import.cgmes.create-active-power-control-extension": True,
@@ -62,13 +62,13 @@ def load_model(opdm_objects):
                                      )
 
     logger.info(f"Loaded {network}")
-    logger.info(f'{import_report}')
+    logger.debug(f'{import_report}')
 
-    model_data["network_meta"] = attr_to_dict(network)
-    model_data["network"] = network
-    model_data["network_valid"] = network.validate().name
+    model_data["NETWORK_META"] = attr_to_dict(network)
+    model_data["NETWORK"] = network
+    model_data["NETWORK_VALID"] = network.validate().name
 
-    model_data["import_report"] = json.loads(import_report.to_json())
-    model_data["import_report_str"] = str(import_report)
+    model_data["IMPORT_REPORT"] = json.loads(import_report.to_json())
+    model_data["IMPORT_REPORT_STR"] = str(import_report)
 
     return model_data
