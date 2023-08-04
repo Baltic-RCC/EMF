@@ -2,6 +2,7 @@ from zipfile import ZipFile
 from uuid import uuid4
 from io import BytesIO
 from inspect import ismethod
+from typing import List
 import pypowsybl
 import json
 import logging
@@ -46,6 +47,38 @@ def attr_to_dict(object):
     result_dict = {attr_key: getattr(object, attr_key) for attr_key in attribs}
 
     return result_dict
+
+
+def get_network_elements(network: pypowsybl.network,
+                         element_type: pypowsybl.network.ElementType,
+                         all_attributes: bool = True,
+                         attributes: List[str] = None,
+                         **kwargs
+                         ):
+
+    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
+    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
+
+    elements = network.get_elements(element_type=element_type, all_attributes=all_attributes, attributes=attributes, **kwargs)
+    elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
+    elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
+
+    return elements
+
+
+def get_slack_generators(network: pypowsybl.network):
+
+    slack_terminals = network.get_extension('slackTerminal')
+    slack_generators = get_network_elements(network=network,
+                                            element_type=pypowsybl.network.ElementType.GENERATOR,
+                                            all_attributes=True,
+                                            id=slack_terminals['element_id'])
+
+    return slack_generators
+
+
+def get_connected_component_counts(network: pypowsybl.network):
+    return network.get_buses().connected_component.value_counts().to_dict()
 
 
 def load_model(opdm_objects):

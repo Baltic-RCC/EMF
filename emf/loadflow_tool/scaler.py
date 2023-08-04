@@ -38,33 +38,6 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scaler, eval_types=True)
 
 
-def get_network_elements(network: pp.network,
-                         element_type: pp.network.ElementType,
-                         all_attributes: bool = True,
-                         attributes: List[str] = None,
-                         **kwargs
-                         ):
-
-    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
-    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
-
-    elements = network.get_elements(element_type=element_type, all_attributes=all_attributes, attributes=attributes, **kwargs)
-    elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
-    elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
-
-    return elements
-
-
-def get_slack_generators(network: pp.network):
-
-    slack_terminals = network.get_extension('slackTerminal')
-    generators = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
-    slack_bus_ids = slack_terminals['bus_id'].to_list()
-    slack_generators = generators.query("bus_id == @slack_bus_ids")
-
-    return slack_generators
-
-
 # TODO arguments validation with pydantic
 @performance_counter(units='seconds')
 def scale_balance(network: pp.network.Network,
