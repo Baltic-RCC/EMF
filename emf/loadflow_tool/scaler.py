@@ -42,17 +42,21 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 @performance_counter(units='seconds')
 def scale_balance(network: pp.network.Network,
                   target_acnp: Dict[str, int],
+                  target_dcnp: Dict[str, int],
                   lf_settings: pp.loadflow.Parameters = CGM_RELAXED_1,
                   debug=False
                   ):
     """
     Main method to scale each CGM area to target balance
     :param network: pypowsybl network object
-    :param target_acnp: target net positions
+    :param target_acnp: target AC net positions
+    :param target_acnp: target DC net positions
     :param lf_settings: loadflow settings
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
+    _scaling_results = []
+    _iteration = 0
 
     # Defining logging level
     if debug:
@@ -60,11 +64,26 @@ def scale_balance(network: pp.network.Network,
     else:
         logger.setLevel(logging.INFO)
 
+    # Target DC net position
+    target_dcnp = pd.Series(target_dcnp)
+    logger.info(f"[INITIAL] Target DC NP: {target_dcnp.to_dict()}")
+
     # Target AC net position
     target_acnp = pd.Series(target_acnp)
     logger.info(f"[INITIAL] Target AC NP: {target_acnp.to_dict()}")
 
-    # Get scaling area -> non-negative ConformLoads
+    # Get pre-scale DC net position
+    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('lineEnergyIdentificationCodeEIC').p.sum()
+    logger.info(f"[INITIAL] PRE-SCALE HVDC setpoints: {prescale_hvdc_sp.to_dict()}")
+
+    # Scaling DC network
+    scalable_hvdc_target = dangling_lines[dangling_lines.isHvdc == 'true']['lineEnergyIdentificationCodeEIC'].map(target_dcnp)
+    logger.info(f"[INITIAL] Updating HVDC setpoints to target values: {target_dcnp.to_dict()}")
+    scalable_hvdc_target.dropna(inplace=True)
+    network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target)
+
+    # Get AC scaling area -> non-negative ConformLoads
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
     loads = loads.merge(network.get_extension('detail'), right_index=True, left_index=True)
     conform_loads = loads[loads['variable_p0'] > 0]
@@ -81,26 +100,20 @@ def scale_balance(network: pp.network.Network,
     slack_generators = get_slack_generators(network)
     logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
 
-    # Network load scaling loop
-    # TODO add HVDC setpoints update in network
-    iteration = 0
-    scaling_results = []
-
     # Get pre-scale AC net position
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('name').p.sum()
     prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
-    scaling_results.append(pd.concat([prescale_acnp, pd.Series({'STEP': 'prescale-acnp', 'ITER': f"iter-{iteration}"})]).to_dict())
-    logger.info(f"[ITER {iteration}] PRE-SCALE HVDC setpoints: {prescale_hvdc_sp.to_dict()}")
-    logger.info(f"[ITER {iteration}] PRE-SCALE ACNP: {prescale_acnp.to_dict()}")
+    _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'STEP': 'prescale-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
+    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.to_dict()}")
 
     # Get offset between target and pre-scale AC net position
     offset_acnp = prescale_acnp - target_acnp
-    scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{iteration}"})]).to_dict())
-    logger.info(f"[ITER {iteration}] PRE-SCALE ACNP offset: {offset_acnp.to_dict()}")
+    _scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
+    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.to_dict()}")
 
-    while iteration < MAX_ITERATION:
-        iteration += 1
+    # Perform scaling of AC part of the network with loop
+    while _iteration < MAX_ITERATION:
+        _iteration += 1
 
         # Get scaling area loads participation factors
         # TODO have to maintain power factor
@@ -119,32 +132,34 @@ def scale_balance(network: pp.network.Network,
         pf_result = pp.loadflow.run_ac(network=network, parameters=lf_settings)
         for result in pf_result:
             result_dict = attr_to_dict(result)
-            logger.info(f"[ITER {iteration}] Loadflow status: {result_dict.get('status').name}")
-            logger.debug(f"[ITER {iteration}] Loadflow results: {result_dict}")
+            logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
+            logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
         # Get post-scale AC net position
         dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-        postscale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('name').p.sum()
         postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
-        scaling_results.append(pd.concat([postscale_acnp, pd.Series({'STEP': 'postscale-acnp', 'ITER': f"iter-{iteration}"})]).to_dict())
-        logger.info(f"[ITER {iteration}] POST-SCALE HVDC setpoints: {postscale_hvdc_sp.to_dict()}")
-        logger.info(f"[ITER {iteration}] POST-SCALE ACNP: {postscale_acnp.to_dict()}")
+        _scaling_results.append(pd.concat([postscale_acnp, pd.Series({'STEP': 'postscale-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
+        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {postscale_acnp.to_dict()}")
 
         # Get offset between target and post-scale AC net position
         offset_acnp = postscale_acnp - target_acnp
         offset_acnp.dropna(inplace=True)
-        scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{iteration}"})]).to_dict())
-        logger.info(f"[ITER {iteration}] POST-SCALE ACNP offsets: {offset_acnp.to_dict()}")
+        _scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
+        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {offset_acnp.to_dict()}")
 
         # Breaking scaling loop if target ac net position for all areas is reached
         if all(abs(offset_acnp.values) <= BALANCE_THRESHOLD):
-            logger.info(f"[ITER {iteration}] Scaling successful as ACNP offsets less than threshold: {BALANCE_THRESHOLD} MW")
+            logger.info(f"[ITER {_iteration}] Scaling successful as ACNP offsets less than threshold: {BALANCE_THRESHOLD} MW")
             break
     else:
         logger.warning(f"Max iteration limit reached")
         # TODO actions after scale break
 
-    network.scaling_results_df = pd.DataFrame(scaling_results)
+    # Post-scale hvdc setpoint
+    postscale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('lineEnergyIdentificationCodeEIC').p.sum()
+    logger.info(f"[ITER {_iteration}] POST-SCALE HVDC setpoints: {postscale_hvdc_sp.to_dict()}")
+
+    network.scaling_results_df = pd.DataFrame(_scaling_results)
 
     return network
 
@@ -163,9 +178,10 @@ if __name__ == "__main__":
     network = pp.network.load(model_path)
 
     target_acnp = {"LT": -400, "LV": 300}
+    target_dcnp = {"10T-LT-SE-000013": -200}
     # target_acnp = {"LT": -400}
 
-    network = scale_balance(network=network, target_acnp=target_acnp, debug=True)
+    network = scale_balance(network=network, target_acnp=target_acnp, target_dcnp=target_dcnp, debug=True)
     print(network.scaling_results_df)
 
     # Other examples
