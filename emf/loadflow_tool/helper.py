@@ -33,6 +33,23 @@ def package_for_pypowsybl(opdm_objects: list, return_zip: bool = False):
 
     return output_object
 
+def save_opdm_objects(opdm_objects: list) -> list:
+    """
+    Function save OPDM objects on to local filesystem
+    :param opdm_objects: list of OPDM objects
+    :return: list of exported files
+    """
+    exported_files = []
+    for opdm_components in opdm_objects:
+        for instance in opdm_components['opdm:OPDMObject']['opde:Component']:
+            file_name = instance['opdm:Profile']['pmd:fileName']
+            logger.info(f'Saving - {file_name}')
+            with open(file_name, 'wb') as instance_zip:
+                instance_zip.write(instance['opdm:Profile']['DATA'])
+            exported_files.append(file_name)
+
+    return exported_files
+
 
 def attr_to_dict(object):
     """
