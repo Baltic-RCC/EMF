@@ -1,4 +1,5 @@
 from EDX import create_client
+import config
 from emf.common.config_parser import parse_app_properties
 import logging
 import time
@@ -6,7 +7,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-parse_app_properties(globals(), config.paths.edx_integration.edx)
+parse_app_properties(globals(), config.paths.integrations.edx)
 
 class EDX(create_client):
 
