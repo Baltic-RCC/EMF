@@ -2,7 +2,6 @@ from lxml import etree
 import aniso8601
 from json import dumps
 import logging
-import settings
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +100,10 @@ def parse_iec_xml(element_tree):
         period_meta = get_metadata_from_xml(period, include_namespace=False, prefix_root=True)
         timeseries_meta = get_metadata_from_xml(period.getparent(), include_namespace=False, prefix_root=True)
         reason_meta = get_metadata_from_xml(period.find('../{*}Reason'), include_namespace=False, prefix_root=True)
-        source_meta = {"x-data-source": f"{settings.rmq_server}/{settings.rmq_vhost}/{settings.rmq_queue}"}
+        # source_meta = {"x-data-source": f"{settings.rmq_server}/{settings.rmq_vhost}/{settings.rmq_queue}"}  # TODO later
 
-        whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta, **source_meta}
+        # whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta, **source_meta}
+        whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta}
 
         # DEBUG
         #for key, value in whole_meta.items():
