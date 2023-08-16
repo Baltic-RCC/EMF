@@ -3,6 +3,7 @@ from helper import attr_to_dict, load_model
 import logging
 import json
 import loadflow_settings
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +12,9 @@ logger = logging.getLogger(__name__)
 # note - multiple islands wo load or generation can be an issue
 
 
-def validate_model(opdm_objects, run_element_validations=True):
+def validate_model(opdm_objects, loadflow_parameters=loadflow_settings.CGM_RELAXED_2, run_element_validations=True):
     # Load data
+    start_time = time.time()
     model_data = load_model(opdm_objects)
     network = model_data["NETWORK"]
 
@@ -31,7 +33,7 @@ def validate_model(opdm_objects, run_element_validations=True):
     # Validate if PF can be run
     loadflow_report = pypowsybl.report.Reporter()
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
-                                                parameters=loadflow_settings.IGM_VALIDATION,
+                                                parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
 
     loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
@@ -43,6 +45,8 @@ def validate_model(opdm_objects, run_element_validations=True):
     model_valid = any([True if island["status"].name == "CONVERGED" else False for island in loadflow_result_dict])
 
     model_data["VALID"] = model_valid
+
+    model_data["VALIDATION_DURATION_S"] = time.time() - start_time
 
     return model_data
 
@@ -58,14 +62,15 @@ if __name__ == "__main__":
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
+    #logging.getLogger('powsybl').setLevel(1)
 
-    opdm_client = OPDM()
+    opdm = OPDM()
 
-    latest_boundary = opdm_client.get_latest_boundary()
-    available_models = opdm_client.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-07-04T09:30")#, tso="ELERING")
+    latest_boundary = opdm.get_latest_boundary()
+    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-08-16T09:30")#, tso="ELERING")
 
-    valid_models = []
-    invalid_models = []
+    validated_models = []
+
 
     # Validate models
     for model in available_models:
@@ -73,17 +78,25 @@ if __name__ == "__main__":
         try:
             response = validate_model([model, latest_boundary])
             model["VALIDATION_STATUS"] = response
-            if response["VALID"]:
-                valid_models.append(model)
-            else:
-                invalid_models.append(model)
+            validated_models.append(model)
 
         except Exception as error:
-            invalid_models.append(model)
-            logger.error("Validation failed", error)
+            validated_models.append(model)
+            #logger.error("Validation failed", error)
 
+    # Print validation statuses
+    [print(dict(tso=model['opdm:OPDMObject']['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
 
-
+    # With EMF IGM Validation settings
+    # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}
+    # {'tso': 'D7', 'valid': None, 'duration': None}
+    # {'tso': 'ELERING', 'valid': True, 'duration': 2.1578593254089355}
+    # {'tso': 'ELES', 'valid': False, 'duration': 1.6410691738128662}
+    # {'tso': 'ELIA', 'valid': True, 'duration': 5.016804456710815}
+    # {'tso': 'REE', 'valid': None, 'duration': None}
+    # {'tso': 'SEPS', 'valid': None, 'duration': None}
+    # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
+    # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
 
 
 
