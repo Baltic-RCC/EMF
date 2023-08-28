@@ -419,6 +419,27 @@ if len(shunts_to_remove) > 0:
     logger.warning(f'Removing invalid SvShuntCompensatorSections for EquivalentShunt')
     sv_data = triplets.rdf_parser.remove_triplet_from_triplet(sv_data, shunts_to_remove)
 
+# Fix missing SV Tap Steps - add missing steps
+
+ssh_tap_steps = ssh_data.query("KEY == 'TapChanger.step'")
+sv_tap_steps = sv_data.query("KEY == 'SvTapStep.TapChanger'")
+
+missing_sv_tap_steps = ssh_tap_steps.merge(sv_tap_steps[['VALUE']], left_on='ID', right_on="VALUE", how='left', indicator=True, suffixes=('', '_SV')).query("_merge == 'left_only'")
+
+tap_steps_to_be_added = []
+SV_INSTANCE_ID = sv_data.INSTANCE_ID.iloc[0]
+for tap_changer in missing_sv_tap_steps.itertuples():
+    ID = str(uuid4())
+    logger.warning(f'Missing SvTapStep for {tap_changer.ID}, adding SvTapStep {ID} and taking tap value {tap_changer.VALUE} from SSH')
+    tap_steps_to_be_added.extend([
+        (ID, 'Type', 'SvTapStep', SV_INSTANCE_ID),
+        (ID, 'SvTapStep.TapChanger', tap_changer.ID, SV_INSTANCE_ID),
+        (ID, 'SvTapStep.position', tap_changer.VALUE, SV_INSTANCE_ID),
+    ])
+
+sv_data = pandas.concat([sv_data, pandas.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
+
+
 sv_data.export_to_cimxml(rdf_map=rdf_map,
                           namespace_map=namespace_map,
                           export_undefined=False,
