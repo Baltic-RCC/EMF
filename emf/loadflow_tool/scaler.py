@@ -41,20 +41,21 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 # TODO arguments validation with pydantic
 @performance_counter(units='seconds')
 def scale_balance(network: pp.network.Network,
-                  target_acnp: Dict[str, int],
-                  target_dcnp: Dict[str, int],
+                  ac_schedules: List[Dict[str, str]],
+                  dc_schedules: List[Dict[str, str]],
                   lf_settings: pp.loadflow.Parameters = CGM_RELAXED_1,
                   debug=False
                   ):
     """
     Main method to scale each CGM area to target balance
     :param network: pypowsybl network object
-    :param target_acnp: target AC net positions
-    :param target_acnp: target DC net positions
+    :param ac_schedules: target AC net positions in list of dict format
+    :param dc_schedules: target DC net positions in list of dict format
     :param lf_settings: loadflow settings
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
+
     _scaling_results = []
     _iteration = 0
 
@@ -64,28 +65,42 @@ def scale_balance(network: pp.network.Network,
     else:
         logger.setLevel(logging.INFO)
 
-    # Target DC net position
-    target_dcnp = pd.Series(target_dcnp)
-    logger.info(f"[INITIAL] Target DC NP: {target_dcnp.to_dict()}")
+    # Target HVDC setpoints
+    target_hvdc_sp_df = pd.DataFrame(dc_schedules)
+    # logger.info(f"[INITIAL] Target DC NP: {target_dcnp.to_dict()}")
 
     # Target AC net position
-    target_acnp = pd.Series(target_acnp)
-    logger.info(f"[INITIAL] Target AC NP: {target_acnp.to_dict()}")
+    target_acnp_df = pd.DataFrame(ac_schedules)
+    target_acnp_df['value'] = np.where(target_acnp_df['in_domain'].notna(), target_acnp_df['value'] * -1, target_acnp_df['value'])
+    target_acnp_df['registered_resource'] = target_acnp_df['in_domain'].where(target_acnp_df['in_domain'].notna(), target_acnp_df['out_domain'])
+    target_acnp = target_acnp_df.set_index('registered_resource')['value']
+    # logger.info(f"[INITIAL] Target AC NP: {target_acnp.to_dict()}")
 
-    # Get pre-scale DC net position
+    # Get pre-scale HVDC setpoints
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('lineEnergyIdentificationCodeEIC').p.sum()
-    logger.info(f"[INITIAL] PRE-SCALE HVDC setpoints: {prescale_hvdc_sp.to_dict()}")
+    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['ucte-x-node-code', 'p']]
+    for dclink in prescale_hvdc_sp.to_dict('records'):
+        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['ucte-x-node-code']}: {round(dclink['p'], 2)} MW")
 
-    # Scaling DC network
-    scalable_hvdc_target = dangling_lines[dangling_lines.isHvdc == 'true']['lineEnergyIdentificationCodeEIC'].map(target_dcnp)
-    logger.info(f"[INITIAL] Updating HVDC setpoints to target values: {target_dcnp.to_dict()}")
-    scalable_hvdc_target.dropna(inplace=True)
-    network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target)
+    # Mapping HVDC schedules to network
+    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'CGMES.regionName', 'ucte-x-node-code']]
+    scalable_hvdc.reset_index(inplace=True)
+    scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
+    mask = (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain']) | (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['out_domain'])
+    scalable_hvdc = scalable_hvdc[mask]
+    scalable_hvdc['value'] = np.where(scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain'], scalable_hvdc['value'] * -1, scalable_hvdc['value'])
+    scalable_hvdc = scalable_hvdc.set_index('id')
+
+    # Scaling HVDC network elements
+    scalable_hvdc_target = scalable_hvdc[['value', 'ucte-x-node-code']]
+    network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value)
+    logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['ucte-x-node-code'].values}")
+    for dclink in scalable_hvdc_target.to_dict('records'):
+        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['ucte-x-node-code']}: {round(dclink['value'], 2)} MW")
 
     # Get AC scaling area -> non-negative ConformLoads
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-    loads = loads.merge(network.get_extension('detail'), right_index=True, left_index=True)
+    loads = loads.merge(network.get_extensions('detail'), right_index=True, left_index=True)
     conform_loads = loads[loads['variable_p0'] > 0]
 
     # Solving pre-scale loadflow
@@ -107,7 +122,8 @@ def scale_balance(network: pp.network.Network,
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.to_dict()}")
 
     # Get offset between target and pre-scale AC net position
-    offset_acnp = prescale_acnp - target_acnp
+    offset_acnp = prescale_acnp - target_acnp[target_acnp.index.isin(prescale_acnp.index)]
+    offset_acnp.dropna(inplace=True)
     _scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.to_dict()}")
 
@@ -142,7 +158,7 @@ def scale_balance(network: pp.network.Network,
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {postscale_acnp.to_dict()}")
 
         # Get offset between target and post-scale AC net position
-        offset_acnp = postscale_acnp - target_acnp
+        offset_acnp = postscale_acnp - target_acnp[target_acnp.index.isin(postscale_acnp.index)]
         offset_acnp.dropna(inplace=True)
         _scaling_results.append(pd.concat([offset_acnp, pd.Series({'STEP': 'offset-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {offset_acnp.to_dict()}")
@@ -159,9 +175,30 @@ def scale_balance(network: pp.network.Network,
     postscale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('lineEnergyIdentificationCodeEIC').p.sum()
     logger.info(f"[ITER {_iteration}] POST-SCALE HVDC setpoints: {postscale_hvdc_sp.to_dict()}")
 
-    network.scaling_results_df = pd.DataFrame(_scaling_results)
+    network.ac_scaling_results_df = pd.DataFrame(_scaling_results)
 
     return network
+
+
+def hvdc_schedule_mapper(row):
+    """BACKLOG FUNCTION. CURRENTLY NOT USED"""
+    schedules = pd.DataFrame(target_dcnp)
+    eic_mask = schedules['TimeSeries.connectingLine_RegisteredResource.mRID'] == row['lineEnergyIdentificationCodeEIC']
+    in_domain_mask = schedules["TimeSeries.in_Domain.regionName"] == row['CGMES.regionName']
+    out_domain_mask = schedules["TimeSeries.out_Domain.regionName"] == row['CGMES.regionName']
+    relevant_schedule = schedules[(eic_mask) & ((in_domain_mask) | (out_domain_mask))]
+
+    if relevant_schedule.empty:
+        logger.warning(f"No schedule available for resource: {row['lineEnergyIdentificationCodeEIC']}")
+        return None
+
+    if relevant_schedule["TimeSeries.in_Domain.regionName"].notnull().squeeze():
+        return relevant_schedule["value"].squeeze() * -1
+    elif relevant_schedule["TimeSeries.out_Domain.regionName"].notnull().squeeze():
+        return relevant_schedule["value"].squeeze()
+    else:
+        logger.warning(f"Not able to define schedule direction for resource: {row['lineEnergyIdentificationCodeEIC']}")
+        return None
 
 
 if __name__ == "__main__":
@@ -177,12 +214,15 @@ if __name__ == "__main__":
     model_path = r"input\4b816231-bf06-4cbe-bba1-bb6fa7280af1.zip"
     network = pp.network.load(model_path)
 
-    target_acnp = {"LT": -400, "LV": 300}
-    target_dcnp = {"10T-LT-SE-000013": -200}
-    # target_acnp = {"LT": -400}
+    # Query target schedules
+    from emf.schedule_retriever import query_hvdc_schedules, query_acnp_schedules
+    ac_schedules = query_acnp_schedules(process_type="A01", start="2023-08-24T07:00:00", end="2023-08-24T08:00:00")
+    dc_schedules = query_hvdc_schedules(process_type="A01", start="2023-08-23T16:00:00", end="2023-08-23T17:00:00")
 
-    network = scale_balance(network=network, target_acnp=target_acnp, target_dcnp=target_dcnp, debug=True)
-    print(network.scaling_results_df)
+    ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
+
+    network = scale_balance(network=network, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
+    print(network.ac_scaling_results_df)
 
     # Other examples
     # loads = network.get_loads(id=network.get_elements_ids(element_type=pp.network.ElementType.LOAD, countries=['LT']))
