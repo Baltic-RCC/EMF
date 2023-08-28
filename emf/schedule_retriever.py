@@ -9,17 +9,27 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retriever.schedule_retriever)
 
+area_to_eic_map = {
+    "10YLT-1001A0008Q": "LT",
+    "10YLV-1001A00074": "LV",
+    "10Y1001A1001A39I": "EESTI",
+    "10YPL-AREA-----S": "PL",
+    "10YSE-1--------K": "SE",
+    "10YDK-2--------M": "DK2",
+}
+
 
 def transfer_schedules_from_opde_to_elk():
+    message_types = EDX_MESSAGE_TYPE.split(",")
     elk_handler = elk_batch_send.Handler(url=ELK_SERVER, index=ELK_INDEX_PATTERN)
-    service = edx.EDX(converter=iec_schedule_to_ndjson, handler=elk_handler, message_type=EDX_MESSAGE_TYPE)
+    service = edx.EDX(converter=iec_schedule_to_ndjson, handler=elk_handler, message_types=message_types)
     service.run()
 
 
 def query_schedules_from_elk(metadata: dict) -> pd.DataFrame | None:
     """
     Method to get schedule from ELK by given metadata dictionary
-    :param metadata: dictionary or metadata
+    :param metadata: dict of metadata
     :return: dataframe
     """
     # Create service
@@ -31,13 +41,15 @@ def query_schedules_from_elk(metadata: dict) -> pd.DataFrame | None:
     # Query documents
     try:
         schedules_df = service.get_docs_by_query(index=ELK_INDEX_PATTERN, size=1000, query=query)
+        if schedules_df.empty:
+            return None
     except Exception as e:
         logger.warning(f"Query returned error -> {e}")
         return None
 
-    # TODO groupby TimeSeries.connectingLine_RegisteredResource.mRID -> EIC of link which match to powsybl
-    # TODO qeustion how to map direction. In PEVF all values are positive at each end. in powsybl we have element
-    # TODO think how to get latest schedule (possible two queries first one to get latest element and seconf by last element creation time
+    # Map eic codes to area names
+    schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_to_eic_map)
+    schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_to_eic_map)
 
     return schedules_df
 
@@ -58,7 +70,19 @@ def query_hvdc_schedules(process_type: str, start: str, end: str) -> pd.DataFram
         "TimeSeries.businessType": "B63",
     }
 
-    return query_schedules_from_elk(metadata=metadata)
+    # Get HVDC schedules
+    schedules_df = query_schedules_from_elk(metadata=metadata)
+
+    # Filter to the latest revision number
+    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+
+    # Get relevant structure and convert to dictionary
+    _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID"]
+    schedules_df = schedules_df[_cols]
+    schedules_df.rename(columns={"TimeSeries.connectingLine_RegisteredResource.mRID": "registered_resource"}, inplace=True)
+    schedules_dict = schedules_df.to_dict('records')
+
+    return schedules_dict
 
 
 def query_acnp_schedules(process_type: str, start: str, end: str) -> pd.DataFrame | None:
@@ -77,7 +101,18 @@ def query_acnp_schedules(process_type: str, start: str, end: str) -> pd.DataFram
         "TimeSeries.businessType": "B64",
     }
 
-    return query_schedules_from_elk(metadata=metadata)
+    # Get AC area schedules
+    schedules_df = query_schedules_from_elk(metadata=metadata)
+
+    # Filter to the latest revision number
+    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+
+    # Get relevant structure and convert to dictionary
+    _cols = ["value", "in_domain", "out_domain"]
+    schedules_df = schedules_df[_cols]
+    schedules_dict = schedules_df.to_dict('records')
+
+    return schedules_dict
 
 
 if __name__ == "__main__":
@@ -86,12 +121,14 @@ if __name__ == "__main__":
     logging.basicConfig(
         format='%(levelname) -10s %(asctime) -20s %(name) -35s %(funcName) -35s %(lineno) -5d: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
-        level=logging.DEBUG,
+        level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
     # Get schedules from OPDE
-    # get_schedules_from_opde()
+    transfer_schedules_from_opde_to_elk()
 
     # Get schedules from ELK
-    result = query_hvdc_schedules(process_type="A01", start="2023-08-08T23:00:00", end="2023-08-09T00:00:00")
+    result = query_hvdc_schedules(process_type="A01", start="2023-08-23T16:00:00", end="2023-08-23T17:00:00")
+    # TODO start time is less or equal end time is greater or equal
+    print(result)
