@@ -47,7 +47,7 @@ class Handler:
                                          data=(ndjson.dumps(json_message_list[index:index + batch_size]) + "\n").encode(),
                                          timeout=None,
                                          headers={"Content-Type": "application/x-ndjson"})
-            logger.info(f"ELK response -> {response.content}")
+            logger.debug(f"ELK response -> {response.content}")
             response_list.append(response.ok)
 
         return all(response_list)
