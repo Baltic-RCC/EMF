@@ -227,6 +227,9 @@ for model in available_models:
         invalid_models.append(model)
         logger.error("Validation failed")
 
+# Remove all available models to save memory
+del available_models
+
 export_settings = {
     "iidm.export.cgmes.base-name": "",
     "iidm.export.cgmes.cim-version": "",  # 14, 16, 100
@@ -386,28 +389,6 @@ filename_mask = "{scenarioTime:%Y%m%dT%H%MZ}_{processType}_{mergingEntity}-{doma
 updated_ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(updated_ssh_data, filename_mask=filename_mask)
 
 
-# Start Exporting data
-namespace_map = {
-    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-    "cim": "http://iec.ch/TC57/2013/CIM-schema-cim16#",
-    "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
-    "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
-    #"cgmbp": "http://entsoe.eu/CIM/Extensions/CGM-BP/2020#"
-}
-
-with open('entsoe_v2.4.15_2014-08-07.json', 'r') as file_object:
-    rdf_map = json.load(file_object)
-
-
-# Export updated SSH
-updated_ssh_data.export_to_cimxml(rdf_map=rdf_map,
-                                  namespace_map=namespace_map,
-                                  export_undefined=False,
-                                  export_type="xml_per_instance_zip_per_xml",
-                                  global_zip_filename="Export.zip",
-                                  debug=False,
-                                  export_to_memory=False)
-
 # Update SV metadata
 sv_data = triplets.cgmes_tools.update_FullModel_from_dict(sv_data, {"Model.version": CGM_meta['opdm:OPDMObject']['pmd:versionNumber'],
                                                                             "Model.created": CGM_meta['opdm:OPDMObject']['pmd:creationDate']})
@@ -421,10 +402,13 @@ if len(shunts_to_remove) > 0:
 
 # Fix missing SV Tap Steps - add missing steps
 
-ssh_tap_steps = ssh_data.query("KEY == 'TapChanger.step'")
+ssh_tap_steps = updated_ssh_data.query("KEY == 'TapChanger.step'")
 sv_tap_steps = sv_data.query("KEY == 'SvTapStep.TapChanger'")
 
 missing_sv_tap_steps = ssh_tap_steps.merge(sv_tap_steps[['VALUE']], left_on='ID', right_on="VALUE", how='left', indicator=True, suffixes=('', '_SV')).query("_merge == 'left_only'")
+
+del ssh_tap_steps
+del sv_tap_steps
 
 tap_steps_to_be_added = []
 SV_INSTANCE_ID = sv_data.INSTANCE_ID.iloc[0]
@@ -439,12 +423,32 @@ for tap_changer in missing_sv_tap_steps.itertuples():
 
 sv_data = pandas.concat([sv_data, pandas.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
 
+# Start Exporting data
+namespace_map = {
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "cim": "http://iec.ch/TC57/2013/CIM-schema-cim16#",
+    "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
+    "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
+    #"cgmbp": "http://entsoe.eu/CIM/Extensions/CGM-BP/2020#"
+}
 
-sv_data.export_to_cimxml(rdf_map=rdf_map,
+with open('entsoe_v2.4.15_2014-08-07.json', 'r') as file_object:
+    rdf_map = json.load(file_object)
+
+
+
+export = pandas.concat([updated_ssh_data, sv_data], ignore_index=True).export_to_cimxml(rdf_map=rdf_map,
                           namespace_map=namespace_map,
                           export_undefined=False,
                           export_type="xml_per_instance_zip_per_xml",
-                          global_zip_filename="Export.zip",
                           debug=False,
-                          export_to_memory=False)
+                          export_to_memory=True)
+
+publication_responses = []
+for instance_file in export:
+    publication_response = opdm_client.publication_request(instance_file, "CGMES")
+    publication_responses.append(
+        {"name": instance_file.name,
+         "response": publication_response}
+    )
 
