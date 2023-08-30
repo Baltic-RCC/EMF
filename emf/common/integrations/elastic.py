@@ -69,7 +69,7 @@ class Elastic:
                              id_from_metadata=False,
                              id_metadata_list=('mRID', 'revisionNumber', 'TimeSeries.mRID', 'position'),
                              server=ELK_SERVER,
-                             batch_size=BATCH_SIZE,
+                             batch_size=int(BATCH_SIZE),
                              debug=False):
         """
         Method to send bulk message to ELK
@@ -83,9 +83,9 @@ class Elastic:
         :return:
         """
 
-        # Create server url with relevant index pattern
-        _index = f"{index}-{datetime.datetime.today():%Y%m}"
-        url = f"{server}/{_index}/_bulk"
+        # Define server url with relevant index pattern (monthly indication is added)
+        index = f"{index}-{datetime.datetime.today():%Y%m}"
+        url = f"{server}/{index}/_bulk"
 
         if id_from_metadata:
             id_separator = "_"
@@ -94,12 +94,12 @@ class Elastic:
             json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index}}, element)]
 
         response_list = []
-        for index in range(0, len(json_message_list), batch_size):
+        for batch in range(0, len(json_message_list), batch_size):
             # Executing POST to push messages into ELK
             if debug:
-                logger.debug(f"Sending batch ({index}-{index + batch_size})/{len(json_message_list)} to {url}")
+                logger.debug(f"Sending batch ({batch}-{batch + batch_size})/{len(json_message_list)} to {url}")
             response = requests.post(url=url,
-                                     data=(ndjson.dumps(json_message_list[index:index + batch_size])+"\n").encode(),
+                                     data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
                                      timeout=None,
                                      headers={"Content-Type": "application/x-ndjson"})
             if debug:
@@ -160,9 +160,10 @@ class Elastic:
         try:
             schedules_df = self.get_docs_by_query(index=index, size=1000, query=query)
             if schedules_df.empty:
+                logger.warning(f"No schedules retrieved on query: {query}")
                 return None
         except Exception as e:
-            logger.warning(f"Query returned error -> {e}")
+            logger.warning(f"Query returned error: {e}")
             return None
 
         # Filtering to only latest data available by given field name

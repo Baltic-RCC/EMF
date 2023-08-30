@@ -36,7 +36,7 @@ from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_
 
 logger = logging.getLogger(__name__)
 
-parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scaler, eval_types=True)
+parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scaler)
 
 
 def query_hvdc_schedules(process_type: str,
@@ -73,6 +73,9 @@ def query_hvdc_schedules(process_type: str,
         metadata=metadata,
         period_overlap=True,
     )
+
+    if schedules_df is None:
+        return None
 
     # Map eic codes to area names
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
@@ -222,7 +225,7 @@ def scale_balance(network: pp.network.Network,
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.to_dict()}")
 
     # Perform scaling of AC part of the network with loop
-    while _iteration < MAX_ITERATION:
+    while _iteration < int(MAX_ITERATION):
         _iteration += 1
 
         # Get scaling area loads participation factors
@@ -232,7 +235,7 @@ def scale_balance(network: pp.network.Network,
 
         # Scale loads by participation factor
         # TODO Parallel processing with multiple scenarios +10%/+20% and etc
-        correction_factor = (100 + SCALING_CORR_FACTOR) / 100
+        correction_factor = (100 + int(SCALING_CORR_FACTOR)) / 100
         scalable_loads_diff = (scalable_loads['CGMES.regionName'].map(offset_acnp) * scalable_loads.p_participation) * correction_factor
         scalable_loads_target = scalable_loads.p0 + scalable_loads_diff
         scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
@@ -258,16 +261,12 @@ def scale_balance(network: pp.network.Network,
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {offset_acnp.to_dict()}")
 
         # Breaking scaling loop if target ac net position for all areas is reached
-        if all(abs(offset_acnp.values) <= BALANCE_THRESHOLD):
-            logger.info(f"[ITER {_iteration}] Scaling successful as ACNP offsets less than threshold: {BALANCE_THRESHOLD} MW")
+        if all(abs(offset_acnp.values) <= int(BALANCE_THRESHOLD)):
+            logger.info(f"[ITER {_iteration}] Scaling successful as ACNP offsets less than threshold: {int(BALANCE_THRESHOLD)} MW")
             break
     else:
         logger.warning(f"Max iteration limit reached")
         # TODO actions after scale break
-
-    # Post-scale hvdc setpoint
-    postscale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('lineEnergyIdentificationCodeEIC').p.sum()
-    logger.info(f"[ITER {_iteration}] POST-SCALE HVDC setpoints: {postscale_hvdc_sp.to_dict()}")
 
     network.ac_scaling_results_df = pd.DataFrame(_scaling_results)
 
@@ -310,9 +309,10 @@ if __name__ == "__main__":
 
     # Query target schedules
     # ac_schedules = query_acnp_schedules(process_type="A01", utc_start="2023-08-24T07:00:00", utc_end="2023-08-24T08:00:00")
-    dc_schedules = query_hvdc_schedules(process_type="A01", utc_start="2023-08-23T16:00:00", utc_end="2023-08-23T17:00:00")
+    dc_schedules = query_hvdc_schedules(process_type="A18", utc_start="2023-08-30T04:00:00", utc_end="2023-08-30T06:00:00")
 
     # ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
+    ac_schedules = [{"value": 400, "in_domain": "LT", "out_domain": None}]
 
     network = scale_balance(network=network, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
     print(network.ac_scaling_results_df)

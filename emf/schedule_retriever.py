@@ -1,7 +1,7 @@
 import logging
 import config
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import edx, elk_batch_send
+from emf.common.integrations import edx, elastic
 from emf.common.converters import iec_schedule_to_ndjson
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retrie
 
 def transfer_schedules_from_opde_to_elk():
     message_types = EDX_MESSAGE_TYPE.split(",")
-    elk_handler = elk_batch_send.Handler(url=ELK_SERVER, index=ELK_INDEX_PATTERN)
+    elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN)
     service = edx.EDX(converter=iec_schedule_to_ndjson, handler=elk_handler, message_types=message_types)
     service.run()
 
