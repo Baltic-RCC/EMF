@@ -64,7 +64,10 @@ def parse_app_properties(caller_globals: Dict[str, Any],
 
         # Convert string parameters to native datatypes
         if eval_types:
-            parameter_value = ast.literal_eval(parameter_value)
+            try:
+                parameter_value = ast.literal_eval(parameter_value)
+            except ValueError:
+                pass
 
         # Assign value to globals with upper letters
         caller_globals[parameter_name] = parameter_value
