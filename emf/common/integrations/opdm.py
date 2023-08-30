@@ -69,7 +69,7 @@ class OPDM(opdm_api.create_client):
                 # If file is not available on local client, lets request it and download it
                 if not content_data:
                     logger.warning("File not present on local client, requesting from OPDM service")
-                    #content_meta = self.get_content(model_part_meta['opde:Id'])
+                    content_meta = self.get_content(model_part_meta['opde:Id'])
                     content_data = self.get_file(model_part_name)
 
                 if not content_data:
@@ -133,7 +133,7 @@ class OPDM(opdm_api.create_client):
         boundary_data = pandas.DataFrame([x['opdm:OPDMObject'] for x in boundaries])
 
         # Convert date and version to respective formats
-        boundary_data['date_time'] = pandas.to_datetime(boundary_data['pmd:scenarioDate'])
+        boundary_data['date_time'] = pandas.to_datetime(boundary_data['pmd:scenarioDate'], format='ISO8601')
         boundary_data['version'] = pandas.to_numeric(boundary_data['pmd:versionNumber'])
 
         # Sort out official boundary
