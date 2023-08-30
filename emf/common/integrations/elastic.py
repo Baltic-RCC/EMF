@@ -3,6 +3,7 @@ import requests
 import ndjson
 import logging
 import pandas as pd
+import json
 from elasticsearch import Elasticsearch
 import config
 from emf.common.config_parser import parse_app_properties
@@ -68,7 +69,7 @@ class Elastic:
                              id_from_metadata=False,
                              id_metadata_list=('mRID', 'revisionNumber', 'TimeSeries.mRID', 'position'),
                              server=ELK_SERVER,
-                             batch_size=1000,
+                             batch_size=BATCH_SIZE,
                              debug=False):
         """
         Method to send bulk message to ELK
@@ -103,8 +104,9 @@ class Elastic:
                                      headers={"Content-Type": "application/x-ndjson"})
             if debug:
                 logger.debug(f"ELK response -> {response.content}")
+            response_list.append(response.ok)
 
-        return response_list
+        return all(response_list)
 
     def get_doc_by_id(self, index, id):
         response = self.client.get(index=index, id=id)
@@ -168,6 +170,33 @@ class Elastic:
             pass  # TODO
 
         return schedules_df
+
+
+class Handler:
+
+    def __init__(self, index, server=ELK_SERVER, headers=None, auth=None, verify=False, debug=False):
+
+        self.index = index
+        self.server = server
+        self.debug = debug
+
+        if not headers:
+            headers = {'Content-Type': 'text/json'}
+
+        self.session = requests.Session()
+        self.session.verify = verify
+        self.session.headers.update(headers)
+        self.session.auth = auth
+
+    def send(self, byte_string, properties):
+
+        Elastic.send_to_elastic_bulk(index=self.index,
+                                     json_message_list=json.loads(byte_string),
+                                     id_from_metadata=False,
+                                     server=self.server,
+                                     debug=self.debug)
+
+        # TODO add support for properties argument
 
 
 if __name__ == '__main__':
