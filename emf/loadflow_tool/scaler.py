@@ -30,12 +30,106 @@ from typing import Dict, List
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
+from emf.common.integrations import elastic
 from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators
 from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_RELAXED_2
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scaler, eval_types=True)
+
+
+def query_hvdc_schedules(process_type: str,
+                         utc_start: str,
+                         utc_end: str,
+                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+    """
+    Method to get HVDC schedules (business type - B63)
+    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00'
+    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00'
+    :param area_eic_map: dictionary of geographical region names and control area eic code
+    :return: schedules in dict format
+    """
+    # Define area name to eic mapping table
+    if not area_eic_map:
+        # Using default mapping table from config
+        import json
+        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
+            area_eic_map = json.loads(f.read())
+
+    # Define metadata dictionary
+    metadata = {
+        "process.processType": process_type,
+        "TimeSeries.businessType": "B63",
+    }
+
+    # Get HVDC schedules
+    service = elastic.Elastic()
+    schedules_df = service.query_schedules_from_elk(
+        index=ELK_INDEX_PATTERN,
+        utc_start=utc_start,
+        utc_end=utc_end,
+        metadata=metadata,
+        period_overlap=True,
+    )
+
+    # Map eic codes to area names
+    schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
+    schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
+
+    # Filter to the latest revision number
+    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+
+    # Get relevant structure and convert to dictionary
+    _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID"]
+    schedules_df = schedules_df[_cols]
+    schedules_df.rename(columns={"TimeSeries.connectingLine_RegisteredResource.mRID": "registered_resource"}, inplace=True)
+    schedules_dict = schedules_df.to_dict('records')
+
+    return schedules_dict
+
+
+def query_acnp_schedules(process_type: str,
+                         utc_start: str,
+                         utc_end: str,
+                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+    """
+    Method to get ACNP schedules (business type - B64)
+    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00'
+    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00'
+    :return:
+    """
+
+    metadata = {
+        "process.processType": process_type,
+        "TimeSeries.businessType": "B64",
+    }
+
+    # Get AC area schedules
+    service = elastic.Elastic()
+    schedules_df = service.query_schedules_from_elk(
+        index=ELK_INDEX_PATTERN,
+        utc_start=utc_start,
+        utc_end=utc_end,
+        metadata=metadata,
+        period_overlap=True,
+    )
+
+    # Map eic codes to area names
+    schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
+    schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
+
+    # Filter to the latest revision number
+    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+
+    # Get relevant structure and convert to dictionary
+    _cols = ["value", "in_domain", "out_domain"]
+    schedules_df = schedules_df[_cols]
+    schedules_dict = schedules_df.to_dict('records')
+
+    return schedules_dict
 
 
 # TODO arguments validation with pydantic
@@ -215,11 +309,10 @@ if __name__ == "__main__":
     network = pp.network.load(model_path)
 
     # Query target schedules
-    from emf.schedule_retriever import query_hvdc_schedules, query_acnp_schedules
-    ac_schedules = query_acnp_schedules(process_type="A01", start="2023-08-24T07:00:00", end="2023-08-24T08:00:00")
-    dc_schedules = query_hvdc_schedules(process_type="A01", start="2023-08-23T16:00:00", end="2023-08-23T17:00:00")
+    # ac_schedules = query_acnp_schedules(process_type="A01", utc_start="2023-08-24T07:00:00", utc_end="2023-08-24T08:00:00")
+    dc_schedules = query_hvdc_schedules(process_type="A01", utc_start="2023-08-23T16:00:00", utc_end="2023-08-23T17:00:00")
 
-    ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
+    # ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
 
     network = scale_balance(network=network, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
     print(network.ac_scaling_results_df)
