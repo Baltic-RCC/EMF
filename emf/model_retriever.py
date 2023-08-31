@@ -11,7 +11,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever
 
 def transfer_model_meta_from_opde_to_elk():
     message_types = EDX_MESSAGE_TYPE.split(",")
-    elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN)
+    elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True, id_metadata_list=['opde:Id'])
     service = edx.EDX(converter=opdm_metadata_to_json, handler=elk_handler, message_types=message_types)
     service.run()
 

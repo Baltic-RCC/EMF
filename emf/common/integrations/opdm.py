@@ -47,8 +47,7 @@ class OPDM(opdm_api.create_client):
                 response = self.get_content(file_id, return_payload=True)
 
                 with open(file_path, 'wb') as file_object:
-                    message64_bytes = response['sm:GetContentResult']['sm:part'][1]['opdm:Profile'][
-                        'opde:Content'].encode()
+                    message64_bytes = response['sm:GetContentResult']['sm:part'][1]['opdm:Profile']['opde:Content'].encode()
                     file_object.write(base64.b64decode(message64_bytes))
 
                 logger.info(f"Saved to {file_path}")
