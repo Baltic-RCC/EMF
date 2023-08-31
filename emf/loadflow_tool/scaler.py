@@ -26,12 +26,12 @@ import pypowsybl as pp
 import logging
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Union
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
 from emf.common.integrations import elastic
-from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators
+from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, get_connected_component_counts
 from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_RELAXED_2
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,8 @@ def query_hvdc_schedules(process_type: str,
     # Filter to the latest revision number
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
+    # TODO filter out data by reason code that take only verified tada
+
     # Get relevant structure and convert to dictionary
     _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID"]
     schedules_df = schedules_df[_cols]
@@ -104,6 +106,12 @@ def query_acnp_schedules(process_type: str,
     :param utc_end: end time in utc. Example: '2023-08-09T00:00:00'
     :return:
     """
+    # Define area name to eic mapping table
+    if not area_eic_map:
+        # Using default mapping table from config
+        import json
+        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
+            area_eic_map = json.loads(f.read())
 
     metadata = {
         "process.processType": process_type,
@@ -119,6 +127,9 @@ def query_acnp_schedules(process_type: str,
         metadata=metadata,
         period_overlap=True,
     )
+
+    if schedules_df is None:
+        return None
 
     # Map eic codes to area names
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
@@ -138,8 +149,8 @@ def query_acnp_schedules(process_type: str,
 # TODO arguments validation with pydantic
 @performance_counter(units='seconds')
 def scale_balance(network: pp.network.Network,
-                  ac_schedules: List[Dict[str, str]],
-                  dc_schedules: List[Dict[str, str]],
+                  ac_schedules: List[Dict[str, Union[str, float, None]]],
+                  dc_schedules: List[Dict[str, Union[str, float, None]]],
                   lf_settings: pp.loadflow.Parameters = CGM_RELAXED_1,
                   debug=False
                   ):
@@ -152,7 +163,7 @@ def scale_balance(network: pp.network.Network,
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
-
+    _island_bus_count = get_connected_component_counts(network=network, bus_count_threshold=5)
     _scaling_results = []
     _iteration = 0
 
@@ -168,8 +179,11 @@ def scale_balance(network: pp.network.Network,
 
     # Target AC net position
     target_acnp_df = pd.DataFrame(ac_schedules)
-    target_acnp_df['value'] = np.where(target_acnp_df['in_domain'].notna(), target_acnp_df['value'] * -1, target_acnp_df['value'])
     target_acnp_df['registered_resource'] = target_acnp_df['in_domain'].where(target_acnp_df['in_domain'].notna(), target_acnp_df['out_domain'])
+    target_acnp_df = target_acnp_df.dropna(subset='registered_resource')
+    target_acnp_df = target_acnp_df.sort_values('value', key=abs, ascending=False).drop_duplicates(subset='registered_resource')
+    mask = (target_acnp_df['in_domain'].notna()) & (target_acnp_df['value'] > 0.0)  # in_domain not None and value is not zero
+    target_acnp_df['value'] = np.where(mask, target_acnp_df['value'] * -1, target_acnp_df['value'])
     target_acnp = target_acnp_df.set_index('registered_resource')['value']
     # logger.info(f"[INITIAL] Target AC NP: {target_acnp.to_dict()}")
 
@@ -185,7 +199,8 @@ def scale_balance(network: pp.network.Network,
     scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
     mask = (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain']) | (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['out_domain'])
     scalable_hvdc = scalable_hvdc[mask]
-    scalable_hvdc['value'] = np.where(scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain'], scalable_hvdc['value'] * -1, scalable_hvdc['value'])
+    mask = (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain']) & (scalable_hvdc['value'] > 0.0)
+    scalable_hvdc['value'] = np.where(mask, scalable_hvdc['value'] * -1, scalable_hvdc['value'])
     scalable_hvdc = scalable_hvdc.set_index('id')
 
     # Scaling HVDC network elements
@@ -200,23 +215,28 @@ def scale_balance(network: pp.network.Network,
     loads = loads.merge(network.get_extensions('detail'), right_index=True, left_index=True)
     conform_loads = loads[loads['variable_p0'] > 0]
 
-    # Solving pre-scale loadflow
-    # TODO exit scaling if pre-scale LF diverged
-    pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-    for result in pf_results:
-        result_dict = attr_to_dict(result)
-        logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
-        logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
-
     # Get network slack generators
     slack_generators = get_slack_generators(network)
     logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
+
+    # Solving pre-scale loadflow
+    # TODO exit scaling if pre-scale LF diverged
+    pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+    for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+        result_dict = attr_to_dict(result)
+        logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
+        logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
 
     # Get pre-scale AC net position
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
     prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
     _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'STEP': 'prescale-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.to_dict()}")
+
+    # Filtering target AC net position series by present regions in network
+    target_acnp = target_acnp[target_acnp.index.isin(prescale_acnp.index)]
+    _scaling_results.append(pd.concat([target_acnp, pd.Series({'STEP': 'target-acnp', 'ITER': f"iter-{_iteration}"})]).to_dict())
+    logger.info(f"[ITER {_iteration}] TARGET ACNP: {target_acnp.to_dict()}")
 
     # Get offset between target and pre-scale AC net position
     offset_acnp = prescale_acnp - target_acnp[target_acnp.index.isin(prescale_acnp.index)]
@@ -242,8 +262,8 @@ def scale_balance(network: pp.network.Network,
         network.update_loads(id=scalable_loads_target.index, p0=scalable_loads_target.to_list())
 
         # Solving post-scale loadflow
-        pf_result = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-        for result in pf_result:
+        pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+        for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
             result_dict = attr_to_dict(result)
             logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
             logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")

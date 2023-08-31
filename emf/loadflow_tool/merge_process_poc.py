@@ -2,6 +2,7 @@ import pypowsybl
 from helper import load_model, load_opdm_data, filename_from_metadata
 from validator import validate_model
 from emf.common.integrations.opdm import OPDM
+from emf.loadflow_tool.scaler import query_hvdc_schedules, query_acnp_schedules, scale_balance
 import sys
 import os
 import uuid
@@ -22,13 +23,19 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
+process_type_map = {
+    "1D": "A01",
+    "ID": "A18"
+}
+
+
 # Initialise connections
 opdm_client = OPDM()
 
 # Process setting #TODO - move to if main
 
 time_horizon = '1D'
-scenario_date = "2023-08-16T10:30"
+scenario_date = "2023-08-31T10:30"
 area = "EU"
 version = "101"
 
@@ -83,8 +90,24 @@ area_eic_map = CA.merge(GR, left_on='INSTANCE_ID', right_on='INSTANCE_ID_SGR')[[
 del data
 
 # 5. Query Schedules from metadata storage for given timestamp
+scenario_date_dt = datetime.datetime.fromisoformat(scenario_date)
+utc_start = scenario_date_dt - datetime.timedelta(minutes=30)
+utc_end = scenario_date_dt + datetime.timedelta(minutes=30)
+dc_schedules = query_hvdc_schedules(process_type=process_type_map.get(time_horizon),
+                                    utc_start=utc_start.isoformat(),
+                                    utc_end=utc_end.isoformat(),
+                                    area_eic_map=area_eic_map,
+                                    )
+
+ac_schedules = query_acnp_schedules(process_type=process_type_map.get(time_horizon),
+                                    utc_start=utc_start.isoformat(),
+                                    utc_end=utc_end.isoformat(),
+                                    area_eic_map=area_eic_map,
+                                    )
 
 # 6. Perform Scaling using 4. Schedules on 3. Model
+merged_model['NETWORK'] = scale_balance(network=merged_model['NETWORK'], ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
+
 
 # 7. Export Merged SV
 
