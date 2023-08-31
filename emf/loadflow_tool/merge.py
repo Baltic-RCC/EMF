@@ -1,5 +1,5 @@
 import pypowsybl
-from helper import load_model, load_opdm_data, filename_from_metadata
+from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict
 from validator import validate_model
 import logging
 import uuid
@@ -29,9 +29,9 @@ logging.basicConfig(
 opdm_client = OPDM()
 
 time_horizon = '1D'
-scenario_date = "2023-08-16T10:30"
+scenario_date = "2023-08-16T11:30"
 area = "EU"
-version = "101"
+version = "104"
 
 latest_boundary = opdm_client.get_latest_boundary()
 available_models = opdm_client.get_latest_models_and_download(time_horizon, scenario_date)#, tso="ELERING")
@@ -59,9 +59,22 @@ del available_models
 
 merged_model = load_model(valid_models + [latest_boundary])
 
+# Run LF
+model_data = []
+loadflow_report = pypowsybl.report.Reporter()
+loadflow_result = pypowsybl.loadflow.run_ac(network=merged_model["NETWORK"],
+                                            parameters=loadflow_settings.CGM_DEFAULT,
+                                            reporter=loadflow_report)
+
+loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
+#model_data["LOADFLOW_RESUTLS"] = loadflow_result_dict
+
+#model_data["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
+#model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
+
 SV_ID = merged_model['NETWORK_META']['id'].split("uuid:")[-1]
 CGM_meta = {'opdm:OPDMObject': {'pmd:fullModel_ID': SV_ID,
-                                'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}",
+                                'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
                                 'pmd:timeHorizon': time_horizon,
                                 'pmd:cgmesProfile': 'SV',
                                 'pmd:contentType': 'CGMES',
@@ -70,7 +83,7 @@ CGM_meta = {'opdm:OPDMObject': {'pmd:fullModel_ID': SV_ID,
                                 'pmd:mergingArea': area,
                                 'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
                                 'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
-                                'pmd:scenarioDate': scenario_date,
+                                'pmd:scenarioDate': f"{parse_datetime(scenario_date):%Y-%m-%dT%H:%M:00Z}",
                                 'pmd:modelid': SV_ID,
                                 'pmd:description':
 f"""<MDE>
@@ -102,25 +115,32 @@ merged_model["NETWORK"].dump(export_file_path,
 sv_data = pandas.read_RDF([export_file_path])
 
 # Update SV filename
-current_name = sv_data.query("KEY == 'label'")
-sv_data.iloc[current_name.index[0], current_name.columns.get_loc("VALUE")] = filename_from_metadata(CGM_meta['opdm:OPDMObject'])
+sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(CGM_meta['opdm:OPDMObject']))
 
 # Update SV description
-current_description = sv_data.query("KEY == 'Model.description'")
-sv_data.iloc[current_description.index[0], current_description.columns.get_loc("VALUE")] = CGM_meta['opdm:OPDMObject']['pmd:description']
+sv_data.set_VALUE_at_KEY(key='Model.description', value=CGM_meta['opdm:OPDMObject']['pmd:description'])
+
+# Update SV created time
+sv_data.set_VALUE_at_KEY(key='Model.created', value=CGM_meta['opdm:OPDMObject']['pmd:creationDate'])
+
+# Update SSH Model.scenarioTime
+sv_data.set_VALUE_at_KEY('Model.scenarioTime', CGM_meta['opdm:OPDMObject']['pmd:scenarioDate'])
+
 # Update SV metadata
 sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
 
 
-
-# Load original SSH data
+# Load original SSH data to created updated SSH
 ssh_data = load_opdm_data(valid_models, "SSH")
 ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
 
-# Get only terminal from original EQ, needed for some elements updating
-eq_data = load_opdm_data(valid_models, "EQ")
-terminals = eq_data.type_tableview("Terminal")
-equiv_shunt = eq_data.query("KEY == 'Type' and VALUE == 'EquivalentShunt'")
+# Update SSH Model.scenarioTime
+ssh_data.set_VALUE_at_KEY('Model.scenarioTime', CGM_meta['opdm:OPDMObject']['pmd:scenarioDate'])
+
+# Load full original data to fix issues
+data = load_opdm_data(valid_models + [latest_boundary])
+terminals = data.type_tableview("Terminal")
+
 
 # Update SSH data from SV
 update_map =[
@@ -208,14 +228,15 @@ updated_ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(updated_s
 sv_data = triplets.cgmes_tools.update_FullModel_from_dict(sv_data, {"Model.version": CGM_meta['opdm:OPDMObject']['pmd:versionNumber'],
                                                                             "Model.created": CGM_meta['opdm:OPDMObject']['pmd:creationDate']})
 
-# Fix SV - Remove Shunt sections for EQV Shunts
+# Fix SV - Remove Shunt Sections for EQV Shunts
+equiv_shunt = data.query("KEY == 'Type' and VALUE == 'EquivalentShunt'")
 if len(equiv_shunt) > 0:
     shunts_to_remove = sv_data.merge(sv_data.query("KEY == 'SvShuntCompensatorSections.ShuntCompensator'").merge(equiv_shunt.ID, left_on='VALUE', right_on="ID", how='inner', suffixes=('', '_EQVShunt')).ID)
-if len(shunts_to_remove) > 0:
-    logger.warning(f'Removing invalid SvShuntCompensatorSections for EquivalentShunt')
-    sv_data = triplets.rdf_parser.remove_triplet_from_triplet(sv_data, shunts_to_remove)
+    if len(shunts_to_remove) > 0:
+        logger.warning(f'Removing invalid SvShuntCompensatorSections for EquivalentShunt')
+        sv_data = triplets.rdf_parser.remove_triplet_from_triplet(sv_data, shunts_to_remove)
 
-# Fix missing SV Tap Steps - add missing steps
+# Fix SV - add missing SV Tap Steps
 
 ssh_tap_steps = updated_ssh_data.query("KEY == 'TapChanger.step'")
 sv_tap_steps = sv_data.query("KEY == 'SvTapStep.TapChanger'")
@@ -237,6 +258,14 @@ for tap_changer in missing_sv_tap_steps.itertuples():
     ])
 
 sv_data = pandas.concat([sv_data, pandas.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
+
+
+# Fix SV - Sum flow into Topological node != 0
+#SV_INJECTION_LIMIT = 0.1
+#power_flow = sv_data.type_tableview('SvPowerFlow')
+#flow_sum_at_topological_node = power_flow.merge(terminals, left_on='SvPowerFlow.Terminal', right_on='ID', how='left').groupby('Terminal.TopologicalNode')[['SvPowerFlow.p', 'SvPowerFlow.q']].sum()
+#mismatch_at_topological_node = flow_sum_at_topological_node[(abs(flow_sum_at_topological_node['SvPowerFlow.p']) > SV_INJECTION_LIMIT) | (abs(flow_sum_at_topological_node['SvPowerFlow.q']) > SV_INJECTION_LIMIT)]
+#mismatch_at_equipment = data.query('KEY == "Type"')[['ID', 'VALUE']].drop_duplicates().merge(mismatch_at_topological_node.merge(terminals.reset_index(), on='Terminal.TopologicalNode'), left_on="ID", right_on="Terminal.ConductingEquipment")
 
 # Start Exporting data
 namespace_map = {
@@ -261,10 +290,11 @@ export = pandas.concat([updated_ssh_data, sv_data], ignore_index=True).export_to
 
 publication_responses = []
 for instance_file in export:
+
     logger.info(f"Publishing {instance_file.name} to OPDM")
     publication_response = opdm_client.publication_request(instance_file, "CGMES")
+
     publication_responses.append(
         {"name": instance_file.name,
          "response": publication_response}
     )
-
