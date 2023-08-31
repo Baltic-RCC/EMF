@@ -110,8 +110,11 @@ def get_slack_generators(network: pypowsybl.network):
     return slack_generators
 
 
-def get_connected_component_counts(network: pypowsybl.network):
-    return network.get_buses().connected_component.value_counts().to_dict()
+def get_connected_component_counts(network: pypowsybl.network, bus_count_threshold: int | None = None):
+    counts = network.get_buses().connected_component.value_counts()
+    if bus_count_threshold:
+        counts = counts[counts > bus_count_threshold]
+    return counts.to_dict()
 
 
 def load_model(opdm_objects):

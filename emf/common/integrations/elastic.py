@@ -158,7 +158,7 @@ class Elastic:
 
         # Query documents
         try:
-            schedules_df = self.get_docs_by_query(index=index, size=1000, query=query)
+            schedules_df = self.get_docs_by_query(index=index, size=10000, query=query)
             if schedules_df.empty:
                 logger.warning(f"No schedules retrieved on query: {query}")
                 return None
