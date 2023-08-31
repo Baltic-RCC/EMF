@@ -4,6 +4,7 @@ import ndjson
 import logging
 import pandas as pd
 import json
+from typing import List
 from elasticsearch import Elasticsearch
 import config
 from emf.common.config_parser import parse_app_properties
@@ -67,7 +68,7 @@ class Elastic:
     def send_to_elastic_bulk(index,
                              json_message_list,
                              id_from_metadata=False,
-                             id_metadata_list=('mRID', 'revisionNumber', 'TimeSeries.mRID', 'position'),
+                             id_metadata_list=ID_FROM_METADATA_FIELDS.split(','),
                              server=ELK_SERVER,
                              batch_size=int(BATCH_SIZE),
                              debug=False):
@@ -175,10 +176,20 @@ class Elastic:
 
 class Handler:
 
-    def __init__(self, index, server=ELK_SERVER, headers=None, auth=None, verify=False, debug=False):
+    def __init__(self,
+                 index: str,
+                 server: str = ELK_SERVER,
+                 id_from_metadata: bool = False,
+                 id_metadata_list: List[str] = ID_FROM_METADATA_FIELDS.split(','),
+                 headers=None,
+                 auth=None,
+                 verify=False,
+                 debug=False):
 
         self.index = index
         self.server = server
+        self.id_from_metadata = id_from_metadata
+        self.id_metadata_list = id_metadata_list
         self.debug = debug
 
         if not headers:
@@ -193,7 +204,8 @@ class Handler:
 
         Elastic.send_to_elastic_bulk(index=self.index,
                                      json_message_list=json.loads(byte_string),
-                                     id_from_metadata=True,
+                                     id_from_metadata=self.id_from_metadata,
+                                     id_metadata_list=self.id_metadata_list,
                                      server=self.server,
                                      debug=self.debug)
 
