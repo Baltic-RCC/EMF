@@ -15,6 +15,13 @@ def transfer_model_meta_from_opde_to_elk():
     service = edx.EDX(converter=opdm_metadata_to_json, handler=elk_handler, message_types=message_types)
     service.run()
 
+def store_models_from_opde_to_minio():
+    pass
+
+
+def validate_igms():
+    pass
+
 
 if __name__ == "__main__":
     # Testing
