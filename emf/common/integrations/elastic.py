@@ -193,7 +193,7 @@ class Handler:
 
         Elastic.send_to_elastic_bulk(index=self.index,
                                      json_message_list=json.loads(byte_string),
-                                     id_from_metadata=False,
+                                     id_from_metadata=True,
                                      server=self.server,
                                      debug=self.debug)
 
