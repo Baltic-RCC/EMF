@@ -8,6 +8,16 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
+# EDX > opdm objects
+# OPDM.download_object(opdm object) > opdm objects (enhanced with data
+# a) NEW MINIO.upload_opdm(opdm object) > opdm objects
+# b) MINIO.upload_opdm(bytes) > url
+# b) update opdm object with url
+# loadflow_tool.validate(opdm_object + bds opdmobject) -> validated model
+# update opdm object with validation status
+# opdm object remove binary data
+# elk handler.batch_upload(opdm_object)
+
 
 def transfer_model_meta_from_opde_to_elk():
     message_types = EDX_MESSAGE_TYPE.split(",")
@@ -15,8 +25,14 @@ def transfer_model_meta_from_opde_to_elk():
     service = edx.EDX(converter=opdm_metadata_to_json, handler=elk_handler, message_types=message_types)
     service.run()
 
-def store_models_from_opde_to_minio():
+def store_models_from_opde_to_minio(opdm_objects: list):
     pass
+
+    # OPDM_API to request model
+    # downloadm model in bytes
+    # stores it in minio
+
+    return opdm_object
 
 
 def validate_igms():
