@@ -11,6 +11,11 @@ lxml = "*"
 edx = "*"
 opdm-api = "*"
 triplets = "*"
+ndjson = "*"
+elasticsearch = "*"
+minio = "*"
+pytz = "*"
+requests = "*"
 
 [dev-packages]
 tabulate = "*"
