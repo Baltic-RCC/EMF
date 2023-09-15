@@ -1,3 +1,6 @@
+import sys
+for i in sys.path:
+    print(i)
 import logging
 import config
 from emf.common.config_parser import parse_app_properties
