@@ -5,14 +5,21 @@ import urllib3
 import sys
 import mimetypes
 import re
+import logging
+import config
 from datetime import datetime
 from aniso8601 import parse_duration, parse_datetime
-
+from emf.common.config_parser import parse_app_properties
 urllib3.disable_warnings()
+
+logger = logging.getLogger(__name__)
+
+parse_app_properties(globals(), config.paths.integrations.minio)
+
 
 class ObjectStorage:
 
-    def __init__(self, server, username, password):
+    def __init__(self, server=MINIO_SERVER, username=MINIO_USERNAME, password=MINIO_PASSWORD):
         self.server = server
         self.username = username
         self.password = password
@@ -158,11 +165,6 @@ class ObjectStorage:
 
 if __name__ == '__main__':
     # Test Minio API
-    server = "test-rcc-minio-fe.elering.sise"
-    username = "srv.testrccminioprw"
-    password = "uv6VSmML4HsozNJQekU-!R"
-
-    # Create client
-    service = ObjectStorage(server=server, username=username, password=password)
+    service = ObjectStorage()
     buckets = service.client.list_buckets()
     print(buckets)

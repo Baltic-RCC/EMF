@@ -10,7 +10,7 @@ from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 
-parse_app_properties(globals(), config.paths.opdm_integration.opdm)
+parse_app_properties(globals(), config.paths.integrations.opdm)
 
 
 class OPDM(opdm_api.create_client):
