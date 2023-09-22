@@ -8,18 +8,11 @@ from emf.common.integrations import elastic, opdm, minio, edx
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 
+# Initialize custom logger
+elk_handler = custom_logger.initialize_custom_logger()
+logger = logging.getLogger(__name__)
+
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
-
-# Start root logger
-logger = logging.getLogger()
-logger.name = 'model-retriever'
-
-logging.basicConfig(
-    format='%(levelname) -10s %(asctime) -20s %(name) -45s %(funcName) -35s %(lineno) -5d: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
 
 edx_service = edx.EDX()
 opdm_service = opdm.OPDM()
