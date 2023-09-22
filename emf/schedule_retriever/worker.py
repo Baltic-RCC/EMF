@@ -7,7 +7,7 @@ from emf.common.converters import iec_schedule_to_ndjson
 
 # Initialize custom logger
 elk_handler = custom_logger.initialize_custom_logger()
-elk_handler.extra = {'worker': 'model-retriever'}
+elk_handler.extra = {'worker': 'schedule-retriever'}
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retriever.schedule_retriever)
