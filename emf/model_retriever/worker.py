@@ -1,16 +1,18 @@
 import logging
 import sys
 import time
-
 import config
 import json
 from emf.model_retriever import model_retriever
 from emf.common.integrations import elastic, opdm, minio, edx
+from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
-logger = logging.getLogger(__name__)
+# Start root logger
+logger = logging.getLogger()
+logger.name = 'model-retriever'
 
 logging.basicConfig(
     format='%(levelname) -10s %(asctime) -20s %(name) -45s %(funcName) -35s %(lineno) -5d: %(message)s',
