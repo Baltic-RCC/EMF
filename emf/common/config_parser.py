@@ -57,7 +57,7 @@ def parse_app_properties(caller_globals: Dict[str, Any],
         # Sanitize parameter value for logging
         sanitized_parameter_value = sanitize_mask if sanitize else parameter_value
 
-        logger.info(f"{parameter_name} = {sanitized_parameter_value} [{defined_in}]",
+        logger.info(f"[{defined_in}] {parameter_name} = {sanitized_parameter_value}",
                     extra={"parameter_defined_in": defined_in,
                            "parameter_name": parameter_name,
                            "parameter_value": sanitized_parameter_value})

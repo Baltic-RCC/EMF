@@ -9,13 +9,39 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
 
-# Define stream logging handler configuration
-logging.basicConfig(
-    format=LOGGING_FORMAT,
-    datefmt=LOGGING_DATEFMT,
-    level=LOGGING_LEVEL,
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+
+def initialize_custom_logger(
+        logger_name: str,
+        level: str = LOGGING_LEVEL,
+        format: str = LOGGING_FORMAT,
+        datefmt: str = LOGGING_DATEFMT,
+        elk_server: str = elastic.ELK_SERVER,
+        index: str = LOGGING_INDEX,
+        extra: None | dict = None,
+        fields_filter: None | list = None,
+):
+
+    root_logger = logging.getLogger()
+    root_logger.name = logger_name
+    root_logger.propagate = True
+
+    # Configure stream logging handler
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(level)
+    stream_formatter = logging.Formatter(fmt=format, datefmt=datefmt)
+    stream_handler.setFormatter(stream_formatter)
+    root_logger.addHandler(stream_handler)
+
+    # Configure Elk logging handler
+    elk_handler = ElkLoggingHandler(elk_server=elk_server, index=index, extra=extra, fields_filter=fields_filter)
+    elk_handler.setLevel(level)
+
+    if elk_handler.connected:
+        root_logger.addHandler(elk_handler)
+    else:
+        logger.warning(f"Elk logging handler not initialized")
+
+    return root_logger
 
 
 class ElkLoggingHandler(logging.StreamHandler):
