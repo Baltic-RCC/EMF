@@ -1,5 +1,4 @@
 import logging
-import sys
 import time
 import config
 import json
@@ -10,6 +9,7 @@ from emf.common.config_parser import parse_app_properties
 
 # Initialize custom logger
 elk_handler = custom_logger.initialize_custom_logger()
+elk_handler.extra = {'worker': 'model-retriever'}
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
@@ -32,7 +32,6 @@ while True:
     opdm_objects = model_retriever.opde_models_to_minio(opdm_objects=opdm_objects, opdm_service=opdm_service, minio_service=minio_service)
 
     # TODO Validate model
-
 
     for opdm_object in opdm_objects:
         # Removing content from opdm_object to only keep the model metadata
