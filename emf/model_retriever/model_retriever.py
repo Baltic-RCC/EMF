@@ -2,7 +2,6 @@ import logging
 import config
 from io import BytesIO
 from zipfile import ZipFile
-import json
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import edx, elastic, opdm
 from emf.common.converters import opdm_metadata_to_json
@@ -10,16 +9,6 @@ from emf.common.converters import opdm_metadata_to_json
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
-
-# EDX > opdm objects
-# OPDM.download_object(opdm object) > opdm objects (enhanced with data
-# a) NEW MINIO.upload_opdm(opdm object) > opdm objects
-# b) MINIO.upload_opdm(bytes) > url
-# b) update opdm object with url
-# loadflow_tool.validate(opdm_object + bds opdmobject) -> validated model
-# update opdm object with validation status
-# opdm object remove binary data
-# elk handler.batch_upload(opdm_object)
 
 
 def transfer_model_meta_from_opde_to_elk():
@@ -82,10 +71,10 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
                         global_zip.writestr(file_name, instance_zip.open(file_name).read())
 
         # Upload model to minio storage
-        _name = f"{opdm_object['opde:Object-Type']}_{opdm_object['pmd:validFrom']}_{opdm_object['pmd:timeHorizon']}_{opdm_object['pmd:TSO']}_{opdm_object['pmd:versionNumber']}.zip"
-        output_object.name = f"EMF_OS/{_name}"
+        # _name = f"{opdm_object['opde:Object-Type']}_{opdm_object['pmd:validFrom']}_{opdm_object['pmd:timeHorizon']}_{opdm_object['pmd:TSO']}_{opdm_object['pmd:versionNumber']}.zip"
+        output_object.name = opdm_object['pmd:content-reference']
         minio_service.upload_object(file_path_or_file_object=output_object,
-                                    bucket_name="opde-confidential-models")
+                                    bucket_name=MINIO_BUCKET)
 
         # Update metadata object by stored file url
         opdm_object['URL'] = output_object.name
