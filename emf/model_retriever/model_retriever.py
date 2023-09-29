@@ -23,7 +23,7 @@ def get_opdm_object_from_edx(message_type: str, edx_service: object):
     message = edx_service.receive_message(message_type)
     if not message.receivedMessage:
         logger.info(f"No messages available with message type: {message_type}")
-        return
+        return None, None
 
     logger.info(f"Downloading message with ID: {message.receivedMessage.messageID}")
 
