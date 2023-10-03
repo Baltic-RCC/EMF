@@ -1,6 +1,6 @@
 import requests
 from lxml import etree
-from minio import Minio, error
+import minio
 import urllib3
 import sys
 import mimetypes
@@ -39,14 +39,13 @@ class ObjectStorage:
             credentials = self.__get_credentials()
 
             self.token_expiration = parse_datetime(credentials['Expiration']).replace(tzinfo=None)
-            self.client = Minio(endpoint=self.server,
-                                access_key=credentials['AccessKeyId'],
-                                secret_key=credentials['SecretAccessKey'],
-                                session_token=credentials['SessionToken'],
-                                secure=True,
-                                http_client=self.http_client,
-                                )
-
+            self.client = minio.Minio(endpoint=self.server,
+                                      access_key=credentials['AccessKeyId'],
+                                      secret_key=credentials['SecretAccessKey'],
+                                      session_token=credentials['SessionToken'],
+                                      secure=True,
+                                      http_client=self.http_client,
+                                      )
 
     def __get_credentials(self, action="AssumeRoleWithLDAPIdentity", version="2011-06-15"):
         """
@@ -61,6 +60,7 @@ class ObjectStorage:
             "LDAPUsername": self.username,
             "LDAPPassword": self.password,
             "Version": version,
+            "DurationSeconds": TOKEN_EXPIRATION,
         }
 
         # Sending request for temporary credentials and parsing it out from returned xml
@@ -111,7 +111,7 @@ class ObjectStorage:
             file_data = self.client.get_object(bucket_name, object_name)
             return file_data.read()
 
-        except error.S3Error as err:
+        except minio.error.S3Error as err:
             print(err)
 
     def object_exists(self, object_name, bucket_name):
@@ -123,7 +123,7 @@ class ObjectStorage:
         try:
             self.client.stat_object(bucket_name, object_name)
             exists = True
-        except error.S3Error as e:
+        except minio.error.S3Error as e:
             pass
 
         return exists
@@ -133,7 +133,7 @@ class ObjectStorage:
         try:
             objects = self.client.list_objects(bucket_name, prefix, recursive, start_after, include_user_meta, include_version)
             return objects
-        except error.S3Error as err:
+        except minio.error.S3Error as err:
             print(err)
 
     def query_objects(self, bucket_name: str, metadata: dict = None, prefix: str = None, use_regex: bool = False):
