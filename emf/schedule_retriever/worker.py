@@ -14,7 +14,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retrie
 
 # Transfer schedules from EDX to Elk
 message_types = EDX_MESSAGE_TYPE.split(",")
-elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN)
+elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True)
 service = edx.EDX(converter=iec_schedule_to_ndjson, handler=elk_handler, message_types=message_types)
 service.run()
 
