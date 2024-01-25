@@ -1,5 +1,5 @@
 import pypowsybl
-from helper import load_model, load_opdm_data, filename_from_metadata
+from helper import load_model, load_opdm_data, filename_from_metadata, export_model
 from validator import validate_model
 from emf.common.integrations.opdm import OPDM
 from emf.loadflow_tool.scaler import query_hvdc_schedules, query_acnp_schedules, scale_balance
@@ -141,14 +141,9 @@ export_file_path = os.path.join(temp_dir, f"MERGED_SV_{uuid.uuid4()}.zip")
 logger.info(f"Exprting merged model to {export_file_path}")
 
 export_report = pypowsybl.report.Reporter()
-merged_model["NETWORK"].dump(export_file_path,
-                           format="CGMES",
-                           parameters={
-                                "iidm.export.cgmes.modeling-authority-set": CGM_meta['opdm:OPDMObject']['pmd:modelingAuthoritySet'],
-                                "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta['opdm:OPDMObject']).split("_SV")[0],
-                                "iidm.export.cgmes.profiles": "SV",
-                                "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
-                                       })
+export_model(merged_model["NETWORK"], CGM_meta)
+
+# pypowsybl.network.
 
 # 8. Post Process (Fix SV Export, Generate updated SSH, Update Metadata)
 

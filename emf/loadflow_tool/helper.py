@@ -310,3 +310,14 @@ def get_metadata_from_filename(file_name):
             file_metadata["Model.forEntity"] = entity_and_area_list
 
     return file_metadata
+
+def export_model(network: pypowsybl.network, CGM_meta):
+
+    return network.save_to_binary_buffer(
+        format="CGMES",
+        parameters={
+            "iidm.export.cgmes.modeling-authority-set": CGM_meta['opdm:OPDMObject']['pmd:modelingAuthoritySet'],
+            "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta['opdm:OPDMObject']).split("_SV")[0],
+            "iidm.export.cgmes.profiles": "SV",
+            "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
+        })
