@@ -13,13 +13,13 @@ import functools
 import time
 import logging
 import pika
-import os
-import settings
-import sys
+import config
+from emf.common.config_parser import parse_app_properties
 
 
 logger = logging.getLogger(__name__)
 
+parse_app_properties(globals(), config.paths.integrations.rabbit)
 
 class RMQConsumer(object):
     """This is an example consumer that will handle unexpected interactions
@@ -35,7 +35,15 @@ class RMQConsumer(object):
 
     """
 
-    def __init__(self, host, port, virtual_host, que, username, password, message_handler=None, message_converter=None):
+    def __init__(self,
+                 host: str = RMQ_SERVER,
+                 port: int = int(RMQ_PORT),
+                 virtual_host: str = RMQ_VHOST,
+                 que: str = None,
+                 username: str = RMQ_USERNAME,
+                 password: str = RMQ_PASSWORD,
+                 message_handler: object = None,
+                 message_converter: object = None):
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
 
@@ -64,8 +72,8 @@ class RMQConsumer(object):
         self._username = username
 
         self._connection_parameters = pika.ConnectionParameters(host=self._host,
-                                                                port=port,
-                                                                virtual_host=virtual_host,
+                                                                port=self.port,
+                                                                virtual_host=self.virtual_host,
                                                                 credentials=pika.PlainCredentials(username, password))
 
     def connect(self):
@@ -251,7 +259,7 @@ class RMQConsumer(object):
 
         if self.message_handler:
             try:
-                self.message_handler.send(body, properties)
+                self.message_handler.send(byte_string=body, properties=properties)
                 logger.info(f"Message sent")
             except Exception as error:
                 logger.error(f"Message sending failed: {error}")
@@ -259,7 +267,6 @@ class RMQConsumer(object):
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
-
 
 
     def acknowledge_message(self, delivery_tag):
@@ -384,15 +391,15 @@ if __name__ == '__main__':
 
     import sys
     logging.basicConfig(stream=sys.stdout,
-                        format=settings.log_format,
-                        level=settings.log_level)
+                        format="%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s",
+                        level=logging.INFO)
 
-    host = settings.rmq_server
-    port = int(settings.rmq_amqp_port)
-    vhost = settings.rmq_vhost
-    que = settings.rmq_queue
-    username = settings.rmq_username
-    password = settings.rmq_password
+    host = r'test-rscrabbit.elering.sise'
+    port = 5670
+    vhost = r'/'
+    que = 'object-storage.schedules.iec'
+    username = None
+    password = None
 
     consumer = RMQConsumer(host, port, vhost, que, username, password, message_handler=None)
     try:
