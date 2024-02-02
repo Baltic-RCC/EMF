@@ -72,8 +72,8 @@ class RMQConsumer(object):
         self._username = username
 
         self._connection_parameters = pika.ConnectionParameters(host=self._host,
-                                                                port=self.port,
-                                                                virtual_host=self.virtual_host,
+                                                                port=self._port,
+                                                                virtual_host=self._virtual_host,
                                                                 credentials=pika.PlainCredentials(username, password))
 
     def connect(self):
