@@ -16,6 +16,7 @@ elasticsearch = "*"
 minio = "*"
 pytz = "*"
 requests = "*"
+pika = "*"
 
 [dev-packages]
 tabulate = "*"
