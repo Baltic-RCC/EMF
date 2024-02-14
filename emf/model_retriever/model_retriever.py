@@ -53,7 +53,7 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
     :param opdm_objects: list of opdm objects
     :param opdm_service: opdm api service instance
     :param minio_service: minio api service instance
-    :return: list of opdm objects updated with minio url where it was stored
+    :return: list of opdm objects updated (if necessary to update something)
     """
     updated_opdm_objects = []
 
@@ -61,23 +61,39 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
         # Get model from OPDM
         response = opdm_service.download_object(opdm_object={'opdm:OPDMObject': opdm_object})
 
-        # Put all components to bytesio zip
-        output_object = BytesIO()
-        with ZipFile(output_object, "w") as global_zip:
-            for instance in response['opdm:OPDMObject']['opde:Component']:
-                with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
-                    for file_name in instance_zip.namelist():
-                        logger.debug(f"Adding file: {file_name}")
-                        global_zip.writestr(file_name, instance_zip.open(file_name).read())
+        # TODO backup solution
+        # Put all components to bytesio zip (all components to one zip)
+        # output_object = BytesIO()
+        # with ZipFile(output_object, "w") as global_zip:
+        #     for instance in response['opdm:OPDMObject']['opde:Component']:
+        #         with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
+        #             for file_name in instance_zip.namelist():
+        #                 logger.debug(f"Adding file: {file_name}")
+        #                 global_zip.writestr(file_name, instance_zip.open(file_name).read())
 
         # Upload model to minio storage
         # _name = f"{opdm_object['opde:Object-Type']}_{opdm_object['pmd:validFrom']}_{opdm_object['pmd:timeHorizon']}_{opdm_object['pmd:TSO']}_{opdm_object['pmd:versionNumber']}.zip"
-        output_object.name = opdm_object['pmd:content-reference']
-        minio_service.upload_object(file_path_or_file_object=output_object,
-                                    bucket_name=MINIO_BUCKET)
+        # output_object.name = opdm_object['pmd:content-reference']
+        # minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
         # Update metadata object by stored file url
-        opdm_object['URL'] = output_object.name
+        # opdm_object['URL'] = output_object.name
+        # updated_opdm_objects.append(opdm_object)
+
+        # Put all components to bytesio zip (each component to different zip)
+        for component in response['opdm:OPDMObject']['opde:Component']:
+            output_object = BytesIO()
+            with ZipFile(output_object, "w") as component_zip:
+                with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
+                    for file_name in profile_zip.namelist():
+                        logger.debug(f"Adding file: {file_name}")
+                        component_zip.writestr(file_name, profile_zip.open(file_name).read())
+
+            # Upload components to minio storage
+            output_object.name = component['opdm:Profile']['pmd:content-reference']
+            logger.info(f"Uploading component to object storage: {output_object.name}")
+            minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
+
         updated_opdm_objects.append(opdm_object)
 
     return updated_opdm_objects
