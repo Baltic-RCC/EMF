@@ -113,19 +113,19 @@ merged_model['NETWORK'] = scale_balance(network=merged_model['NETWORK'], ac_sche
 
 # TODO - maybe make into function
 SV_ID = merged_model['NETWORK_META']['id'].split("uuid:")[-1]
-CGM_meta = {'opdm:OPDMObject': {'pmd:fullModel_ID': SV_ID,
-                                'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}",
-                                'pmd:timeHorizon': time_horizon,
-                                'pmd:cgmesProfile': 'SV',
-                                'pmd:contentType': 'CGMES',
-                                'pmd:modelPartReference': '',
-                                'pmd:mergingEntity': 'BALTICRSC',
-                                'pmd:mergingArea': area,
-                                'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
-                                'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
-                                'pmd:scenarioDate': scenario_date,
-                                'pmd:modelid': SV_ID,
-                                'pmd:description':
+CGM_meta = {'pmd:fullModel_ID': SV_ID,
+            'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}",
+            'pmd:timeHorizon': time_horizon,
+            'pmd:cgmesProfile': 'SV',
+            'pmd:contentType': 'CGMES',
+            'pmd:modelPartReference': '',
+            'pmd:mergingEntity': 'BALTICRSC',
+            'pmd:mergingArea': area,
+            'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
+            'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
+            'pmd:scenarioDate': scenario_date,
+            'pmd:modelid': SV_ID,
+            'pmd:description':
 f"""<MDE>
     <BP>{time_horizon}</BP>
     <TOOL>pypowsybl_{pypowsybl.__version__}</TOOL>
@@ -133,7 +133,7 @@ f"""<MDE>
 </MDE>""",
                                 'pmd:versionNumber': version,
                                 'file_type': "xml"}
-            }
+
 
 #temp_dir = tempfile.mkdtemp()
 temp_dir = ""
@@ -144,8 +144,8 @@ export_report = pypowsybl.report.Reporter()
 merged_model["NETWORK"].dump(export_file_path,
                            format="CGMES",
                            parameters={
-                                "iidm.export.cgmes.modeling-authority-set": CGM_meta['opdm:OPDMObject']['pmd:modelingAuthoritySet'],
-                                "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta['opdm:OPDMObject']).split("_SV")[0],
+                                "iidm.export.cgmes.modeling-authority-set": CGM_meta['pmd:modelingAuthoritySet'],
+                                "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta).split("_SV")[0],
                                 "iidm.export.cgmes.profiles": "SV",
                                 "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
                                        })

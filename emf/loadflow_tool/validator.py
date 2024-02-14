@@ -1,8 +1,8 @@
 import pypowsybl
-from helper import attr_to_dict, load_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model
 import logging
 import json
-import loadflow_settings
+from emf.loadflow_tool.loadflow_settings import *
 import time
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # note - multiple islands wo load or generation can be an issue
 
 
-def validate_model(opdm_objects, loadflow_parameters=loadflow_settings.CGM_RELAXED_2, run_element_validations=True):
+def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects)
@@ -85,7 +85,7 @@ if __name__ == "__main__":
             #logger.error("Validation failed", error)
 
     # Print validation statuses
-    [print(dict(tso=model['opdm:OPDMObject']['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
+    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
 
     # With EMF IGM Validation settings
     # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}

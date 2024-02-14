@@ -59,13 +59,13 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
 
     for opdm_object in opdm_objects:
         # Get model from OPDM
-        response = opdm_service.download_object(opdm_object={'opdm:OPDMObject': opdm_object})
+        response = opdm_service.download_object(opdm_object=opdm_object)
 
         # TODO backup solution
         # Put all components to bytesio zip (all components to one zip)
         # output_object = BytesIO()
         # with ZipFile(output_object, "w") as global_zip:
-        #     for instance in response['opdm:OPDMObject']['opde:Component']:
+        #     for instance in response['opde:Component']:
         #         with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
         #             for file_name in instance_zip.namelist():
         #                 logger.debug(f"Adding file: {file_name}")
