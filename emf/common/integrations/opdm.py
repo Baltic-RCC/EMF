@@ -38,7 +38,7 @@ class OPDM(opdm_api.create_client):
     def download_object(self, opdm_object, output_format='bytes', output_dir=None):
 
         if output_format == 'file':
-            for cimxml_file in opdm_object['opdm:OPDMObject']['opde:Component']:
+            for cimxml_file in opdm_object['opde:Component']:
                 file_id = cimxml_file['opdm:Profile']['opde:Id']
                 file_name = cimxml_file['opdm:Profile']['pmd:fileName']
                 file_path = os.path.join(output_dir, file_name)
@@ -55,7 +55,7 @@ class OPDM(opdm_api.create_client):
             return None
 
         if output_format == 'bytes':
-            model_meta = opdm_object['opdm:OPDMObject']
+            model_meta = opdm_object
             party = model_meta.get('pmd:modelPartReference',  model_meta.get('pmd:TSO', ''))
 
             for pos, model_part in enumerate(model_meta['opde:Component']):
@@ -73,10 +73,10 @@ class OPDM(opdm_api.create_client):
 
                 if not content_data:
                     logger.error(f"{model_part_name} not available on webdav")
-                    opdm_object['opdm:OPDMObject']['opde:Component'][pos]['opdm:Profile']["DATA"] = None
+                    opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
 
                 # Save data to metadata object
-                opdm_object['opdm:OPDMObject']['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
 
             return opdm_object
 
@@ -114,7 +114,7 @@ class OPDM(opdm_api.create_client):
 
             for model in latest_models.to_dict("records"):
                 try:
-                    models_downloaded.append(self.download_object(opdm_object={'opdm:OPDMObject': model}))
+                    models_downloaded.append(self.download_object(opdm_object=model))
                 except:
                     logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
                     logger.error(sys.exc_info())
@@ -142,7 +142,7 @@ class OPDM(opdm_api.create_client):
         latest_boundary_meta = boundaries[list(official_boundary_data.sort_values(["date_time", "version"], ascending=False).index)[0]]
 
         # Download the latest boundary
-        return self.download_object(opdm_object=latest_boundary_meta)
+        return self.download_object(opdm_object=latest_boundary_meta['opdm:OPDMObject'])
 
 
 if __name__ == '__main__':
