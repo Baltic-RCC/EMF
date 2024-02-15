@@ -81,7 +81,7 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
         # updated_opdm_objects.append(opdm_object)
 
         # Put all components to bytesio zip (each component to different zip)
-        for component in response['opdm:OPDMObject']['opde:Component']:
+        for component in response['opde:Component']:
             output_object = BytesIO()
             with ZipFile(output_object, "w") as component_zip:
                 with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
