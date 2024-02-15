@@ -91,6 +91,7 @@ def opde_models_to_minio(opdm_objects: list, opdm_service: object, minio_service
 
             # Upload components to minio storage
             output_object.name = component['opdm:Profile']['pmd:content-reference']
+            output_object.name = output_object.name.replace('//', '/')  # sanitize double slash in url
             logger.info(f"Uploading component to object storage: {output_object.name}")
             minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
