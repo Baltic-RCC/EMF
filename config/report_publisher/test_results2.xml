@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QAReport xmlns="http://entsoe.eu/checks"
+          created="2024-02-19T12:55:29.3784481+02:00"
+          schemeVersion="2.0"
+          serviceProvider="BALTICRSC">
+   <IGM created="2021-12-15T17:48:50Z"
+        processType="20"
+        qualityIndicator="Substituted"
+        scenarioTime="2021-12-16T13:30:00Z"
+        tso=""
+        version="001">
+      <resource>c776bf95-8bde-4000-9d20-24c3fe72ea10</resource>
+      <resource>d01d230b-224b-443f-a99b-3ebe1e5f0b4e</resource>
+      <resource>83199658-f8e4-4091-8a9c-7f440177e9c4</resource>
+      <resource>a89299d1-0ca8-4db1-b9e5-0fdde6c66c57</resource>
+      <RuleViolation validationLevel="8" ruleId="IGMConvergence" severity="ERROR">
+         <Message>MSG 52. ERROR: IGM for http://www.apg.at/OperationalPlanning did not converge.</Message>
+      </RuleViolation>
+   </IGM>
+</QAReport>
