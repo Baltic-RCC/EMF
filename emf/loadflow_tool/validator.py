@@ -27,17 +27,19 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
 
         for validation in validations:
             validation_type = getattr(pypowsybl._pypowsybl.ValidationType, validation)
+            logger.info(f"Running validation: {validation_type}")
             model_data["VALIDATIONS"][validation] = pypowsybl.loadflow.run_validation(network,
                                                                                       [validation_type])
 
     # Validate if PF can be run
+    logger.info(f"Solving load flow")
     loadflow_report = pypowsybl.report.Reporter()
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
 
     loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
-    model_data["LOADFLOW_RESUTLS"] = loadflow_result_dict
+    model_data["LOADFLOW_RESULTS"] = loadflow_result_dict
 
     model_data["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
     model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
