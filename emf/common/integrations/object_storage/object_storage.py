@@ -7,6 +7,8 @@ from emf.common.config_parser import parse_app_properties
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.object_storage)
+elastic_service = elastic.Elastic()
+minio_service = ObjectStorage()
 
 
 def query_data(metadata_query: dict, index=ELASTIC_QUERY_INDEX, return_payload=False):
@@ -36,7 +38,7 @@ def query_data(metadata_query: dict, index=ELASTIC_QUERY_INDEX, return_payload=F
     query_match_list = [{"match": {key: metadata_query.get(key)}} for key in metadata_query]
     query = {"bool": {"must": query_match_list}}
 
-    response = elastic.Elastic().client.search(index=index, query=query, size='10000')
+    response = elastic_service.client.search(index=index, query=query, size='10000')
     content_list = [content["_source"] for content in response["hits"]["hits"]]
 
     if return_payload:
@@ -51,7 +53,7 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     Retrieves content data from MinIO based on metadata information.
 
     Args:
-        metadata (dict): A dictionary containing metadata information, particularly 'opde:Component'.
+        metadata (dict): A dictionary containing metadata information.
         bucket_name (str): The name of the MinIO bucket to fetch data from.
             Defaults to MINIO_BUCKET_NAME from config variables.
 
@@ -64,14 +66,12 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     """
 
     logger.info(f"Getting data from MinIO")
-    opde_components = metadata["opde:Component"]
-
-    for component in opde_components:
+    for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
         logger.info(f"Downloading {content_reference}")
-        component["opdm:Profile"]["DATA"] = ObjectStorage().download_object(bucket_name, content_reference)
+        component["opdm:Profile"]["DATA"] = minio_service.download_object(bucket_name, content_reference)
 
-    return opde_components
+    return metadata
 
 
 if __name__ == '__main__':
@@ -87,4 +87,4 @@ if __name__ == '__main__':
                   }
 
     test_response = query_data(test_query, return_payload=True)
-    logger.info("Test script ended")
+    logger.info("Test script finished")
