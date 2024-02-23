@@ -113,19 +113,19 @@ merged_model['NETWORK'] = scale_balance(network=merged_model['NETWORK'], ac_sche
 
 # TODO - maybe make into function
 SV_ID = merged_model['NETWORK_META']['id'].split("uuid:")[-1]
-CGM_meta = {'opdm:OPDMObject': {'pmd:fullModel_ID': SV_ID,
-                                'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}",
-                                'pmd:timeHorizon': time_horizon,
-                                'pmd:cgmesProfile': 'SV',
-                                'pmd:contentType': 'CGMES',
-                                'pmd:modelPartReference': '',
-                                'pmd:mergingEntity': 'BALTICRSC',
-                                'pmd:mergingArea': area,
-                                'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
-                                'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
-                                'pmd:scenarioDate': scenario_date,
-                                'pmd:modelid': SV_ID,
-                                'pmd:description':
+CGM_meta = {'pmd:fullModel_ID': SV_ID,
+            'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%SZ}",
+            'pmd:timeHorizon': time_horizon,
+            'pmd:cgmesProfile': 'SV',
+            'pmd:contentType': 'CGMES',
+            'pmd:modelPartReference': '',
+            'pmd:mergingEntity': 'BALTICRSC',
+            'pmd:mergingArea': area,
+            'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
+            'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
+            'pmd:scenarioDate': scenario_date,
+            'pmd:modelid': SV_ID,
+            'pmd:description':
 f"""<MDE>
     <BP>{time_horizon}</BP>
     <TOOL>pypowsybl_{pypowsybl.__version__}</TOOL>
@@ -133,17 +133,13 @@ f"""<MDE>
 </MDE>""",
                                 'pmd:versionNumber': version,
                                 'file_type': "xml"}
-            }
+
 
 #temp_dir = tempfile.mkdtemp()
-temp_dir = ""
-export_file_path = os.path.join(temp_dir, f"MERGED_SV_{uuid.uuid4()}.zip")
-logger.info(f"Exprting merged model to {export_file_path}")
 
 export_report = pypowsybl.report.Reporter()
-export_model(merged_model["NETWORK"], CGM_meta)
-
-# pypowsybl.network.
+exported_model = export_model(merged_model["NETWORK"])
+logger.info(f"Exporting merged model to {exported_model.name}")
 
 # 8. Post Process (Fix SV Export, Generate updated SSH, Update Metadata)
 

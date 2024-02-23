@@ -27,7 +27,7 @@ powsybl_default_export_settings = {
 }
 
 # TODO - Add comments and docstring
-def package_for_pypowsybl(opdm_objects: list, return_zip: bool = False):
+def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
     """
     Method to transform OPDM objects into sufficient format binary buffer or zip package
     :param opdm_objects: list of OPDM objects
@@ -41,7 +41,7 @@ def package_for_pypowsybl(opdm_objects: list, return_zip: bool = False):
 
     with ZipFile(output_object, "w") as global_zip:
         for opdm_components in opdm_objects:
-            for instance in opdm_components['opdm:OPDMObject']['opde:Component']:
+            for instance in opdm_components['opde:Component']:
                 with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
                     for file_name in instance_zip.namelist():
                         logging.info(f"Adding file: {file_name}")
@@ -57,7 +57,7 @@ def save_opdm_objects(opdm_objects: list) -> list:
     """
     exported_files = []
     for opdm_components in opdm_objects:
-        for instance in opdm_components['opdm:OPDMObject']['opde:Component']:
+        for instance in opdm_components['opde:Component']:
             file_name = instance['opdm:Profile']['pmd:fileName']
             logger.info(f'Saving - {file_name}')
             with open(file_name, 'wb') as instance_zip:
@@ -149,8 +149,8 @@ def opdmprofile_to_bytes(opdm_profile):
 
 def load_opdm_data(opdm_objects, profile=None):
     if profile:
-        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opdm:OPDMObject']['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
-    return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opdm:OPDMObject']['opde:Component']])
+        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
+    return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
 
 def filename_from_metadata(metadata):
 
@@ -311,13 +311,18 @@ def get_metadata_from_filename(file_name):
 
     return file_metadata
 
+
 def export_model(network: pypowsybl.network, CGM_meta):
 
-    return network.save_to_binary_buffer(
+    bytes_object = network.save_to_binary_buffer(
         format="CGMES",
         parameters={
-            "iidm.export.cgmes.modeling-authority-set": CGM_meta['opdm:OPDMObject']['pmd:modelingAuthoritySet'],
-            "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta['opdm:OPDMObject']).split("_SV")[0],
-            "iidm.export.cgmes.profiles": "SV",
+            "iidm.export.cgmes.modeling-authority-set": CGM_meta['pmd:modelingAuthoritySet'],
+            "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta).split(".xml")[0],
+            "iidm.export.cgmes.profiles": "SV,SSH,TP,EQ",
             "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
         })
+    temp_dir = ""
+    bytes_object.name =os.path.join(temp_dir, f"MERGED_MODEL_{uuid.uuid4()}.zip")
+
+    return bytes_object
