@@ -1,10 +1,36 @@
 from saxonche import PySaxonProcessor
 from lxml import etree
 import logging
-import os
+import time
 import sys
+import config
+from emf.common.integrations import rabbit_draft
+from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
+parse_app_properties(globals(), config.paths.xslt_service.xslt)
+
+rabbit_service = rabbit_draft.BlockingClient()
+
+
+def run_service(stylesheet, xsd):
+
+    while True:
+        method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
+
+        if not body:
+            time.sleep(10)
+            continue
+
+        response = xslt30_convert(body, stylesheet)
+        is_valid = validate_xml(response, xsd)
+
+        headers = {"file-type": "xml",
+                   "business-type": "QA-report",
+                   "is-valid": is_valid,
+                   }
+        logger.info(f"Sending message to exchange: '{RMQ_EXCHANGE}'")
+        rabbit_service.publish(response, RMQ_EXCHANGE, headers=headers)
 
 
 def xslt30_convert(source_file, stylesheet_file, output_file=None):
@@ -77,5 +103,7 @@ if __name__ == '__main__':
     result2 = xslt30_convert(xml_bytes, xsl_bytes)
     validate_xml(test_output_file, xsd_file)
     validate_xml(result2, xsd_bytes)
+
+    run_service(xsl_bytes, xsd_bytes)
 
     print('Script finished')

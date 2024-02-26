@@ -17,6 +17,7 @@ minio = "*"
 pytz = "*"
 requests = "*"
 pika = "*"
+saxonche = "*"
 
 [dev-packages]
 tabulate = "*"
