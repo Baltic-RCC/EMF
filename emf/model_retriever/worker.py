@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
-edx_service = edx.EDX()
-# rabbit_service = rabbit_draft.BlockingClient(message_converter=opdm_metadata_to_json)
+# edx_service = edx.EDX()
+rabbit_service = rabbit_draft.BlockingClient(message_converter=opdm_metadata_to_json)
 opdm_service = opdm.OPDM()
 minio_service = minio.ObjectStorage()
 
@@ -26,10 +26,10 @@ elk_service = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True, id
 
 while True:
     # Get model from EDX
-    body, properties = model_retriever.get_opdm_object_from_edx(message_type=EDX_MESSAGE_TYPE, edx_service=edx_service)
+    # body, properties = model_retriever.get_opdm_object_from_edx(message_type=EDX_MESSAGE_TYPE, edx_service=edx_service)
 
     # Get network model metadata object from RabbitMQ queue
-    # method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
+    method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
 
     if not body:
         time.sleep(10)
