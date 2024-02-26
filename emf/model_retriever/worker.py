@@ -4,12 +4,17 @@ import config
 import json
 import uuid
 from emf.model_retriever import model_retriever
-from emf.common.integrations import elastic, opdm, minio, edx, rabbit_draft
+from emf.common.integrations import elastic, opdm, minio, edx, rabbit
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.loadflow_tool.validator import validate_model
 from emf.common.converters import opdm_metadata_to_json
 
+import sys
+
+logging.basicConfig(stream=sys.stdout,
+                    format="%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s",
+                    level=logging.INFO)
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
@@ -18,7 +23,7 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
 # edx_service = edx.EDX()
-rabbit_service = rabbit_draft.BlockingClient(message_converter=opdm_metadata_to_json)
+rabbit_service = rabbit.BlockingClient(message_converter=opdm_metadata_to_json)
 opdm_service = opdm.OPDM()
 minio_service = minio.ObjectStorage()
 
