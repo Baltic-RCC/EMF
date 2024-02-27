@@ -4,13 +4,13 @@ import logging
 import time
 import sys
 import config
-from emf.common.integrations import rabbit_draft
+from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.xslt_service.xslt)
 
-rabbit_service = rabbit_draft.BlockingClient()
+rabbit_service = rabbit.BlockingClient()
 
 
 def run_service(stylesheet, xsd):
