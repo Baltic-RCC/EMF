@@ -10,6 +10,7 @@ import pandas
 import os
 from lxml import etree
 import triplets
+import uuid
 
 
 logger = logging.getLogger(__name__)
@@ -312,17 +313,23 @@ def get_metadata_from_filename(file_name):
     return file_metadata
 
 
-def export_model(network: pypowsybl.network, CGM_meta):
+def export_model(network: pypowsybl.network, CGM_meta, profiles=None):
+
+    if profiles:
+        profiles = ",".join([str(profile) for profile in profiles])
+    else:
+        profiles = "SV,SSH,TP,EQ"
 
     bytes_object = network.save_to_binary_buffer(
         format="CGMES",
         parameters={
             "iidm.export.cgmes.modeling-authority-set": CGM_meta['pmd:modelingAuthoritySet'],
             "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta).split(".xml")[0],
-            "iidm.export.cgmes.profiles": "SV,SSH,TP,EQ",
+            "iidm.export.cgmes.profiles": profiles,
             "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
         })
-    temp_dir = ""
-    bytes_object.name =os.path.join(temp_dir, f"MERGED_MODEL_{uuid.uuid4()}.zip")
+
+    file_base_name = filename_from_metadata(CGM_meta).split(".xml")[0]
+    bytes_object.name =f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object

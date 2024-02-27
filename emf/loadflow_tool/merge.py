@@ -97,11 +97,11 @@ f"""<MDE>
 #temp_dir = tempfile.mkdtemp()
 
 export_report = pypowsybl.report.Reporter()
-exported_model = export_model(merged_model["NETWORK"])
+exported_model = export_model(merged_model["NETWORK"], CGM_meta, ["SV"])
 logger.info(f"Exporting merged model to {exported_model.name}")
 
 # Load SV data
-sv_data = pandas.read_RDF([exported_model.name])
+sv_data = pandas.read_RDF([exported_model])
 
 # Update SV filename
 sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(CGM_meta))

@@ -138,7 +138,7 @@ f"""<MDE>
 #temp_dir = tempfile.mkdtemp()
 
 export_report = pypowsybl.report.Reporter()
-exported_model = export_model(merged_model["NETWORK"])
+exported_model = export_model(merged_model["NETWORK"], CGM_meta, ["SV"])
 logger.info(f"Exporting merged model to {exported_model.name}")
 
 # 8. Post Process (Fix SV Export, Generate updated SSH, Update Metadata)
