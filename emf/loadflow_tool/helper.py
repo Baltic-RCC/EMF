@@ -320,16 +320,17 @@ def export_model(network: pypowsybl.network, CGM_meta, profiles=None):
     else:
         profiles = "SV,SSH,TP,EQ"
 
+    file_base_name = filename_from_metadata(CGM_meta).split(".xml")[0]
+
     bytes_object = network.save_to_binary_buffer(
         format="CGMES",
         parameters={
             "iidm.export.cgmes.modeling-authority-set": CGM_meta['pmd:modelingAuthoritySet'],
-            "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta).split(".xml")[0],
+            "iidm.export.cgmes.base-name": file_base_name,
             "iidm.export.cgmes.profiles": profiles,
             "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
         })
 
-    file_base_name = filename_from_metadata(CGM_meta).split(".xml")[0]
-    bytes_object.name =f"{file_base_name}_{uuid.uuid4()}.zip"
+    bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object
