@@ -5,6 +5,7 @@ import time
 import json
 import sys
 import config
+import os
 from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
 
@@ -14,15 +15,19 @@ parse_app_properties(globals(), config.paths.xslt_service.xslt)
 rabbit_service = rabbit.BlockingClient()
 
 
-def do_conversion(channel, method, properties, body):
+def do_conversion(channel, method, properties, body: str):
 
-    message_dict = json.loads(body.decode("utf-8"))
+    message_dict = json.loads(body)
     body = xslt30_convert(message_dict.get('XML'), message_dict.get('XSL'))
-    is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
 
-    properties.headers = {"file-type": "xml",
+    if 'XSD' in message_dict.keys():
+        is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
+    else:
+        is_valid = None
+
+    properties.headers = {"file-type": "XML",
                           "business-type": "QA-report",
-                          "is-valid": is_valid,
+                          "is-valid": f"{is_valid}",
                           }
 
     return channel, method, properties, body
@@ -39,12 +44,18 @@ def xslt30_convert(source_file, stylesheet_file, output_file=None):
         xslt30 = saxon.new_xslt30_processor()
 
         if str == type(source_file):
-            document = saxon.parse_xml(xml_text=source_file)
+            if os.path.isfile(source_file):
+                document = saxon.parse_xml(xml_file_name=source_file)
+            else:
+                document = saxon.parse_xml(xml_text=source_file)
         if bytes == type(source_file):
             document = saxon.parse_xml(xml_text=source_file.decode("utf-8"))
 
         if str == type(stylesheet_file):
-            executable = xslt30.compile_stylesheet(stylesheet_text=stylesheet_file)
+            if os.path.isfile(source_file):
+                executable = xslt30.compile_stylesheet(stylesheet_file=stylesheet_file)
+            else:
+                executable = xslt30.compile_stylesheet(stylesheet_text=stylesheet_file)
         if bytes == type(stylesheet_file):
             executable = xslt30.compile_stylesheet(stylesheet_text=stylesheet_file.decode("utf-8"))
 
@@ -95,9 +106,9 @@ if __name__ == '__main__':
     data = {"XML": xml_bytes.decode(),"XSL": xsl_bytes.decode(), "XSD": xsd_bytes.decode()}
     message_json = json.dumps(data)
 
-    # rabbit_service.publish(message_json, 'emfos.xslt.test')
-    # print(f"Sending to exchange {RMQ_EXCHANGE}")
-    # time.sleep(2)
+    rabbit_service.publish(message_json, 'emfos.xslt')
+    print(f"Sending to exchange 'emfos.xslt'")
+    time.sleep(2)
 
     run_service()
 
