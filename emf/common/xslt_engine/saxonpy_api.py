@@ -23,6 +23,7 @@ def do_conversion(channel, method, properties, body: str):
     if 'XSD' in message_dict.keys():
         is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
     else:
+        logger.warning("XSD file not found in message, report was not validated")
         is_valid = None
 
     properties.headers = {"file-type": "XML",
