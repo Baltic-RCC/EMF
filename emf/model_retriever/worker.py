@@ -2,15 +2,14 @@ import logging
 import time
 import config
 import json
+import sys
 import uuid
-from emf.model_retriever import model_retriever
+from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsValidator, HandlerMetadataToElastic
 from emf.common.integrations import elastic, opdm, minio, edx, rabbit
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.loadflow_tool.validator import validate_model
 from emf.common.converters import opdm_metadata_to_json
-
-import sys
 
 logging.basicConfig(stream=sys.stdout,
                     format="%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s",
@@ -22,19 +21,27 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
-# edx_service = edx.EDX()
-rabbit_service = rabbit.BlockingClient(message_converter=opdm_metadata_to_json)
+# RabbitMQ consumer implementation
+elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True)
+consumer = rabbit.RMQConsumer(
+    que=RMQ_QUEUE,
+    message_converter=opdm_metadata_to_json,
+    message_handlers=[HandlerModelsToMinio, HandlerModelsValidator, HandlerMetadataToElastic],
+)
+try:
+    consumer.run()
+except KeyboardInterrupt:
+    consumer.stop()
+
+# EDX SOAP API implementation
+edx_service = edx.EDX()
 opdm_service = opdm.OPDM()
 minio_service = minio.ObjectStorage()
-
 elk_service = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True, id_metadata_list=['opde:Id'])
 
 while True:
     # Get model from EDX
-    # body, properties = model_retriever.get_opdm_object_from_edx(message_type=EDX_MESSAGE_TYPE, edx_service=edx_service)
-
-    # Get network model metadata object from RabbitMQ queue
-    method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
+    body, properties = model_retriever.get_opdm_object_from_edx(message_type=EDX_MESSAGE_TYPE, edx_service=edx_service)
 
     if not body:
         time.sleep(10)
@@ -60,3 +67,9 @@ while True:
     # Send model metadata to ELK
     elk_service.send(byte_string=json.dumps(opdm_objects, default=str).encode('utf-8'), properties=properties)
     logger.info(f"Network model metadata sent to object-storage.elk")
+
+
+# TODO BACKLOG
+# Get network model metadata object from RabbitMQ queue
+# rabbit_service = rabbit.BlockingClient(message_converter=opdm_metadata_to_json)
+# method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
