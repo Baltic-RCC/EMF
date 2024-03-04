@@ -117,26 +117,28 @@ def get_connected_component_counts(network: pypowsybl.network, bus_count_thresho
     return counts.to_dict()
 
 
-def load_model(opdm_objects):
+def load_model(opdm_objects: List[dict]):
 
-    model_data = {} #"model_meta": opdm_objects}
-
+    model_data = {}
     import_report = pypowsybl.report.Reporter()
-
-    network = pypowsybl.network.load_from_binary_buffer(package_for_pypowsybl(opdm_objects),
-                                     reporter=import_report,
-#                                     parameters={"iidm.import.cgmes.store-cgmes-model-as-network-extension": True,
-#                                                 "iidm.import.cgmes.create-active-power-control-extension": True,
-#                                                 "iidm.import.cgmes.post-processors": ["EntsoeCategory"]}
-                                     )
+    network = pypowsybl.network.load_from_binary_buffer(
+        buffer=package_for_pypowsybl(opdm_objects),
+        reporter=import_report,
+        # parameters={
+        #     "iidm.import.cgmes.store-cgmes-model-as-network-extension": 'true',
+        #     "iidm.import.cgmes.create-active-power-control-extension": 'true',
+        #     "iidm.import.cgmes.post-processors": ["EntsoeCategory"]}
+    )
 
     logger.info(f"Loaded {network}")
-    logger.debug(f'{import_report}')
+    logger.debug(f"{import_report}")
 
+    # Network model object data
     model_data["NETWORK_META"] = attr_to_dict(network)
     model_data["NETWORK"] = network
     model_data["NETWORK_VALID"] = network.validate().name
 
+    # Network model import reporter data
     model_data["IMPORT_REPORT"] = json.loads(import_report.to_json())
     model_data["IMPORT_REPORT_STR"] = str(import_report)
 

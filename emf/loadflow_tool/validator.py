@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
     # Load data
     start_time = time.time()
-    model_data = load_model(opdm_objects)
+    model_data = load_model(opdm_objects=opdm_objects)
     network = model_data["NETWORK"]
 
     # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
@@ -40,15 +40,16 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
 
     loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
     model_data["LOADFLOW_RESULTS"] = loadflow_result_dict
-
     model_data["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
     model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
 
+    # Validation status and duration
     model_valid = any([True if island["status"].name == "CONVERGED" else False for island in loadflow_result_dict])
-
     model_data["VALID"] = model_valid
-
     model_data["VALIDATION_DURATION_S"] = time.time() - start_time
+
+    # Pop out pypowsybl network object
+    model_data.pop('NETWORK')
 
     return model_data
 

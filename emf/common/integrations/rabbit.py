@@ -3,6 +3,7 @@ import time
 import logging
 import pika
 import config
+from typing import List
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
@@ -171,12 +172,12 @@ class RMQConsumer:
                  que: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
-                 message_handler: object | None = None,
+                 message_handlers: List[object] | None = None,
                  message_converter: object | None = None):
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
         """
-        self.message_handler = message_handler
+        self.message_handlers = message_handlers
         self.message_converter = message_converter
         self.should_reconnect = False
         self.was_consuming = False
@@ -380,15 +381,16 @@ class RMQConsumer:
                 logger.info(f"Message converted")
             except Exception as error:
                 logger.error(f"Message conversion failed: {error}")
-                #ack = False
+                # ack = False
 
-        if self.message_handler:
-            try:
-                self.message_handler.send(byte_string=body, properties=properties)
-                logger.info(f"Message sent")
-            except Exception as error:
-                logger.error(f"Message sending failed: {error}")
-                #ack = False
+        if self.message_handlers:
+            for message_handler in self.message_handlers:
+                try:
+                    logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
+                    body = message_handler.handle(body, properties=properties)
+                except Exception as error:
+                    logger.error(f"Message handling failed: {error}")
+                    # ack = False
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
