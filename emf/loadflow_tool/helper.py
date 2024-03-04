@@ -328,7 +328,7 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
             "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
             "iidm.export.cgmes.base-name": file_base_name,
             "iidm.export.cgmes.profiles": profiles,
-            "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
+            "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
         })
 
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
