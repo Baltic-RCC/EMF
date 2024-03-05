@@ -1,12 +1,20 @@
 import pypowsybl
-from emf.loadflow_tool.helper import attr_to_dict, load_model
 import logging
 import json
-from emf.loadflow_tool.loadflow_settings import *
 import time
+import math
+import config
+from emf.loadflow_tool.loadflow_settings import *
+from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.common.logging import custom_logger
+from emf.common.config_parser import parse_app_properties
+from emf.common.integrations import elastic
 
+# Initialize custom logger
+# custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
 logger = logging.getLogger(__name__)
 
+parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
 
 # TODO - record AC NP and DC Flows to metadata storage (and more), this is useful for replacement logic and scaling
 # note - multiple islands wo load or generation can be an issue
@@ -16,40 +24,59 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
-    network = model_data["NETWORK"]
+    network = model_data["network"]
 
     # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
     if run_element_validations:
         validations = list(
             set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value", "SHUNTS"]))
 
-        model_data["VALIDATIONS"] = {}
+        model_data["validations"] = {}
 
         for validation in validations:
             validation_type = getattr(pypowsybl._pypowsybl.ValidationType, validation)
             logger.info(f"Running validation: {validation_type}")
-            model_data["VALIDATIONS"][validation] = pypowsybl.loadflow.run_validation(network,
-                                                                                      [validation_type])
+            try:
+                # TODO figure out how to store full validation results if needed. Currently only status is taken
+                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network, validation_types=[validation_type])._valid.__bool__()
+            except Exception as error:
+                logger.error(f"Failed {validation_type} validation with error: {error}")
+                continue
 
-    # Validate if PF can be run
+    # Validate if loadflow can be run
     logger.info(f"Solving load flow")
     loadflow_report = pypowsybl.report.Reporter()
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
 
-    loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
-    model_data["LOADFLOW_RESULTS"] = loadflow_result_dict
-    model_data["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
-    model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
+
+    # Parsing loadflow results
+    # TODO move sanitization to Elastic integration
+    loadflow_result_dict = {}
+    for island in loadflow_result:
+        island_results = attr_to_dict(island)
+        island_results['status'] = island_results.get('status').name
+        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
+        loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
+    model_data["loadflow_results"] = loadflow_result_dict
+    # model_data["loadflow_report"] = json.loads(loadflow_report.to_json())
+    # model_data["loadflow_report_str"] = str(loadflow_report)
 
     # Validation status and duration
-    model_valid = any([True if island["status"].name == "CONVERGED" else False for island in loadflow_result_dict])
-    model_data["VALID"] = model_valid
-    model_data["VALIDATION_DURATION_S"] = time.time() - start_time
+    # TODO check only main island component 0?
+    model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
+    model_data["valid"] = model_valid
+    model_data["validation_duration_s"] = time.time() - start_time
 
     # Pop out pypowsybl network object
-    model_data.pop('NETWORK')
+    model_data.pop('network')
+
+    # Send validation data to Elastic
+    try:
+        response = elastic.Elastic.send_to_elastic(index=ELK_INDEX, json_message=model_data)
+    except Exception as error:
+        logger.error(f"Validation report sending to Elastic failed: {error}")
 
     return model_data
 

@@ -3,6 +3,7 @@ from uuid import uuid4
 from io import BytesIO
 from inspect import ismethod
 from typing import List
+from datetime import datetime
 import pypowsybl
 import json
 import logging
@@ -25,6 +26,7 @@ powsybl_default_export_settings = {
     "iidm.export.cgmes.boundary-TP-identifier": "",
     "iidm.export.cgmes.modeling-authority-set": "powsybl.org"
 }
+
 
 # TODO - Add comments and docstring
 def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
@@ -49,6 +51,7 @@ def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
 
     return output_object
 
+
 def save_opdm_objects(opdm_objects: list) -> list:
     """
     Function save OPDM objects on to local filesystem
@@ -67,17 +70,27 @@ def save_opdm_objects(opdm_objects: list) -> list:
     return exported_files
 
 
-def attr_to_dict(object):
+def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     """
     Method to return class variables/attributes as dictionary
     Example: LimitViolation(subject_id='e49a61d1-632a-11ec-8166-00505691de36', subject_name='', limit_type=HIGH_VOLTAGE, limit=450.0, limit_name='', acceptable_duration=2147483647, limit_reduction=1.0, value=555.6890952917897, side=ONE)
     pypowsybl._pypowsybl.LimitViolation -> dict
-    :param object: object
+    :param instance: class instance
+    :param sanitize_to_strings: flag to convert attributes to string type
     :return: dict
     """
 
-    attribs = [attr for attr in dir(object) if (not ismethod(getattr(object, attr)) and not attr.startswith("_"))]
-    result_dict = {attr_key: getattr(object, attr_key) for attr_key in attribs}
+    attribs = [attr for attr in dir(instance) if (not ismethod(getattr(instance, attr)) and not attr.startswith("_"))]
+    result_dict = {attr_key: getattr(instance, attr_key) for attr_key in attribs}
+
+    if sanitize_to_strings:
+        sanitized_dict = {}
+        for k, v in result_dict.items():
+            if isinstance(v, datetime):
+                sanitized_dict[k] = v.isoformat()
+            else:
+                sanitized_dict[k] = str(v)
+        result_dict = sanitized_dict
 
     return result_dict
 
@@ -134,25 +147,28 @@ def load_model(opdm_objects: List[dict]):
     logger.debug(f"{import_report}")
 
     # Network model object data
-    model_data["NETWORK_META"] = attr_to_dict(network)
-    model_data["NETWORK"] = network
-    model_data["NETWORK_VALID"] = network.validate().name
+    model_data["network_meta"] = attr_to_dict(instance=network, sanitize_to_strings=True)
+    model_data["network"] = network
+    model_data["network_valid"] = network.validate().name
 
     # Network model import reporter data
-    model_data["IMPORT_REPORT"] = json.loads(import_report.to_json())
-    model_data["IMPORT_REPORT_STR"] = str(import_report)
+    # model_data["import_report"] = json.loads(import_report.to_json())
+    # model_data["import_report_str"] = str(import_report)
 
     return model_data
+
 
 def opdmprofile_to_bytes(opdm_profile):
     data = BytesIO(opdm_profile['opdm:Profile']['DATA'])
     data.name = opdm_profile['opdm:Profile']['pmd:fileName']
     return data
 
+
 def load_opdm_data(opdm_objects, profile=None):
     if profile:
         return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
     return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
+
 
 def filename_from_metadata(metadata):
 

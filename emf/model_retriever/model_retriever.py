@@ -78,7 +78,7 @@ class HandlerModelsValidator:
         # Run network model validation
         for opdm_object in opdm_objects:
             response = validate_model(opdm_objects=[opdm_object, latest_boundary])
-            opdm_object["validation"] = response
+            opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
             for component in opdm_object['opde:Component']:  # pop out initial binary network model data
                 component['opdm:Profile'].pop('DATA')
 
@@ -88,7 +88,7 @@ class HandlerModelsValidator:
 class HandlerMetadataToElastic:
     """Handler to send OPDM metadata object to Elastic"""
     def __init__(self):
-        self.elastic_service = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True, id_metadata_list=['opde:Id'])
+        self.elastic_service = elastic.Handler(index=ELK_INDEX, id_from_metadata=True, id_metadata_list=['opde:Id'])
 
     def handle(self, opdm_objects: List[dict], **kwargs):
         self.elastic_service.send(byte_string=json.dumps(opdm_objects, default=str).encode('utf-8'),

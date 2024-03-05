@@ -3,12 +3,10 @@ import time
 import config
 import json
 import sys
-import uuid
 from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsValidator, HandlerMetadataToElastic
 from emf.common.integrations import elastic, opdm, minio, edx, rabbit
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.validator import validate_model
 from emf.common.converters import opdm_metadata_to_json
 
 logging.basicConfig(stream=sys.stdout,
@@ -22,7 +20,6 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
 # RabbitMQ consumer implementation
-elk_handler = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True)
 consumer = rabbit.RMQConsumer(
     que=RMQ_QUEUE,
     message_converter=opdm_metadata_to_json,
@@ -37,7 +34,7 @@ except KeyboardInterrupt:
 # edx_service = edx.EDX()
 # opdm_service = opdm.OPDM()
 # minio_service = minio.ObjectStorage()
-# elk_service = elastic.Handler(index=ELK_INDEX_PATTERN, id_from_metadata=True, id_metadata_list=['opde:Id'])
+# elk_service = elastic.Handler(index=ELK_INDEX_METADATA, id_from_metadata=True, id_metadata_list=['opde:Id'])
 #
 # while True:
 #     # Get model from EDX

@@ -62,7 +62,9 @@ class Elastic:
             logger.debug(f"Sending data to {url}")
         response = requests.post(url=url, json=json_message)
         if debug:
-            logger.debug(f"ELK response -> {response.content}")
+            logger.debug(f"ELK response: {response.content}")
+
+        return response
 
     @staticmethod
     def send_to_elastic_bulk(index,
@@ -104,7 +106,7 @@ class Elastic:
                                      timeout=None,
                                      headers={"Content-Type": "application/x-ndjson"})
             if debug:
-                logger.debug(f"ELK response -> {response.content}")
+                logger.debug(f"ELK response: {response.content}")
             response_list.append(response.ok)
 
         return all(response_list)
