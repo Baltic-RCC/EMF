@@ -176,7 +176,7 @@ class Elastic:
         return schedules_df
 
 
-class Handler:
+class HandlerSendToElastic:
 
     def __init__(self,
                  index: str,
@@ -202,7 +202,7 @@ class Handler:
         self.session.headers.update(headers)
         self.session.auth = auth
 
-    def send(self, byte_string, properties):
+    def handle(self, byte_string, properties):
 
         Elastic.send_to_elastic_bulk(index=self.index,
                                      json_message_list=json.loads(byte_string),

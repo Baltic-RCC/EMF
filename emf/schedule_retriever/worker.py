@@ -25,11 +25,11 @@ parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retrie
 # service.run()
 
 # Transfer schedules from RabbitMQ to Elk
-elk_handler = elastic.Handler(index=ELK_INDEX, id_from_metadata=True)
+elk_handler = elastic.HandlerSendToElastic(index=ELK_INDEX, id_from_metadata=True)
 consumer = rabbit.RMQConsumer(
     que=RMQ_QUEUE,
     message_converter=iec_schedule_to_ndjson,
-    message_handler=elk_handler,
+    message_handlers=[elk_handler],
 )
 try:
     consumer.run()
