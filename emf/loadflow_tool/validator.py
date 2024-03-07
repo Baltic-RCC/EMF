@@ -1,5 +1,5 @@
 import pypowsybl
-mport os.path
+import os.path
 import zipfile
 from enum import Enum
 from io import BytesIO
@@ -374,7 +374,7 @@ if __name__ == "__main__":
 
     opdm = OPDM()
 
-load_data_from_local_storage = False
+    load_data_from_local_storage = False
 
     if load_data_from_local_storage:
         # # 1. load in by directory per tso which contains zip files
@@ -430,6 +430,3 @@ load_data_from_local_storage = False
     # {'tso': 'SEPS', 'valid': None, 'duration': None}
     # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
     # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
-
-
-
