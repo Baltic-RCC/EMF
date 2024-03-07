@@ -73,17 +73,18 @@ loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
 #model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
 
 SV_ID = merged_model['NETWORK_META']['id'].split("uuid:")[-1]
+
 opdm_object_meta = {'pmd:fullModel_ID': SV_ID,
-            'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
-            'pmd:timeHorizon': time_horizon,
-            'pmd:cgmesProfile': 'SV',
-            'pmd:contentType': 'CGMES',
-            'pmd:modelPartReference': '',
-            'pmd:mergingEntity': 'BALTICRSC',
-            'pmd:mergingArea': area,
-            'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
-            'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
-            'pmd:scenarioDate': f"{parse_datetime(scenario_date):%Y-%m-%dT%H:%M:00Z}",
+                    'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
+                    'pmd:timeHorizon': time_horizon,
+                    'pmd:cgmesProfile': 'SV',
+                    'pmd:contentType': 'CGMES',
+                    'pmd:modelPartReference': '',
+                    'pmd:mergingEntity': 'BALTICRSC',
+                    'pmd:mergingArea': area,
+                    'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
+                    'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
+                    'pmd:scenarioDate': f"{parse_datetime(scenario_date):%Y-%m-%dT%H:%M:00Z}",
                     'pmd:modelid': SV_ID,
                     'pmd:description':
 f"""<MDE>
@@ -94,16 +95,19 @@ f"""<MDE>
                     'pmd:versionNumber': version,
                     'file_type': "xml"}
 
+
 #temp_dir = tempfile.mkdtemp()
 
 export_report = pypowsybl.report.Reporter()
 exported_model = export_model(merged_model["NETWORK"], opdm_object_meta, ["SV"])
 logger.info(f"Exporting merged model to {exported_model.name}")
 
+
 # Load SV data
 sv_data = pandas.read_RDF([exported_model])
 
 # Update SV filename
+
 sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
 
 # Update SV description

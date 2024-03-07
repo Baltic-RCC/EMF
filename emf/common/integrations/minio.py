@@ -25,6 +25,7 @@ class ObjectStorage:
         self.password = password
         self.token_expiration = datetime.utcnow()
         self.http_client = urllib3.PoolManager(
+                maxsize=int(MAXSIZE),
                 cert_reqs='CERT_NONE',
                 #cert_reqs='CERT_REQUIRED',
                 #ca_certs='/usr/local/share/ca-certificates/CA-Bundle.crt'
