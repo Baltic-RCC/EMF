@@ -1,10 +1,43 @@
 from saxonche import PySaxonProcessor
 from lxml import etree
 import logging
-import os
+import time
+import json
 import sys
+import config
+import os
+from emf.common.integrations import rabbit
+from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
+parse_app_properties(globals(), config.paths.xslt_service.xslt)
+
+rabbit_service = rabbit.BlockingClient()
+
+
+def do_conversion(channel, method, properties, body: str):
+
+    message_dict = json.loads(body)
+    body = xslt30_convert(message_dict.get('XML'), message_dict.get('XSL'))
+
+    if 'XSD' in message_dict.keys():
+        is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
+    else:
+        logger.warning("XSD file not found in message, report was not validated")
+        is_valid = None
+
+    properties.headers = {"file-type": "XML",
+                          "business-type": "QA-report",
+                          "is-valid": f"{is_valid}",
+                          }
+
+    return channel, method, properties, body
+
+
+def run_service():
+
+    logger.info(f"Shoveling from queue '{RMQ_QUEUE}' to exchange '{RMQ_EXCHANGE}'")
+    rabbit_service.shovel(RMQ_QUEUE, RMQ_EXCHANGE, do_conversion)
 
 
 def xslt30_convert(source_file, stylesheet_file, output_file=None):
@@ -12,12 +45,18 @@ def xslt30_convert(source_file, stylesheet_file, output_file=None):
         xslt30 = saxon.new_xslt30_processor()
 
         if str == type(source_file):
-            document = saxon.parse_xml(xml_file_name=source_file)
+            if os.path.isfile(source_file):
+                document = saxon.parse_xml(xml_file_name=source_file)
+            else:
+                document = saxon.parse_xml(xml_text=source_file)
         if bytes == type(source_file):
             document = saxon.parse_xml(xml_text=source_file.decode("utf-8"))
 
         if str == type(stylesheet_file):
-            executable = xslt30.compile_stylesheet(stylesheet_file=stylesheet_file)
+            if os.path.isfile(source_file):
+                executable = xslt30.compile_stylesheet(stylesheet_file=stylesheet_file)
+            else:
+                executable = xslt30.compile_stylesheet(stylesheet_text=stylesheet_file)
         if bytes == type(stylesheet_file):
             executable = xslt30.compile_stylesheet(stylesheet_text=stylesheet_file.decode("utf-8"))
 
@@ -30,7 +69,6 @@ def xslt30_convert(source_file, stylesheet_file, output_file=None):
 
 def validate_xml(input_xml, schema_xml):
 
-    logger.info(f"Validating XML against XSD")
     if str == type(input_xml):
         document = etree.parse(input_xml)
     if bytes == type(input_xml):
@@ -44,10 +82,10 @@ def validate_xml(input_xml, schema_xml):
     is_valid = schema.validate(document)
     for error in schema.error_log:
         logger.error(error)
-    if is_valid:
-        logger.info(f"XML file is valid")
-    if not is_valid:
-        logger.error(f"XML file is invalid")
+    # if is_valid:
+    #     logger.info(f"XML file is valid")
+    # if not is_valid:
+    #     logger.error(f"XML file is invalid")
 
     return is_valid
 
@@ -59,23 +97,20 @@ if __name__ == '__main__':
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
 
-    test_file = "passed_igm_report.xml"
-    test_stylesheet_file = "IGM_entsoeQAReport_Level_8.xsl"
-    xsd_file = 'QAR_v2.6.1.xsd'
-    test_output_file = "test_results.xml"
-    test_output_file2 = "test_results2.xml"
-
-    with open('IGM_entsoeQAReport_Level_8.xsl', 'rb') as file:
-        xsl_bytes = file.read()
     with open('failed_igm_report.xml', 'rb') as file:
         xml_bytes = file.read()
+    with open('IGM_entsoeQAReport_Level_8.xsl', 'rb') as file:
+        xsl_bytes = file.read()
     with open('QAR_v2.6.1.xsd', 'rb') as file:
         xsd_bytes = file.read()
 
-    # test with file path and bytes object
-    result = xslt30_convert(test_file, test_stylesheet_file)
-    result2 = xslt30_convert(xml_bytes, xsl_bytes)
-    validate_xml(test_output_file, xsd_file)
-    validate_xml(result2, xsd_bytes)
+    data = {"XML": xml_bytes.decode(),"XSL": xsl_bytes.decode(), "XSD": xsd_bytes.decode()}
+    message_json = json.dumps(data)
+
+    rabbit_service.publish(message_json, 'emfos.xslt')
+    print(f"Sending to exchange 'emfos.xslt'")
+    time.sleep(2)
+
+    run_service()
 
     print('Script finished')
