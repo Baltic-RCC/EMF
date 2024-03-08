@@ -418,7 +418,7 @@ if __name__ == "__main__":
             #logger.error("Validation failed", error)
 
     # Print validation statuses
-    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
+    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'), duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in validated_models]
 
     # With EMF IGM Validation settings
     # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}
