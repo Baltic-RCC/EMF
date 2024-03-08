@@ -59,7 +59,14 @@ class LocalInputType(Enum):
     BOUNDARY = 'boundary',
     IGM = 'igm'
     UNDEFINED = 'undefined'
-    
+
+
+class LocalFileLoaderError(FileNotFoundError):
+    """
+    For throwing when errors occur during the process of loading local files
+    """
+    pass
+
 
 def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
     # Load data
@@ -220,13 +227,16 @@ def load_data(file_name: str):
     return data
 
 
-def get_one_set_of_igms_from_local_storage(file_names: []):
+def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None):
     """
     Loads igm data from local storage.
     :param file_names: list of file names
+    :param tso_name: the name of the tso if given
     :return: dictionary that wants to be similar to OPDM profile
     """
     igm_value = {OP_COMPONENT_KEYWORD: []}
+    if tso_name is not None:
+        igm_value[TSO_KEYWORD] = tso_name
     for file_name in file_names:
         if (data := load_data(file_name)) is None:
             continue
@@ -303,31 +313,44 @@ def get_list_of_content_files(paths: str | list) -> []:
         if os.path.isdir(element):
             zip_files = get_zip_file_list_from_dir(element)
             xml_files = get_xml_file_list_from_dir(element)
-            total_files = []
-            total_files.extend(zip_files)
-            total_files.extend(xml_files)
-            list_of_files.append(total_files)
+            list_of_files.extend(zip_files)
+            list_of_files.extend(xml_files)
         elif os.path.isfile(element) and (zipfile.is_zipfile(element) or element.endswith(MAGIC_XML_IDENTIFICATION)):
-            list_of_files.append([element])
+            list_of_files.append(element)
         else:
-            logger.error(f"{element} is not a path nor .xml or .zip file")
+            logger.error(f"{element} is not a path nor a .xml or a .zip file")
+            raise LocalFileLoaderError
     return list_of_files
 
 
-def get_data_from_files(file_locations: list | str, get_type: LocalInputType = LocalInputType.IGM):
+def get_data_from_files(file_locations: list | str | dict, get_type: LocalInputType = LocalInputType.IGM):
     """
     Extracts and parses data to necessary profile
     :param file_locations: list of files or their locations, one element per tso
     :param get_type: type of data to be extracted
     :return: dictionary wanting to be similar to opdm profile
     """
-    file_list = get_list_of_content_files(file_locations)
     all_models = []
-    for file_set in file_list:
-        if get_type is LocalInputType.BOUNDARY:
-            all_models.append(get_one_set_of_boundaries_from_local_storage(file_set))
-        else:
-            all_models.append(get_one_set_of_igms_from_local_storage(file_set))
+    if isinstance(file_locations, str):
+        file_locations = [file_locations]
+    if isinstance(file_locations, dict):
+        for element in file_locations:
+            file_set = get_list_of_content_files(file_locations[element])
+            if get_type is LocalInputType.BOUNDARY:
+                all_models.append(get_one_set_of_boundaries_from_local_storage(file_set))
+            else:
+                all_models.append(get_one_set_of_igms_from_local_storage(file_names=file_set, tso_name=element))
+    elif isinstance(file_locations, list):
+        for element in file_locations:
+            file_set = get_list_of_content_files(element)
+            if get_type is LocalInputType.BOUNDARY:
+                all_models.append(get_one_set_of_boundaries_from_local_storage(file_set))
+            else:
+                all_models.append(get_one_set_of_igms_from_local_storage(file_set))
+    else:
+        logger.error(f"Unsupported input")
+        raise LocalFileLoaderError
+
     return all_models
 
 
@@ -340,6 +363,7 @@ def get_local_igm_data(file_locations: list | str):
     output = get_data_from_files(file_locations=file_locations, get_type=LocalInputType.IGM)
     if len(output) == 0:
         logger.error(f"Data for igms were not valid, no igms were extracted")
+        raise LocalFileLoaderError
     return output
 
 
@@ -354,10 +378,10 @@ def get_local_boundary_data(file_locations: list | str):
         return boundaries[0]
     except IndexError:
         logger.error(f"Data for boundaries were not valid, no boundaries were extracted")
+        raise LocalFileLoaderError
 
 
 """-----------------END OF CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE----------------------------------------"""
-
 
 # TEST
 if __name__ == "__main__":
@@ -374,28 +398,52 @@ if __name__ == "__main__":
 
     opdm = OPDM()
 
-    load_data_from_local_storage = False
-
-    if load_data_from_local_storage:
-        # # 1. load in by directory per tso which contains zip files
-        # list_of_igm_locations = ['./test_local_packages/case_1_TSO1_zip_files/',
-        #                          './test_local_packages/case_1_TSO2_zip_files/',
-        #                          './test_local_packages/case_1_TSO3_zip_files/']
-        # boundary_location = './test_local_packages/case_1_BOUNDARY_zip_files/'
-        # 2. load in by zip files per tso
-        # list_of_igm_locations = ['./test_local_packages/case_2_combined/TSO1_ZIP_OF_XMLS.zip',
-        #                          './test_local_packages/case_2_combined/TSO2_ZIP_OF_XMLS.zip',
-        #                          './test_local_packages/case_2_combined/TSO3_ZIP_OF_XMLS.zip']
-        # boundary_location = './test_local_packages/case_2_combined/BOUNDARY_ZIP_OF_XMLS.zip'
-        # # 3. load in by directory per tso which stores xml files
-        list_of_igm_locations = ['./test_local_packages/case_3_TSO1_xml_files/',
-                                 './test_local_packages/case_3_TSO2_xml_files/',
-                                 './test_local_packages/case_3_TSO3_xml_files/']
-        boundary_location = './test_local_packages/case_3_BOUNDARY_xml_files/'
-        # Get data and carry on
-        available_models = get_local_igm_data(list_of_igm_locations)
-        latest_boundary = get_local_boundary_data(boundary_location)
-    else:
+    # Switch this to True if files from local storage are used
+    load_data_from_local_storage = True
+    try:
+        if load_data_from_local_storage:
+            """
+            Input is a list or dictionary (tso name: path(s) to tso igm files) of elements when there are more than one
+            TSO, boundary, otherwise it can be a single string entry.
+            For each element in the list of inputs, the value can be single path to directory, zip file, xml file
+            or list of them
+            Note that inputs are not checked during the loading. For example if element of one TSO contains zip file
+            and directory to zip file (something like ['c:/Path_to_zip/', 'c:/Path_to_zip/zip_file.zip'])
+            then zip file (zip_file.zip) is read in twice and sent to validator (ending probably with pypowsybl error).
+            NB! if tso name is not given (input type is not dictionary), then it is extracted from the name of the first 
+            file which is processed and which follows the standard described in helper.get_metadata_from_filename()
+            NB! Directories and file names used here (./path_to_data/, etc.) are for illustration purposes only. 
+            To use the local files specify the paths to the data accordingly (absolute or relative path)
+            """
+            # Addresses can be relative or absolute.
+            # # 1. load in by directory per tso which contains zip files
+            # list_of_igm_locations = ['./path_to_data/case_1_TSO1_zip_files/',
+            #                          './path_to_data/case_1_TSO2_zip_files/',
+            #                          './path_to_data/case_1_TSO3_zip_files/']
+            # boundary_location = './path_to_data/case_1_BOUNDARY_zip_files/'
+            # 2. load in by zip files per tso
+            # list_of_igm_locations = ['./path_to_data/case_2_combined/TSO1_ZIP_OF_XMLS.zip',
+            #                          './path_to_data/case_2_combined/TSO2_ZIP_OF_XMLS.zip',
+            #                          './path_to_data/case_2_combined/TSO3_ZIP_OF_XMLS.zip']
+            # boundary_location = './path_to_data/case_2_combined/BOUNDARY_ZIP_OF_XMLS.zip'
+            # # 3. load in by directory per tso which stores xml files
+            list_of_igm_locations = ['./path_to_data/case_3_TSO1_xml_files/',
+                                     './path_to_data/case_3_TSO2_xml_files/',
+                                     './path_to_data/case_3_TSO3_xml_files/']
+            boundary_location = './path_to_data/case_3_BOUNDARY_xml_files/'
+            # # 4. Load data in as dictionary in form of TSO name: paths
+            # list_of_igm_locations = {'TSO1': './path_to_data/case_3_TSO1_xml_files/',
+            #                          'TSO2': './path_to_data/case_3_TSO2_xml_files/',
+            #                          'TSO3': './path_to_data/case_3_TSO3_xml_files/'}
+            # boundary_location = './path_to_data/case_3_BOUNDARY_xml_files/'
+            # Get data and carry on
+            available_models = get_local_igm_data(list_of_igm_locations)
+            latest_boundary = get_local_boundary_data(boundary_location)
+        else:
+            raise LocalFileLoaderError
+    except FileNotFoundError:
+        # if needed catch and handle LocalFileLoaderError separately
+        logger.info(f"Fetching data from external resources")
         latest_boundary = opdm.get_latest_boundary()
         available_models = opdm.get_latest_models_and_download(time_horizon='1D',
                                                                scenario_date='2024-02-02T00:30',
