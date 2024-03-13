@@ -1,5 +1,5 @@
 import pypowsybl
-from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict
+from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
 from validator import validate_model
 import logging
 import uuid
@@ -73,57 +73,51 @@ loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
 #model_data["LOADFLOW_REPORT_STR"] = str(loadflow_report)
 
 SV_ID = merged_model['NETWORK_META']['id'].split("uuid:")[-1]
-CGM_meta = {'pmd:fullModel_ID': SV_ID,
-            'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
-            'pmd:timeHorizon': time_horizon,
-            'pmd:cgmesProfile': 'SV',
-            'pmd:contentType': 'CGMES',
-            'pmd:modelPartReference': '',
-            'pmd:mergingEntity': 'BALTICRSC',
-            'pmd:mergingArea': area,
-            'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
-            'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
-            'pmd:scenarioDate': f"{parse_datetime(scenario_date):%Y-%m-%dT%H:%M:00Z}",
-            'pmd:modelid': SV_ID,
-            'pmd:description':
+
+opdm_object_meta = {'pmd:fullModel_ID': SV_ID,
+                    'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
+                    'pmd:timeHorizon': time_horizon,
+                    'pmd:cgmesProfile': 'SV',
+                    'pmd:contentType': 'CGMES',
+                    'pmd:modelPartReference': '',
+                    'pmd:mergingEntity': 'BALTICRSC',
+                    'pmd:mergingArea': area,
+                    'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
+                    'pmd:modelingAuthoritySet': 'http://www.baltic-rsc.eu/OperationalPlanning',
+                    'pmd:scenarioDate': f"{parse_datetime(scenario_date):%Y-%m-%dT%H:%M:00Z}",
+                    'pmd:modelid': SV_ID,
+                    'pmd:description':
 f"""<MDE>
     <BP>{time_horizon}</BP>
     <TOOL>pypowsybl_{pypowsybl.__version__}</TOOL>
     <RSC>BALTICRSC</RSC>
 </MDE>""",
-                                'pmd:versionNumber': version,
-                                'file_type': "xml"}
+                    'pmd:versionNumber': version,
+                    'file_type': "xml"}
+
 
 #temp_dir = tempfile.mkdtemp()
-temp_dir = ""
-export_file_path = os.path.join(temp_dir, f"MERGED_SV_{uuid.uuid4()}.zip")
-logger.info(f"Exprting merged model to {export_file_path}")
 
 export_report = pypowsybl.report.Reporter()
-merged_model["NETWORK"].dump(export_file_path,
-                           format="CGMES",
-                           parameters={
-                                "iidm.export.cgmes.modeling-authority-set": CGM_meta['pmd:modelingAuthoritySet'],
-                                "iidm.export.cgmes.base-name": filename_from_metadata(CGM_meta).split("_SV")[0],
-                                "iidm.export.cgmes.profiles": "SV",
-                                "iidm.export.cgmes.naming-strategy": "cgmes",  # identity, cgmes, cgmes-fix-all-invalid-ids
-                                       })
+exported_model = export_model(merged_model["NETWORK"], opdm_object_meta, ["SV"])
+logger.info(f"Exporting merged model to {exported_model.name}")
 
 
 # Load SV data
-sv_data = pandas.read_RDF([export_file_path])
+sv_data = pandas.read_RDF([exported_model])
 
 # Update SV filename
-sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(CGM_meta))
+
+sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
 
 # Update SV description
-sv_data.set_VALUE_at_KEY(key='Model.description', value=CGM_meta['pmd:description'])
+sv_data.set_VALUE_at_KEY(key='Model.description', value=opdm_object_meta['pmd:description'])
 
 # Update SV created time
-sv_data.set_VALUE_at_KEY(key='Model.created', value=CGM_meta['pmd:creationDate'])
+sv_data.set_VALUE_at_KEY(key='Model.created', value=opdm_object_meta['pmd:creationDate'])
 
 # Update SSH Model.scenarioTime
-sv_data.set_VALUE_at_KEY('Model.scenarioTime', CGM_meta['pmd:scenarioDate'])
+sv_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
 
 # Update SV metadata
 sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
@@ -134,7 +128,7 @@ ssh_data = load_opdm_data(valid_models, "SSH")
 ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
 
 # Update SSH Model.scenarioTime
-ssh_data.set_VALUE_at_KEY('Model.scenarioTime', CGM_meta['pmd:scenarioDate'])
+ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
 
 # Load full original data to fix issues
 data = load_opdm_data(valid_models + [latest_boundary])
@@ -212,10 +206,10 @@ updated_ssh_data = updated_ssh_data.update_triplet_from_triplet(ssh_supersedes_d
 
 # Update SSH metadata
 updated_ssh_data = triplets.cgmes_tools.update_FullModel_from_dict(updated_ssh_data, {
-    "Model.version": CGM_meta['pmd:versionNumber'],
-    "Model.created": CGM_meta['pmd:creationDate'],
-    "Model.mergingEntity": CGM_meta['pmd:mergingEntity'],
-    "Model.domain": CGM_meta['pmd:mergingArea']
+    "Model.version": opdm_object_meta['pmd:versionNumber'],
+    "Model.created": opdm_object_meta['pmd:creationDate'],
+    "Model.mergingEntity": opdm_object_meta['pmd:mergingEntity'],
+    "Model.domain": opdm_object_meta['pmd:mergingArea']
 })
 
 # Update SSH filenames
@@ -224,8 +218,8 @@ updated_ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(updated_s
 
 
 # Update SV metadata
-sv_data = triplets.cgmes_tools.update_FullModel_from_dict(sv_data, {"Model.version": CGM_meta['pmd:versionNumber'],
-                                                                            "Model.created": CGM_meta['pmd:creationDate']})
+sv_data = triplets.cgmes_tools.update_FullModel_from_dict(sv_data, {"Model.version": opdm_object_meta['pmd:versionNumber'],
+                                                                            "Model.created": opdm_object_meta['pmd:creationDate']})
 
 # Fix SV - Remove Shunt Sections for EQV Shunts
 equiv_shunt = data.query("KEY == 'Type' and VALUE == 'EquivalentShunt'")
