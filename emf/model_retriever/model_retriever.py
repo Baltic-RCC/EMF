@@ -29,10 +29,20 @@ class HandlerModelsToMinio:
         for opdm_object in opdm_objects:
 
             # Get model from OPDM
-            response = self.opdm_service.download_object(opdm_object=opdm_object)
+            self.opdm_service.download_object(opdm_object=opdm_object)
 
             # Put all components to bytesio zip (each component to different zip)
-            for component in response['opde:Component']:
+            for component in opdm_object['opde:Component']:
+
+                # Check whether profile already exist in object storage (Minio)
+                if component['opdm:Profile']['pmd:cgmesProfile'] == "EQ":  # TODO currently only for EQ
+                    content_reference = component['opdm:Profile']['pmd:content-reference']
+                    profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
+                    if profile_exist:
+                        logger.info(f"Profile already stored in object storage: {content_reference}")
+                        continue
+
+                # Put content data into bytes object
                 output_object = BytesIO()
                 with ZipFile(output_object, "w") as component_zip:
                     with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
