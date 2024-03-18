@@ -38,6 +38,7 @@ class HandlerModelsToMinio:
                 if component['opdm:Profile']['pmd:cgmesProfile'] == "EQ":  # TODO currently only for EQ
                     content_reference = component['opdm:Profile']['pmd:content-reference']
                     profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
+                    logger.info(f"Profile exist: {profile_exist}")  # TODO remove after fix
                     if profile_exist:
                         logger.info(f"Profile already stored in object storage: {content_reference}")
                         continue
