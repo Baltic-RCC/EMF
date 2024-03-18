@@ -34,11 +34,13 @@ class HandlerModelsToMinio:
             # Put all components to bytesio zip (each component to different zip)
             for component in opdm_object['opde:Component']:
 
+                # Sanitize content-reference url
+                content_reference = component['opdm:Profile']['pmd:content-reference']
+                content_reference = content_reference.replace('//', '/')
+
                 # Check whether profile already exist in object storage (Minio)
                 if component['opdm:Profile']['pmd:cgmesProfile'] == "EQ":  # TODO currently only for EQ
-                    content_reference = component['opdm:Profile']['pmd:content-reference']
                     profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
-                    logger.info(f"Profile exist: {profile_exist}")  # TODO remove after fix
                     if profile_exist:
                         logger.info(f"Profile already stored in object storage: {content_reference}")
                         continue
@@ -52,8 +54,7 @@ class HandlerModelsToMinio:
                             component_zip.writestr(file_name, profile_zip.open(file_name).read())
 
                 # Upload components to minio storage
-                output_object.name = component['opdm:Profile']['pmd:content-reference']
-                output_object.name = output_object.name.replace('//', '/')  # sanitize double slash in url
+                output_object.name = content_reference
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
