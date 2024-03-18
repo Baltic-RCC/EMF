@@ -68,6 +68,7 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = time.time() - start_time
+    logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
     # Pop out pypowsybl network object
     model_data.pop('network')
