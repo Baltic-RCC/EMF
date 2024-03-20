@@ -1,3 +1,7 @@
+from typing import Optional, cast
+
+import pandas as pd
+import triplets
 import pypowsybl
 import os.path
 import zipfile
@@ -27,6 +31,8 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.vali
 # TODO - record AC NP and DC Flows to metadata storage (and more), this is useful for replacement logic and scaling
 # note - multiple islands wo load or generation can be an issue
 
+ENTSOE_FOLDER = './path_to_ENTSOE_zip/TestConfigurations_packageCASv2.0'
+
 TSO_KEYWORD = 'pmd:TSO'
 DATA_KEYWORD = 'DATA'
 FILENAME_KEYWORD = 'pmd:fileName'
@@ -38,6 +44,7 @@ OP_PROFILE_KEYWORD = 'opdm:Profile'
 MISSING_TSO_NAME = 'UnknownTSO'
 
 IGM_FILE_TYPES = ['_EQ_', '_TP_', '_SV_', '_SSH_']
+BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', ]
 
 """Mapper for elements of the file name to igm profile"""
 IGM_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
@@ -135,30 +142,35 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
 """-----------------CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE-----------------------------------------------"""
 
 
-def read_in_zip_file(zip_file_path: str) -> {}:
+def read_in_zip_file(zip_file_path: str, file_types: [] = None) -> {}:
     """
     Reads in files from the given zip file
     :param zip_file_path: path to the zip file (relative or absolute)
+    :param file_types: list of file types
     :return: dictionary with file names as keys and file contents as values
     """
     content = {}
     with ZipFile(zip_file_path, 'r') as zip_file:
-        for name in zip_file.namelist():
-            logger.info(f"Reading {name} from {zip_file_path}")
-            content[name] = zip_file.read(name)
+        for file_name in zip_file.namelist():
+            if file_types is None or any([file_keyword in file_name for file_keyword in file_types]):
+                logger.info(f"Reading {file_name} from {zip_file_path}")
+                content[file_name] = zip_file.read(file_name)
     return content
 
 
-def read_in_xml_file(xml_file_path: str) -> {}:
+def read_in_xml_file(xml_file_path: str, file_types: [] = None) -> {}:
     """
     Reads in data from the given xml file
     :param xml_file_path: path to the xml file (relative or absolute)
+    :param file_types: list of file types
     :return: dictionary with file names as keys and file contents as values
     """
     content = {}
     file_name = os.path.basename(xml_file_path)
-    with open(xml_file_path, 'r', encoding='utf8') as file_content:
-        content[file_name] = file_content.read()
+    if file_types is None or any([file_keyword in file_name for file_keyword in file_types]):
+        logger.info(f"Reading {file_name}")
+        with open(xml_file_path, 'r', encoding='utf8') as file_content:
+            content[file_name] = file_content.read()
     return content
 
 
@@ -233,32 +245,34 @@ def salvage_data_from_file_name(file_name: str):
     return meta_data
 
 
-def load_data(file_name: str):
+def load_data(file_name: str, file_types: list = None):
     """
     Loads data from given file.
     :param file_name: file from where to load (with relative or absolute path)
+    :param file_types: list of file types
     :return: dictionary with filenames as keys, contents as values, if something was found, none otherwise
     """
     data = None
     if zipfile.is_zipfile(file_name):
-        data = read_in_zip_file(file_name)
+        data = read_in_zip_file(file_name, file_types)
     elif file_name.endswith(MAGIC_XML_IDENTIFICATION):
-        data = read_in_xml_file(file_name)
+        data = read_in_xml_file(file_name, file_types)
     return data
 
 
-def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None):
+def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None, file_types: [] = None):
     """
     Loads igm data from local storage.
     :param file_names: list of file names
     :param tso_name: the name of the tso if given
+    :param file_types: list of file types
     :return: dictionary that wants to be similar to OPDM profile
     """
     igm_value = {OP_COMPONENT_KEYWORD: []}
     if tso_name is not None:
         igm_value[TSO_KEYWORD] = tso_name
     for file_name in file_names:
-        if (data := load_data(file_name)) is None:
+        if (data := load_data(file_name, file_types)) is None:
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
@@ -272,15 +286,16 @@ def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None)
     return igm_value
 
 
-def get_one_set_of_boundaries_from_local_storage(file_names: []):
+def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] = None):
     """
     Loads boundary data from local storage.
     :param file_names: list of file names
+    :param file_types: list of file types
     :return: dictionary that wants to be similar to OPDM profile
     """
     boundary_value = {OP_COMPONENT_KEYWORD: []}
     for file_name in file_names:
-        if (data := load_data(file_name)) is None:
+        if (data := load_data(file_name, file_types)) is None:
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
@@ -343,11 +358,14 @@ def get_list_of_content_files(paths: str | list) -> []:
     return list_of_files
 
 
-def get_data_from_files(file_locations: list | str | dict, get_type: LocalInputType = LocalInputType.IGM):
+def get_data_from_files(file_locations: list | str | dict,
+                        get_type: LocalInputType = LocalInputType.IGM,
+                        file_keywords: list = None):
     """
     Extracts and parses data to necessary profile
     :param file_locations: list of files or their locations, one element per tso
     :param get_type: type of data to be extracted
+    :param file_keywords: list of identifiers that are in file names that should be loaded
     :return: dictionary wanting to be similar to opdm profile
     """
     all_models = []
@@ -358,16 +376,21 @@ def get_data_from_files(file_locations: list | str | dict, get_type: LocalInputT
         for element in file_locations:
             file_set = get_list_of_content_files(file_locations[element])
             if get_type is LocalInputType.BOUNDARY:
-                all_models.append(get_one_set_of_boundaries_from_local_storage(file_set))
+                all_models.append(get_one_set_of_boundaries_from_local_storage(file_names=file_set,
+                                                                               file_types=file_keywords))
             else:
-                all_models.append(get_one_set_of_igms_from_local_storage(file_names=file_set, tso_name=element))
+                all_models.append(get_one_set_of_igms_from_local_storage(file_names=file_set,
+                                                                         tso_name=element,
+                                                                         file_types=file_keywords))
     elif isinstance(file_locations, list):
         for element in file_locations:
             file_set = get_list_of_content_files(element)
             if get_type is LocalInputType.BOUNDARY:
-                all_models.append(get_one_set_of_boundaries_from_local_storage(file_set))
+                all_models.append(get_one_set_of_boundaries_from_local_storage(file_names=file_set,
+                                                                               file_types=file_keywords))
             else:
-                igm_value = get_one_set_of_igms_from_local_storage(file_set)
+                igm_value = get_one_set_of_igms_from_local_storage(file_names=file_set,
+                                                                   file_types=file_keywords)
                 if TSO_KEYWORD not in igm_value:
                     tso_name = f"{MISSING_TSO_NAME}-{tso_counter}"
                     tso_counter += 1
@@ -381,31 +404,288 @@ def get_data_from_files(file_locations: list | str | dict, get_type: LocalInputT
     return all_models
 
 
-def get_local_igm_data(file_locations: list | str):
+def filter_file_list_by_file_keywords(file_list: list, file_keywords: list = None):
+    """
+    Ables to filter the file list by file identifying keywords ('TP', 'SSH', 'EQ', 'SV')
+    :param file_list: list of file names
+    :param file_keywords: list of file identifiers
+    :return updated file list if file_keywords was provided, file_list otherwise
+    """
+    if file_keywords is None:
+        return file_list
+    new_file_list = []
+    for file_name in file_list:
+        if any([file_keyword in file_name for file_keyword in file_keywords]):
+            new_file_list.append(file_name)
+    return new_file_list
+
+
+def get_local_igm_data(file_locations: list | str, file_keywords: list = None):
     """
     Call this with a list of files/directories to load igm data
     :param file_locations: list of files or their locations, one element per tso
+    :param file_keywords: list of identifiers that are in file names that should be loaded
     :return: dictionary wanting to be similar to opdm profile if something useful was found
     """
-    output = get_data_from_files(file_locations=file_locations, get_type=LocalInputType.IGM)
+    output = get_data_from_files(file_locations=file_locations,
+                                 get_type=LocalInputType.IGM,
+                                 file_keywords=file_keywords)
     if len(output) == 0:
         logger.error(f"Data for igms were not valid, no igms were extracted")
         raise LocalFileLoaderError
     return output
 
 
-def get_local_boundary_data(file_locations: list | str):
+def get_local_boundary_data(file_locations: list | str, file_keywords: list = None):
     """
     Call this with a list of files/directories to load boundary data
     :param file_locations: list of files or their locations, one element per tso
+    :param file_keywords: list of identifiers that are in file names that should be loaded
     :return: dictionary wanting to be similar to opdm profile if something useful was found
     """
-    boundaries = get_data_from_files(file_locations=file_locations, get_type=LocalInputType.BOUNDARY)
+    boundaries = get_data_from_files(file_locations=file_locations,
+                                     get_type=LocalInputType.BOUNDARY,
+                                     file_keywords=file_keywords)
     try:
         return boundaries[0]
     except IndexError:
         logger.error(f"Data for boundaries were not valid, no boundaries were extracted")
         raise LocalFileLoaderError
+
+
+class EntsoeFolder(Enum):
+    """
+    Helper class for hardcoded sub folders in entsoe examples folder
+    """
+    FULL_GRID = 'FullGrid'
+    MICRO_GRID_BASE_CASE = 'MicroGrid/BaseCase_BC'
+    MICRO_GRID_T1 = 'MicroGrid/Type1_T1'
+    MICRO_GRID_T2 = 'MicroGrid/Type2_T2'
+    MICRO_GRID_T3 = 'MicroGrid/Type3_T3'
+    MICRO_GRID_T4 = 'MicroGrid/Type4_T4'
+    MINI_GRID_BUS_BRANCH = 'MiniGrid/BusBranch'
+    MINI_GRID_NODE_BREAKER = 'MiniGrid/NodeBreaker'
+    REAL_GRID = 'RealGrid'
+    SMALL_GRID_BUS_BRANCH = 'SmallGrid/BusBranch'
+    SMALL_GRID_NODE_BREAKER = 'SmallGrid/NodeBreaker'
+    UNDEFINED = 'Undefined'
+
+
+def get_example_data_from_entsoe_zip(entsoe_extracted_folder: str = None,
+                                     load_type: EntsoeFolder = EntsoeFolder.UNDEFINED):
+    """
+    Retrieves the IGMS and boundaries from the ENTSOE examples.
+    To use this:
+        1) Download https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
+        2) Extract the downloaded zip
+        3) set entsoe_extracted_folder as a relative ('./<from here to folder>') or absolute ('C:to folder') path
+        4) select the sub folder by using enum EntsoeFolder
+        5) take the output as set of igms, boundaries and carry on
+    P.S each folder contains documentation of what the examples are and for what they are good for
+    :param entsoe_extracted_folder: location of the
+    :param load_type: sub folder to be used
+    :return set of igms, boundaries
+    """
+    # Adjust these according to the need
+    if entsoe_extracted_folder is None:
+        try:
+            if ENTSOE_FOLDER is not None:
+                entsoe_extracted_folder = ENTSOE_FOLDER
+        except NameError:
+            logger.error("No path exists in local script, switching to remote")
+            raise LocalFileLoaderError
+    if load_type == EntsoeFolder.UNDEFINED:
+        logger.warning(f"For ENTSOE test cases no subdirectory was given, taking some random folder")
+        load_type = EntsoeFolder.MICRO_GRID_BASE_CASE
+    # End of adjusting the input parameters
+    boundary_files = None
+    match load_type:
+        case EntsoeFolder.FULL_GRID:
+            # 1. FullGrid: Pybowsybl error
+            igm_files = [
+                f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
+                f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v1.zip',
+                # f'{entsoe_extracted_folder}{EntsoeFolder.FULL_GRID.value}/'
+                # f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v2.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
+                # f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v3.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
+                # f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v4.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
+                              f'CGMES_v2.4.15_FullGridTestConfiguration_BD_v1.zip')
+        case EntsoeFolder.MICRO_GRID_BASE_CASE:
+            # 2.1 BaseCase_BC: validation: True, used as main case
+            igm_files = [
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_Assembled_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_BE_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_NL_v2.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
+                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
+        case EntsoeFolder.MICRO_GRID_T1:
+            # 2.2 Type1_T1: validation: True
+            igm_files = [
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_Assembled_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_NL_Complete_v2.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
+                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
+        case EntsoeFolder.MICRO_GRID_T2:
+            # 2.3 Type2_T2: validation: true, pypwosybl errors
+            igm_files = [
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MIRCO_GRID_T2.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_Assembled_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_BE_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_NL_Complete_v2.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
+                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
+        case EntsoeFolder.MICRO_GRID_T3:
+            # 2.4 Type3_T3: validation True
+            igm_files = [
+                # f'{entsoe_extracted_folder}/{MICRO_GRID_T3}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_Assembled_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_BE_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_NL_Complete_v2.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
+                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
+        case EntsoeFolder.MICRO_GRID_T4:
+            # 2.5 Type4_T4: validation: true
+            igm_files = [
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_BB_Complete_v2.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_NB_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_BB_Complete_v2.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_NB_Complete_v2.zip',
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_BB_Complete_v2.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_NB_Complete_v2.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
+                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
+        case EntsoeFolder.MINI_GRID_BUS_BRANCH:
+            # 3.1 BusBranch: validation: false
+            igm_files = [
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
+                f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_v3.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
+                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
+                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
+                              f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
+        case EntsoeFolder.MINI_GRID_NODE_BREAKER:
+            # 3.2 NodeBreaker: validation: false
+            igm_files = [
+                f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
+                f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_Complete_v3.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
+                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
+                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
+                              f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
+        case EntsoeFolder.REAL_GRID:
+            # 4. RealGrid: validation: true
+            igm_files = [f'{entsoe_extracted_folder}/{EntsoeFolder.REAL_GRID.value}/'
+                         f'CGMES_v2.4.15_RealGridTestConfiguration_v2.zip']
+        case EntsoeFolder.SMALL_GRID_BUS_BRANCH:
+            # 5.1 BusBranch: validation: True
+            igm_files = [
+                f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
+                f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
+                # f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
+                # f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
+                              f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
+        case EntsoeFolder.SMALL_GRID_NODE_BREAKER:
+            # 5.2 NodeBreaker: validation: True
+            igm_files = [
+                f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
+                f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
+                # f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
+                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
+                # f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
+            ]
+            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
+                              f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
+        case _:
+            return None, None
+    # Get data and carry on
+    models = get_local_igm_data(igm_files, IGM_FILE_TYPES)
+    try:
+        boundaries = get_local_boundary_data(boundary_files)
+    except NameError:
+        boundaries = None
+    return models, boundaries
+
+
+def get_local_files():
+    """
+    This is just an example
+    Input is a list or dictionary (tso name: path(s) to tso igm files) of elements when there are more than one
+    TSO, boundary, otherwise it can be a single string entry.
+    For each element in the list of inputs, the value can be single path to directory, zip file, xml file
+    or list of them
+    Note that inputs are not checked during the loading. For example if element of one TSO contains zip file
+    and directory to zip file (something like ['c:/Path_to_zip/', 'c:/Path_to_zip/zip_file.zip'])
+    then zip file (zip_file.zip) is read in twice and sent to validator (ending probably with pypowsybl error).
+    NB! if tso name is not given (input type is not dictionary), then it is extracted from the name of the first
+    file which is processed and which follows the standard described in helper.get_metadata_from_filename()
+    NB! Directories and file names used here (./path_to_data/, etc.) are for illustration purposes only.
+    To use the local files specify the paths to the data accordingly (absolute or relative path)
+    """
+    # Addresses can be relative or absolute.
+    # 1. load in by directory per tso which contains zip files
+    # igm_files = ['./path_to_data/case_1_TSO1_zip_files/',
+    #              './path_to_data/case_1_TSO2_zip_files/',
+    #              './path_to_data/case_1_TSO3_zip_files/']
+    # boundary_file = './path_to_data/case_1_BOUNDARY_zip_files/'
+    # 2. load in by zip files per tso
+    # igm_files = ['./path_to_data/case_2_combined/TSO1_ZIP_OF_XMLS.zip',
+    #              './path_to_data/case_2_combined/TSO2_ZIP_OF_XMLS.zip',
+    #              './path_to_data/case_2_combined/TSO3_ZIP_OF_XMLS.zip']
+    # boundary_file = './path_to_data/case_2_combined/BOUNDARY_ZIP_OF_XMLS.zip'
+    # 3. load in by directory per tso which stores xml files
+    # igm_files = ['./path_to_data/case_3_TSO1_xml_files/',
+    #              './path_to_data/case_3_TSO2_xml_files/',
+    #              './path_to_data/case_3_TSO3_xml_files/']
+    # boundary_file = './path_to_data/case_3_BOUNDARY_xml_files/'
+    # 4. Load data in as dictionary in form of TSO name: paths
+    igm_files = {'TSO1': './path_to_data/case_3_TSO1_xml_files/',
+                 'TSO2': './path_to_data/case_3_TSO2_xml_files/',
+                 'TSO3': './path_to_data/case_3_TSO3_xml_files/'}
+    boundary_file = './path_to_data/case_3_BOUNDARY_xml_files/'
+    # Get data and carry on
+    models = get_local_igm_data(igm_files, IGM_FILE_TYPES)
+    try:
+        boundary = get_local_boundary_data(boundary_file, BOUNDARY_FILE_TYPES)
+    except NameError:
+        boundary = None
+    return models, boundary
 
 
 """-----------------END OF CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE----------------------------------------"""
@@ -415,202 +695,30 @@ if __name__ == "__main__":
 
     import sys
     from emf.common.integrations.opdm import OPDM
+
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-    #logging.getLogger('powsybl').setLevel(1)
-
-    opdm = OPDM()
+    # logging.getLogger('powsybl').setLevel(1)
 
     # Switch this to True if files from local storage are used
     load_data_from_local_storage = True
     try:
         if load_data_from_local_storage:
-            """
-            Input is a list or dictionary (tso name: path(s) to tso igm files) of elements when there are more than one
-            TSO, boundary, otherwise it can be a single string entry.
-            For each element in the list of inputs, the value can be single path to directory, zip file, xml file
-            or list of them
-            Note that inputs are not checked during the loading. For example if element of one TSO contains zip file
-            and directory to zip file (something like ['c:/Path_to_zip/', 'c:/Path_to_zip/zip_file.zip'])
-            then zip file (zip_file.zip) is read in twice and sent to validator (ending probably with pypowsybl error).
-            NB! if tso name is not given (input type is not dictionary), then it is extracted from the name of the first 
-            file which is processed and which follows the standard described in helper.get_metadata_from_filename()
-            NB! Directories and file names used here (./path_to_data/, etc.) are for illustration purposes only. 
-            To use the local files specify the paths to the data accordingly (absolute or relative path)
-            """
-
-            # Addresses can be relative or absolute.
-            # # 1. load in by directory per tso which contains zip files
-            # list_of_igm_locations = ['./path_to_data/case_1_TSO1_zip_files/',
-            #                          './path_to_data/case_1_TSO2_zip_files/',
-            #                          './path_to_data/case_1_TSO3_zip_files/']
-            # boundary_location = './path_to_data/case_1_BOUNDARY_zip_files/'
-            # 2. load in by zip files per tso
-            # list_of_igm_locations = ['./path_to_data/case_2_combined/TSO1_ZIP_OF_XMLS.zip',
-            #                          './path_to_data/case_2_combined/TSO2_ZIP_OF_XMLS.zip',
-            #                          './path_to_data/case_2_combined/TSO3_ZIP_OF_XMLS.zip']
-            # boundary_location = './path_to_data/case_2_combined/BOUNDARY_ZIP_OF_XMLS.zip'
-            # # 3. load in by directory per tso which stores xml files
-            # list_of_igm_locations = ['./path_to_data/case_3_TSO1_xml_files/',
-            #                          './path_to_data/case_3_TSO2_xml_files/',
-            #                          './path_to_data/case_3_TSO3_xml_files/']
-            # boundary_location = './path_to_data/case_3_BOUNDARY_xml_files/'
-            # # 4. Load data in as dictionary in form of TSO name: paths
-            # list_of_igm_locations = {'TSO1': './path_to_data/case_3_TSO1_xml_files/',
-            #                          'TSO2': './path_to_data/case_3_TSO2_xml_files/',
-            #                          'TSO3': './path_to_data/case_3_TSO3_xml_files/'}
-            # boundary_location = './path_to_data/case_3_BOUNDARY_xml_files/'
-
-            # ENTSOE examples from
-            # https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
-            # download it and extract it
-            # add the location of the extracted folder here:
-            entsoe_extracted_folder = './path_to_ENTSOE_zip/TestConfigurations_packageCASv2.0'
-
-            # 1. FullGrid: Pybowsybl error: The network urn:uuid:7d06cd3f-a6dc-9642-826a-266fc538e911 already contains
-            # an object 'LineImpl' with the id '87406ddd-13e8-5947-bf4e-04ddace16e00'
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/FullGrid/'
-            #                          f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v1.zip',
-            #                          f'{entsoe_extracted_folder}/FullGrid/'
-            #                          f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v2.zip',
-            #                          f'{entsoe_extracted_folder}/FullGrid/'
-            #                          f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v3.zip',
-            #                          f'{entsoe_extracted_folder}/FullGrid/'
-            #                          f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v4.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/FullGrid/'
-            #                      f'CGMES_v2.4.15_FullGridTestConfiguration_BD_v1.zip')
-
-            # 2. MicroGrid: extract
-            # 2.1 BaseCase_BC: validation: True
-            list_of_igm_locations = [
-                                     # f'{entsoe_extracted_folder}/MicroGrid/BaseCase_BC/'
-                                     # f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_Assembled_v2.zip',
-                                     f'{entsoe_extracted_folder}/MicroGrid/BaseCase_BC/'
-                                     f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_BE_v2.zip',
-                                     f'{entsoe_extracted_folder}/MicroGrid/BaseCase_BC/'
-                                     f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_NL_v2.zip'
-                                     ]
-            boundary_location = (f'{entsoe_extracted_folder}/MicroGrid/BaseCase_BC/'
-                                 f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-            # 2.2 Type1_T1: validation: True
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type1_T1/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_Assembled_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type1_T1/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type1_T1/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_NL_Complete_v2.zip'
-            #                         ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MicroGrid/Type1_T1/'
-            #                      f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-            # 2.3 Type2_T2: validation: true, pypwosybl errors
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type2_T2/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_Assembled_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type2_T2/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_BE_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type2_T2/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_NL_Complete_v2.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MicroGrid/Type2_T2/'
-            #                      f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-            # 2.4 Type3_T3: validation True
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type3_T3/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_Assembled_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type3_T3/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_BE_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type3_T3/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_NL_Complete_v2.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MicroGrid/Type3_T3/'
-            #                      f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-            # 2.5 Type4_T4: validation: true
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_BB_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_NB_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_BB_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_NB_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_BB_Complete_v2.zip',
-            #                          f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                          f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_NB_Complete_v2.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MicroGrid/Type4_T4/'
-            #                      f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-            # 3. MiniGrid
-            # 3.1 BusBranch: validation: false
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MiniGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_v3.zip',
-            #                          f'{entsoe_extracted_folder}/MiniGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
-            #                          f'{entsoe_extracted_folder}/MiniGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MiniGrid/BusBranch/'
-            #                      f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
-            # 3.2 NodeBreaker: validation: false
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/MiniGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_Complete_v3.zip',
-            #                          f'{entsoe_extracted_folder}/MiniGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
-            #                          f'{entsoe_extracted_folder}/MiniGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/MiniGrid/NodeBreaker/'
-            #                      f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
-
-            # 4. RealGrid: validation: true
-            # list_of_igm_locations = [f'{entsoe_extracted_folder}/RealGrid/'
-            #                          f'CGMES_v2.4.15_RealGridTestConfiguration_v2.zip']
-
-            # 5. SmallGrid
-            # 5.1 BusBranch: validation: True
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/SmallGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
-            #                          f'{entsoe_extracted_folder}/SmallGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
-            #                          f'{entsoe_extracted_folder}/SmallGrid/BusBranch/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/SmallGrid/BusBranch/'
-            #                      f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
-            # 5.2 NodeBreaker: validation: True
-            # list_of_igm_locations = [
-            #                          f'{entsoe_extracted_folder}/SmallGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
-            #                          f'{entsoe_extracted_folder}/SmallGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
-            #                          f'{entsoe_extracted_folder}/SmallGrid/NodeBreaker/'
-            #                          f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
-            #                          ]
-            # boundary_location = (f'{entsoe_extracted_folder}/SmallGrid/NodeBreaker/'
-            #                      f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
-
-            # Get data and carry on
-            available_models = get_local_igm_data(list_of_igm_locations)
-            try:
-                latest_boundary = get_local_boundary_data(boundary_location)
-            except NameError:
-                latest_boundary = None
+            # available_models, latest_boundary = get_local_files()
+            # available_models, latest_boundary = get_example_data_from_entsoe_zip(
+            #      load_type=EntsoeFolder.MINI_GRID_BUS_BRANCH)
+            available_models, latest_boundary = get_example_data_from_entsoe_zip(
+                load_type=EntsoeFolder.MICRO_GRID_BASE_CASE)
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
         # if needed catch and handle LocalFileLoaderError separately
         logger.info(f"Fetching data from external resources")
+        opdm = OPDM()
         latest_boundary = opdm.get_latest_boundary()
         available_models = opdm.get_latest_models_and_download(time_horizon='1D',
                                                                scenario_date='2024-03-14T09:30',

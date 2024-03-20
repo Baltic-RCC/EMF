@@ -1,3 +1,4 @@
+import zipfile
 from zipfile import ZipFile, ZIP_DEFLATED
 from uuid import uuid4
 from io import BytesIO
@@ -153,14 +154,22 @@ def load_model(opdm_objects: List[dict]):
     model_data["network_valid"] = network.validate().name
 
     # Network model import reporter data
-    # model_data["import_report"] = json.loads(import_report.to_json())
+    model_data["import_report"] = json.loads(import_report.to_json())
     # model_data["import_report_str"] = str(import_report)
 
     return model_data
 
 
 def opdmprofile_to_bytes(opdm_profile):
+    # Temporary fix: input data (['opdm:Profile']['DATA']) can be a zip file, figure it out and extract
+    # before proceeding further
     data = BytesIO(opdm_profile['opdm:Profile']['DATA'])
+    if zipfile.is_zipfile(data):
+        xml_tree_file = get_xml_from_zip(data)
+        bytes_object = BytesIO()
+        xml_tree_file.write(bytes_object, encoding='utf-8')
+        bytes_object.seek(0)
+        data = bytes_object
     data.name = opdm_profile['opdm:Profile']['pmd:fileName']
     return data
 
