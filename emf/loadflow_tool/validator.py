@@ -16,6 +16,7 @@ import json
 import time
 import math
 import config
+from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
 from emf.common.logging import custom_logger
@@ -703,16 +704,33 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
     # logging.getLogger('powsybl').setLevel(1)
+    # Add a pypowsybl log gatherer
+    # Set up the log gatherer:
+    # topic name: currently used as a start of a file name
+    # send_it_to_elastic: send the log to elastic, not operational yet
+    # logging policy: choose according to the need. Currently:
+    #   ALL_ENTRIES: gathers all log entries no matter of what
+    #   ENTRIES_IF_LEVEL_REACHED: gathers all log entries when at least one entry was at least on the level specified
+    #   ENTRY_ON_LEVEL: gathers only entry which was at least on the level specified
+    #   ENTRIES_ON_LEVEL: gathers all entries that were at least on the level specified
+    #   ENTRIES_COLLECTED_TO_LEVEL: gathers all entries to the first entry that was at least on the level specified
+    # print_to_console: propagate log to parent
+    # reporting_level: level that triggers policy
+    pypowsybl_log_gatherer = PyPowsyblLogGatherer(topic_name='IGM_validation',
+                                                  send_to_elastic=False,
+                                                  logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
+                                                  print_to_console=False,
+                                                  reporting_level=logging.WARNING)
 
     # Switch this to True if files from local storage are used
-    load_data_from_local_storage = True
+    load_data_from_local_storage = False
     try:
         if load_data_from_local_storage:
-            # available_models, latest_boundary = get_local_files()
+            available_models, latest_boundary = get_local_files()
             # available_models, latest_boundary = get_example_data_from_entsoe_zip(
             #      load_type=EntsoeFolder.MINI_GRID_BUS_BRANCH)
-            available_models, latest_boundary = get_example_data_from_entsoe_zip(
-                load_type=EntsoeFolder.MICRO_GRID_BASE_CASE)
+            # available_models, latest_boundary = get_example_data_from_entsoe_zip(
+            #      load_type=EntsoeFolder.MICRO_GRID_BASE_CASE)
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
@@ -729,7 +747,8 @@ if __name__ == "__main__":
 
     # Validate models
     for model in available_models:
-
+        tso = model['pmd:TSO']
+        pypowsybl_log_gatherer.set_tso(tso)
         try:
             if isinstance(latest_boundary, dict):
                 response = validate_model([model, latest_boundary])
@@ -741,7 +760,7 @@ if __name__ == "__main__":
         except Exception as error:
             validated_models.append(model)
             logger.error("Validation failed", error)
-
+    pypowsybl_log_gatherer.stop_working()
     # Print validation statuses
     [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'), duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in validated_models]
 
