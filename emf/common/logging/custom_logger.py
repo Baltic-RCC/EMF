@@ -1,8 +1,11 @@
+import base64
 import sys
 import logging
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from enum import Enum
-from io import StringIO
+from io import StringIO, BytesIO
+from zipfile import ZipFile
 
 import requests
 from rcc_common_tools.elk_api import Elk
@@ -10,18 +13,34 @@ from rcc_common_tools.elk_api import Elk
 from emf.common.integrations import elastic
 import config
 from emf.common.config_parser import parse_app_properties
+from emf.common.integrations.minio import ObjectStorage
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
-GENERAL_LOGGING_FORMAT = '%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s'
 PYPOWSYBL_LOGGER = 'powsybl'
 PYPOWSYBL_LOGGER_DEFAULT_LEVEL = 1
 CUSTOM_LOG_BUFFER_LINE_BREAK = '\r\n'
-MAX_LENGTH_FOR_TEXT_IN_ELK = 2147483647
-ELASTIC_FIELD_FOR_LOG_DATA = 'log_data'
-ELASTIC_FIELD_FOR_TSO = 'tso'
-ELASTIC_FIELD_FOR_TOPIC = 'topic'
+# Max allowed lifespan of link to file in minio bucket
+DAYS_TO_STORE_DATA_IN_MINIO = 7         # Max allowed by Minio
+# Default name of the subfolder for storing the results if needed
+SEPARATOR_SYMBOL = '/'
+
+
+def save_content_to_zip_file(content: {}):
+    """
+    Saves content to zip file (in memory)
+    :param content: the content of zip file (key: file name, value: file content)
+    :return: byte array
+    """
+    output_object = BytesIO()
+    with ZipFile(output_object, "w") as output_zip:
+        if content:
+            for file_name in content:
+                logger.info(f"Converting {file_name} to zip container")
+                output_zip.writestr(file_name, content[file_name])
+        output_object.seek(0)
+    return output_object.getvalue()
 
 
 def initialize_custom_logger(
@@ -145,9 +164,10 @@ class LogStream(object):
         self.single_entry = None
 
     def get_logs(self):
-        # self.format_for_writing()
-        # if self.logs.is
-        #     self.logs = None
+        """
+        Gets the content
+        :return: tuple of logs and entry that triggered reporting process
+        """
         return self.logs, self.single_entry
 
 
@@ -194,9 +214,11 @@ class PyPowsyblLogGatherer:
                  tso: str = None,
                  print_to_console: bool = False,
                  send_to_elastic: bool = True,
+                 upload_to_minio: bool = False,
+                 minio_bucket: str = MINIO_BUCKET_FOR_PYPOWSYBL_LOGS,
                  logging_policy: PyPowsyblLogReportingPolicy = PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
                  elk_server=elastic.ELK_SERVER,
-                 index=LOGGING_INDEX):
+                 index=ELASTIC_INDEX_FOR_PYPOWSYBL_LOGS):
         """
         Initialize the pypowsybl log gatherer. It attaches to pypowsybl logger, gathers it logs (level(1)) when started
         until stopped or event determined by reporting_level occurs
@@ -206,7 +228,7 @@ class PyPowsyblLogGatherer:
             2) End of something is triggered
         """
         self.topic_name = topic_name
-        self.formatter = logging.Formatter(GENERAL_LOGGING_FORMAT)
+        self.formatter = logging.Formatter(LOGGING_FORMAT)
         self.package_logger = logging.getLogger(PYPOWSYBL_LOGGER)
         self.package_logger.setLevel(PYPOWSYBL_LOGGER_DEFAULT_LEVEL)
         self.reporting_level = reporting_level
@@ -221,12 +243,20 @@ class PyPowsyblLogGatherer:
         # Switch reporting to console on or off
         self.package_logger.propagate = print_to_console
         # Initialize the elk instance
-        self.elastic_client = Elk(server=elk_server, debug=True)
+        self.elastic_server = elk_server
         self.index = index
         self.send_to_elastic = send_to_elastic
         self.report_to = True
         self.logging_policy = None
         self.set_reporting_policy(logging_policy)
+
+        self.minio_instance = None
+        self.minio_bucket = minio_bucket
+        if upload_to_minio:
+            self.minio_instance = ObjectStorage()
+        self.identifier = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+        # if needed use identifier
+        # self.identifier = uuid.uuid4()
 
     @property
     def elastic_is_connected(self):
@@ -235,16 +265,16 @@ class PyPowsyblLogGatherer:
         Do check up to elastic, handle errors
         """
         try:
-            response = requests.get(self.elastic_client, timeout=5)
+            response = requests.get(self.elastic_server, timeout=5)
             if response.status_code == 200:
                 return True
             else:
                 logger.warning(
                     f"ELK server response: [{response.status_code}] {response.reason}. Disabling ELK logging.")
         except requests.exceptions.ConnectTimeout:
-            logger.warning(f"{self.elastic_client}: Timeout. Disabling ELK logging.")
+            logger.warning(f"{self.elastic_server}: Timeout. Disabling ELK logging.")
         except Exception as e:
-            logger.warning(f"{self.elastic_client}: unknown error: {e}")
+            logger.warning(f"{self.elastic_server}: unknown error: {e}")
         return False
 
     def post_log_report(self, buffer='', single_entry=None):
@@ -261,7 +291,7 @@ class PyPowsyblLogGatherer:
                 if elastic_content is not None:
                     response = elastic.Elastic.send_to_elastic(index=self.index,
                                                                json_message=elastic_content,
-                                                               server=self.elastic_client)
+                                                               server=self.elastic_server)
                     if response.ok:
                         # TODO: Is message pending needed?
                         # For example if sending message failed, keep it somewhere and send it when connection is 
@@ -273,6 +303,8 @@ class PyPowsyblLogGatherer:
             logger.error(f"Sending log to elastic failed, saving to local storage...")
             self.compose_log_file(buffer, single_entry)
             self.report_to = False
+        # except Exception:
+        #     logger.error(f"Unable to post log report: {Exception}")
 
     def set_reporting_policy(self, new_policy: PyPowsyblLogReportingPolicy):
         """
@@ -360,15 +392,16 @@ class PyPowsyblLogGatherer:
         """
         return logging.getLevelName(self.reporting_level)
 
-    def compose_log_file(self, buffer: str = '', single_entry: logging.LogRecord = None):
+    def compose_log_file(self, buffer: str = '', single_entry: logging.LogRecord = None, file_name: str = None):
         """
         Saves buffer to local log file: buffer if exists, last entry otherwise
         :param buffer: buffer containing log entries
         :param single_entry: first entry that reached to required level
+        :param file_name: name of the file where the content should be saved. Note that if not specified, the
+        a default file name will be used (combination of topic, tso and date and time of the analysis)
         :return log message dictionary
         """
-        time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-        file_name = f"{self.topic_name}_pypowsybl_error_log_for_{self.tso}_from_{time_moment_now}.log"
+        file_name = self.check_and_get_file_name(file_name)
         if buffer != '' and buffer is not None:
             payload = '\n'.join(buffer.splitlines())
         elif single_entry is not None:
@@ -378,6 +411,50 @@ class PyPowsyblLogGatherer:
         with open(file_name, mode='w', encoding="utf-8") as log_file:
             log_file.write(payload)
         return file_name
+
+    def check_and_get_file_name(self, file_name: str = None, use_folders: bool = True, use_local: bool = True):
+        """
+        Gets some predefined file name to be used when saving the logs
+        :param file_name: the input, if exists, leave empty otherwise
+        :param use_folders: create sub folders for storing file
+        :param use_local: store as a relative path when saving to local computer
+        :return file name
+        """
+        if file_name is None or file_name == '':
+            time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+            file_name = f"{self.topic_name}_pypowsybl_error_log_for_{self.tso}_from_{time_moment_now}.log"
+            if use_folders:
+                file_name = MINIO_FOLDER_FOR_PYPOWSYBL_LOGS + '/' + str(self.identifier) + '/' + file_name
+                if use_local:
+                    file_name = './' + file_name
+        return file_name
+
+    def post_log_to_minio(self, buffer='', file_name: str = None):
+        """
+        Posts log as a file to minio
+        :param buffer: logs as a string
+        :param file_name: if given
+        :return: the link to the file
+        """
+        link_to_file = None
+        if self.minio_instance is not None and buffer != '' and buffer is not None:
+            # check if the given bucket exists
+            if not self.minio_instance.client.bucket_exists(bucket_name=self.minio_bucket):
+                logger.warning(f"{self.minio_bucket} does not exist")
+                return link_to_file
+            # Adjust the filename to the default n
+            file_name = self.check_and_get_file_name(file_name, use_local=False)
+            file_object = BytesIO(str.encode(buffer))
+            file_object.name = file_name
+            self.minio_instance.upload_object(file_path_or_file_object=file_object,
+                                              bucket_name=self.minio_bucket,
+                                              metadata=None)
+            time_to_expire = timedelta(days=DAYS_TO_STORE_DATA_IN_MINIO)
+            link_to_file = self.minio_instance.client.get_presigned_url(method="GET",
+                                                                        bucket_name=self.minio_bucket,
+                                                                        object_name=file_object.name,
+                                                                        expires=time_to_expire)
+        return link_to_file
 
     def compose_elastic_message(self, buffer: str = '', single_entry: logging.LogRecord = None):
         """
@@ -391,12 +468,9 @@ class PyPowsyblLogGatherer:
         # Add first log entry that reached to level as a content of the payload
         if single_entry is not None and isinstance(single_entry, logging.LogRecord):
             message_dict = single_entry.__dict__
-        # Check if buffer exists and is affordable size and add it to message
-        if buffer != '' and buffer is not None and get_buffer_size(buffer) < MAX_LENGTH_FOR_TEXT_IN_ELK:
-            message_dict[ELASTIC_FIELD_FOR_LOG_DATA] = buffer
-        else:
-            logger.info(f"Pypowsybl buffer exceeds the limit {MAX_LENGTH_FOR_TEXT_IN_ELK}, dropping the buffer")
-            # TODO: if needed, post buffer on multiple packages
+        link_to_log_file = self.post_log_to_minio(buffer=buffer)
+        if link_to_log_file != '' and link_to_log_file is not None:
+            message_dict[ELASTIC_FIELD_FOR_LOG_DATA] = link_to_log_file
         message_dict[ELASTIC_FIELD_FOR_TSO] = self.tso
         message_dict[ELASTIC_FIELD_FOR_TOPIC] = self.topic_name
         return message_dict
@@ -425,7 +499,7 @@ class PyPowsyblLogGatheringHandler(logging.StreamHandler):
         self.originator_type = 'IGM_validation'
         self.formatter = formatter
         if self.formatter is None:
-            self.formatter = logging.Formatter(GENERAL_LOGGING_FORMAT)
+            self.formatter = logging.Formatter(LOGGING_FORMAT)
         self.gathering_buffer = LogStream(self.formatter)
         self.report_level = report_level
         self.logging_policy = None

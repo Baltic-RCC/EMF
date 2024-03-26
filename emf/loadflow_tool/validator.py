@@ -1,8 +1,3 @@
-from typing import Optional, cast
-
-import pandas as pd
-import triplets
-import pypowsybl
 import os.path
 import zipfile
 from enum import Enum
@@ -12,14 +7,12 @@ from os.path import join
 from zipfile import ZipFile
 
 import logging
-import json
 import time
 import math
 import config
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
-from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 
@@ -717,10 +710,11 @@ if __name__ == "__main__":
     # print_to_console: propagate log to parent
     # reporting_level: level that triggers policy
     pypowsybl_log_gatherer = PyPowsyblLogGatherer(topic_name='IGM_validation',
-                                                  send_to_elastic=False,
-                                                  logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
+                                                  send_to_elastic=True,
+                                                  upload_to_minio=True,
+                                                  logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
                                                   print_to_console=False,
-                                                  reporting_level=logging.WARNING)
+                                                  reporting_level=logging.ERROR)
 
     # Switch this to True if files from local storage are used
     load_data_from_local_storage = False
