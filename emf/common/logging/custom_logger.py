@@ -1,3 +1,4 @@
+import os.path
 import sys
 import logging
 from datetime import datetime, timedelta
@@ -20,7 +21,7 @@ PYPOWSYBL_LOGGER = 'powsybl'
 PYPOWSYBL_LOGGER_DEFAULT_LEVEL = 1
 CUSTOM_LOG_BUFFER_LINE_BREAK = '\r\n'
 # Max allowed lifespan of link to file in minio bucket
-DAYS_TO_STORE_DATA_IN_MINIO = 7         # Max allowed by Minio
+DAYS_TO_STORE_DATA_IN_MINIO = 7  # Max allowed by Minio
 # Default name of the subfolder for storing the results if needed
 SEPARATOR_SYMBOL = '/'
 
@@ -205,6 +206,11 @@ def get_buffer_size(buffer):
 
 
 class PyPowsyblLogGatherer:
+    """
+    Governing class for the PyPowsyblLogHandler
+    Note that for posting the data to elastic, minio the default configuration (elastic.properties, mini.properties)
+    is used
+    """
 
     def __init__(self,
                  topic_name: str = None,
@@ -213,17 +219,25 @@ class PyPowsyblLogGatherer:
                  print_to_console: bool = False,
                  send_to_elastic: bool = True,
                  upload_to_minio: bool = False,
+                 report_on_command: bool = True,
                  minio_bucket: str = MINIO_BUCKET_FOR_PYPOWSYBL_LOGS,
                  logging_policy: PyPowsyblLogReportingPolicy = PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
                  elk_server=elastic.ELK_SERVER,
                  index=ELASTIC_INDEX_FOR_PYPOWSYBL_LOGS):
         """
-        Initialize the pypowsybl log gatherer. It attaches to pypowsybl logger, gathers it logs (level(1)) when started
-        until stopped or event determined by reporting_level occurs
-        Monitor pypowsybl (gather its log)
-        publish the log in case of:
-            1) level is triggered
-            2) End of something is triggered
+        Initializes the pypowsybl log gatherer.
+        :param topic_name: name (string) that can be used to distinguish log files
+        :param reporting_level: logging.level which triggers reporting
+        :param tso: the name of the tso (for naming the files)
+        :param print_to_console: If True then prints the pypowsybl log to console, false: consume it internally
+        :param send_to_elastic:  If True then posts a log entry that triggered the gathering to elastic
+        :param upload_to_minio:  If True then posts a log buffer to minio as .log file
+        :param report_on_command: If true then log entries/buffer are reported when entry has triggered gathering
+        and dedicated function is called manually (e.g. report when all validation failed)
+        :param minio_bucket: the name of the bucket in minio
+        :param logging_policy: determines which and how to collect (entire log or only entries on the level etc)
+        :param elk_server: name of the elk server instance
+        :index: name of the index in elastic search where to post the log entries
         """
         self.topic_name = topic_name
         self.formatter = logging.Formatter(LOGGING_FORMAT)
@@ -231,7 +245,9 @@ class PyPowsyblLogGatherer:
         self.package_logger.setLevel(PYPOWSYBL_LOGGER_DEFAULT_LEVEL)
         self.reporting_level = reporting_level
         self.tso = tso
-
+        self.report_on_command = report_on_command
+        self.reporting_triggered_externally = True
+        self.reset_triggers_for_reporting()
         if self.reporting_level is None:
             self.reporting_level = logging.ERROR
         self.gathering_handler = PyPowsyblLogGatheringHandler(formatter=self.formatter,
@@ -255,6 +271,26 @@ class PyPowsyblLogGatherer:
         self.identifier = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         # if needed use identifier
         # self.identifier = uuid.uuid4()
+
+    def set_report_on_command(self, report_on_command: bool = False):
+        """
+        Sets manual reporting status
+        if report_on_command is true then reporting happens when self.report_to is true and trigger_to_report_externally
+        is called with value true
+        if report_on_command is false then reporting (posting the logs) happens when self.report_to is true
+        :param report_on_command: new status for manual reporting
+        """
+        self.report_on_command = report_on_command
+        self.reporting_triggered_externally = False if self.report_on_command else True
+
+    def reset_triggers_for_reporting(self):
+        """
+        Resets the triggers used:
+        reporting_to which triggered by the log entry
+        reporting_triggered_externally which triggered outside manually
+        """
+        self.reporting_triggered_externally = False if self.report_on_command else True
+        self.report_to = False
 
     @property
     def elastic_is_connected(self):
@@ -294,13 +330,16 @@ class PyPowsyblLogGatherer:
                         # TODO: Is message pending needed?
                         # For example if sending message failed, keep it somewhere and send it when connection is 
                         # available
-                        self.report_to = False
+                        self.reset_triggers_for_reporting()
                         return
             raise ConnectionError
         except ConnectionError:
-            logger.error(f"Sending log to elastic failed, saving to local storage...")
+            if not self.send_to_elastic:
+                logger.info("Saving log to local storage")
+            else:
+                logger.error(f"Sending log to elastic failed, saving to local storage...")
             self.compose_log_file(buffer, single_entry)
-            self.report_to = False
+            self.reset_triggers_for_reporting()
         # except Exception:
         #     logger.error(f"Unable to post log report: {Exception}")
 
@@ -312,7 +351,7 @@ class PyPowsyblLogGatherer:
         self.logging_policy = new_policy
         self.gathering_handler.set_reporting_policy(self.logging_policy)
         if self.logging_policy != PyPowsyblLogReportingPolicy.ALL_ENTRIES:
-            self.report_to = False
+            self.reset_triggers_for_reporting()
 
     def set_tso(self, tso_name: str):
         """
@@ -322,6 +361,16 @@ class PyPowsyblLogGatherer:
         self.stop_working()
         self.gathering_handler.start_gathering()
         self.tso = tso_name
+
+    def trigger_to_report_externally(self, trigger_reporting: bool = True):
+        """
+        Calls reporting when self.report_on_command is set to true
+        NOTE: That this works on policies which report at the end
+        :param trigger_reporting: if true then if self.report_to is true (set by log entry) the log entry/buffers
+        are reported otherwise not
+        """
+        if self.report_on_command:
+            self.reporting_triggered_externally = trigger_reporting
 
     def set_to_reporting(self):
         """
@@ -361,11 +410,15 @@ class PyPowsyblLogGatherer:
         if (buffer is None or buffer == '') and single_entry is None:
             return
         # Check if post is needed
-        if (self.logging_policy == PyPowsyblLogReportingPolicy.ALL_ENTRIES or
-                (self.report_to and (self.logging_policy == PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED or
-                                     self.logging_policy == PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL))):
-            self.post_log_report(buffer, single_entry)
-        self.report_to = False
+        # 1. If reporting was set to be triggered externally and no triggering case occurred
+        if self.report_on_command is False or self.reporting_triggered_externally is True:
+            # 2. If other conditions are met
+            if (self.logging_policy == PyPowsyblLogReportingPolicy.ALL_ENTRIES or
+                    (self.report_to and
+                     (self.logging_policy == PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED or
+                      self.logging_policy == PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL))):
+                self.post_log_report(buffer, single_entry)
+        self.reset_triggers_for_reporting()
 
     def get_logs(self):
         """
@@ -406,6 +459,10 @@ class PyPowsyblLogGatherer:
             payload = self.formatter.format(single_entry)
         else:
             return None
+        # And create directories
+        directory_name = os.path.dirname(file_name)
+        if not os.path.exists(directory_name):
+            os.makedirs(directory_name)
         with open(file_name, mode='w', encoding="utf-8") as log_file:
             log_file.write(payload)
         return file_name
@@ -481,7 +538,9 @@ class PyPowsyblLogGatherer:
 
 class PyPowsyblLogGatheringHandler(logging.StreamHandler):
     """
-    Initializes custom log handler to start and gather logs on commands/events
+    Initializes custom log handler to start and gather logs.
+    Depending on the policy either gathers logs to buffer or looks out for log entry which on the report level or
+    does both
     """
 
     def __init__(self,

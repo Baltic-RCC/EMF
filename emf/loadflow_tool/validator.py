@@ -712,7 +712,8 @@ if __name__ == "__main__":
     pypowsybl_log_gatherer = PyPowsyblLogGatherer(topic_name='IGM_validation',
                                                   send_to_elastic=True,
                                                   upload_to_minio=True,
-                                                  logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
+                                                  report_on_command=False,
+                                                  logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
                                                   print_to_console=False,
                                                   reporting_level=logging.ERROR)
 
@@ -749,6 +750,10 @@ if __name__ == "__main__":
             else:
                 response = validate_model([model])
             model["VALIDATION_STATUS"] = response
+            # Example for manual triggering for posting the logs. The value given must be positive:
+            log_post_trigger = model.get('VALIDATION_STATUS', {}).get('valid') is False
+            # Note that this switch is governed by report_on_command in PyPowsyblLogGatherer initialization
+            pypowsybl_log_gatherer.trigger_to_report_externally(log_post_trigger)
             validated_models.append(model)
 
         except Exception as error:
