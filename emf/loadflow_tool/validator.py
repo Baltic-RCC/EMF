@@ -1,14 +1,20 @@
+import io
 import os.path
+import shutil
 import zipfile
 from enum import Enum
 from io import BytesIO
 from os import listdir
 from os.path import join
+from pathlib import Path
 from zipfile import ZipFile
 
 import logging
 import time
 import math
+
+import requests
+
 import config
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.loadflow_settings import *
@@ -682,6 +688,96 @@ def get_local_files():
     return models, boundary
 
 
+"""
+In order to get a relatively large file from ENTSOE:
+1) Download the file
+2) Extract file level 1
+3) Extract file level 2
+"""
+
+
+def download_zip_file(url_to_zip: str):
+    """
+    Downloads a zip file from url.
+    Note that the file may be rather large so do it in stream
+    :param url_to_zip: url of the zip file
+    """
+    loaded_file_name = url_to_zip.split('/')[-1]
+    with requests.get(url_to_zip, stream=True) as r:
+        with open(loaded_file_name, 'wb') as f:
+            shutil.copyfileobj(r.raw, f)
+    return loaded_file_name
+
+
+def recursive_zip_file_extraction(current_zip_file: str, root_folder: str):
+    """
+    Extract zip file, if extracted zip file contains zip file, extract them and continue onwards
+    Ended with recursion error
+    """
+    with zipfile.ZipFile(current_zip_file, 'r') as level_one_zip_file:
+        level_one_zip_file.extractall(path=root_folder)
+    # os.remove(current_zip_file)
+    for root, folders, files in os.walk(root_folder):
+        for file_name in files:
+            if zipfile.is_zipfile(root + '/' + file_name):
+                file_spec = os.path.join(root, file_name)
+                recursive_zip_file_extraction(file_spec, root)
+        for folder in folders:
+            sub_folder_path = root_folder + '/' + folder
+            for folder_path, folder_folders, folder_file_names in os.walk(sub_folder_path):
+                for folder_file in folder_file_names:
+                    if zipfile.is_zipfile(folder_path + '/' + folder_file):
+                        folder_file_spec = os.path.join(folder_path, folder_file)
+                        recursive_zip_file_extraction(folder_file_spec, folder_path)
+
+
+def extract_examples_zip_file(location_of_zip_file: str):
+    """
+    Extracts local zip file
+    :param location_of_zip_file: path to zip file
+    """
+    loaded_zip_file = zipfile.ZipFile(location_of_zip_file)
+    for file_name in loaded_zip_file.namelist():
+        folder_name = os.path.splitext(file_name)[0]
+        os.mkdir(folder_name)
+        content = io.BytesIO(loaded_zip_file.read(folder_name))
+        zip_file = zipfile.ZipFile(content)
+        for file_instance in zip_file.namelist():
+            zip_file.extract(file_instance, folder_name)
+
+
+def check_and_get_examples(local_folder_for_examples: str = ENTSOE_EXAMPLES_LOCAL,
+                           url_for_examples: str=ENTSOE_EXAMPLES_EXTERNAL):
+    """
+    Checks if examples are present if no then downloads and extracts them
+    Order:
+    1) Check if path given is present, if no, create it
+    2) Check if examples folder is present in path (name from the url), if yes return
+    3) Check if examples zip is present in path (name from the url), if yes, extract and return
+    4) If zip or folder didn't exist, download zip from url and extract it
+    :param local_folder_for_examples: path to the examples
+    :param url_for_examples: path to online storage
+    """
+    file_name = url_for_examples.split('/')[-1]
+    folder_name = os.path.splitext(file_name)[0]
+    full_file_name = local_folder_for_examples + file_name
+    full_folder_name = local_folder_for_examples + folder_name
+    # 1) Check if path exists, if not make it
+    if not os.path.exists(local_folder_for_examples):
+        os.makedirs(local_folder_for_examples)
+    # 2) Check if extracted folder exists in path, if yes then return:
+    if os.path.isdir(full_folder_name):
+        return True
+    # 3) Check if zip file exists in folder, if yes then extract and return
+    if os.path.isfile(full_file_name) and zipfile.is_zipfile(full_file_name):
+        recursive_zip_file_extraction(full_file_name, full_folder_name)
+        # extract_examples_zip_file(full_file_name)
+        return True
+    # 4) OK, nothing was found, so download the file and extract it
+    zip_file_name = download_zip_file(url_for_examples)
+    recursive_zip_file_extraction(zip_file_name, full_folder_name)
+
+
 """-----------------END OF CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE----------------------------------------"""
 
 # TEST
@@ -718,10 +814,11 @@ if __name__ == "__main__":
                                                   reporting_level=logging.ERROR)
 
     # Switch this to True if files from local storage are used
-    load_data_from_local_storage = False
+    load_data_from_local_storage = True
     try:
         if load_data_from_local_storage:
-            available_models, latest_boundary = get_local_files()
+            check_and_get_examples()
+            # available_models, latest_boundary = get_local_files()
             # available_models, latest_boundary = get_example_data_from_entsoe_zip(
             #      load_type=EntsoeFolder.MINI_GRID_BUS_BRANCH)
             # available_models, latest_boundary = get_example_data_from_entsoe_zip(
