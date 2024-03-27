@@ -1,10 +1,8 @@
-import base64
 import sys
 import logging
-import uuid
 from datetime import datetime, timedelta
 from enum import Enum
-from io import StringIO, BytesIO
+from io import BytesIO
 from zipfile import ZipFile
 
 import requests
@@ -424,7 +422,10 @@ class PyPowsyblLogGatherer:
             time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             file_name = f"{self.topic_name}_pypowsybl_error_log_for_{self.tso}_from_{time_moment_now}.log"
             if use_folders:
-                file_name = MINIO_FOLDER_FOR_PYPOWSYBL_LOGS + '/' + str(self.identifier) + '/' + file_name
+                file_name = (MINIO_FOLDER_FOR_PYPOWSYBL_LOGS +
+                             SEPARATOR_SYMBOL +
+                             str(self.identifier) +
+                             SEPARATOR_SYMBOL + file_name)
                 if use_local:
                     file_name = './' + file_name
         return file_name
@@ -434,7 +435,7 @@ class PyPowsyblLogGatherer:
         Posts log as a file to minio
         :param buffer: logs as a string
         :param file_name: if given
-        :return: the link to the file
+        :return: file name and link to file, the link to the file
         """
         link_to_file = None
         if self.minio_instance is not None and buffer != '' and buffer is not None:
@@ -454,7 +455,7 @@ class PyPowsyblLogGatherer:
                                                                         bucket_name=self.minio_bucket,
                                                                         object_name=file_object.name,
                                                                         expires=time_to_expire)
-        return link_to_file
+        return file_name, link_to_file
 
     def compose_elastic_message(self, buffer: str = '', single_entry: logging.LogRecord = None):
         """
@@ -468,8 +469,10 @@ class PyPowsyblLogGatherer:
         # Add first log entry that reached to level as a content of the payload
         if single_entry is not None and isinstance(single_entry, logging.LogRecord):
             message_dict = single_entry.__dict__
-        link_to_log_file = self.post_log_to_minio(buffer=buffer)
+        file_name, link_to_log_file = self.post_log_to_minio(buffer=buffer)
+        message_dict[ELASTIC_FIELD_FOR_FILENAME] = file_name
         if link_to_log_file != '' and link_to_log_file is not None:
+            message_dict[ELASTIC_FIELD_FOR_MINIO_BUCKET] = MINIO_BUCKET_FOR_PYPOWSYBL_LOGS
             message_dict[ELASTIC_FIELD_FOR_LOG_DATA] = link_to_log_file
         message_dict[ELASTIC_FIELD_FOR_TSO] = self.tso
         message_dict[ELASTIC_FIELD_FOR_TOPIC] = self.topic_name
