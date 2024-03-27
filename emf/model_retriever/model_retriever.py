@@ -4,10 +4,14 @@ from io import BytesIO
 from zipfile import ZipFile
 from typing import List
 import json
+
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import edx, elastic, opdm, minio
 from emf.common.converters import opdm_metadata_to_json
 from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.helper import load_opdm_data
+from emf.loadflow_tool.model_statistics import get_system_metrics
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,25 @@ class HandlerModelsToMinio:
             updated_opdm_objects.append(opdm_object)
 
         return updated_opdm_objects
+
+
+class HandlerModelsStat:
+
+    def handle(self, opdm_objects: List[dict], **kwargs):
+        # Get the latest boundary set for validation
+        latest_boundary = self.opdm_service.get_latest_boundary() # TODO - get BDS from ELK+MINIO
+
+        # Extract statistics
+        for opdm_object in opdm_objects:
+            stat = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+            opdm_object['total_load'] = stat['total_load']
+            opdm_object['generation'] = stat['generation']
+            opdm_object['losses'] = stat['losses']
+            opdm_object['losses_coefficient'] = stat['losses_coefficient']
+            opdm_object['acnp'] = stat['tieflow_acnp']['EquivalentInjection.p']
+            opdm_object['hvdc'] = {key: value['EquivalentInjection.p'] for key, value in stat["tieflow_hvdc"].items()}
+
+        return opdm_objects
 
 
 class HandlerModelsValidator:
