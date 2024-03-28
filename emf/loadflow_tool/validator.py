@@ -551,7 +551,10 @@ def download_zip_file(url_to_zip: str, path_to_download: str = None):
     return loaded_file_name
 
 
-def check_and_extract_zip_files_in_folder(root_folder: str, files: [], depth: int = 0, max_depth: int = 5):
+def check_and_extract_zip_files_in_folder(root_folder: str,
+                                          files: [],
+                                          depth: int = 0,
+                                          max_depth: int = RECURSION_LIMIT):
     """
     Checks if files in folder are zip files, and extracts them recursively
     :param root_folder: the name of the root folder
@@ -595,14 +598,7 @@ def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 0, ma
         # Don't go to system specific folders or generate endless recursion
         if any(root in system_folder for system_folder in SYSTEM_SPECIFIC_FOLDERS) or root == root_folder:
             continue
-        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth + 1)
-        for folder in folders:
-            sub_folder_path = check_the_folder_path(root_folder + folder)
-            for folder_path, folder_folders, folder_file_names in os.walk(sub_folder_path):
-                check_and_extract_zip_files_in_folder(root_folder=folder_path,
-                                                      files=folder_file_names,
-                                                      depth=depth + 1,
-                                                      max_depth=max_depth)
+        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth + 1, max_depth=max_depth)
 
 
 def search_directory(root_folder: str, search_path: str):
@@ -678,7 +674,7 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
         root_folder = check_the_folder_path(root_folder)
     for file_name in list_of_files:
         file_extension = os.path.splitext(file_name)[-1]
-        file_base = None
+        file_base = os.path.splitext(file_name)[0]
         # Check if file is supported file
         if file_extension not in ['.xml', '.zip']:
             continue
@@ -686,8 +682,6 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
         file_name_meta = get_meta_from_filename(file_name)
         if root_folder is not None:
             file_name = root_folder + file_name
-        if any(key in UNUSED_FIELDS for key in file_name_meta.keys()):
-            file_base = os.path.splitext(file_name)[0]
         if MODELING_ENTITY in file_name_meta.keys() and MODEL_MESSAGE_TYPE in file_name_meta.keys():
             tso_name = file_name_meta[MODELING_ENTITY]
             file_type_name = file_name_meta[MODEL_MESSAGE_TYPE]
@@ -695,14 +689,15 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
             if file_type_name in igm_file_types:
                 if tso_name not in tso_files.keys():
                     tso_files[tso_name] = []
-                if (not any(file_type_name in saved_file_type for saved_file_type in tso_files[tso_name])
-                        or (file_base is not None and file_base not in tso_files[tso_name])):
+                # Check if file without the extension is already present
+                if not any(file_base in file_listed for file_listed in tso_files[tso_name]):
                     tso_files[tso_name].append(file_name)
             # Handle boundaries
             elif file_type_name in boundary_file_types:
                 if tso_name not in boundaries.keys():
                     boundaries[tso_name] = []
-                if not any(file_type_name in boundary for boundary in boundaries):
+                # Check if file without the extension is already present
+                if not any(file_base in file_listed for file_listed in boundaries[tso_name]):
                     boundaries[tso_name].append(file_name)
             else:
                 logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
@@ -769,10 +764,13 @@ if __name__ == "__main__":
                                                   reporting_level=logging.ERROR)
 
     # Switch this to True if files from local storage are used
-    load_data_from_local_storage = True
+    load_data_from_local_storage = False
     try:
         if load_data_from_local_storage:
             # available_models, latest_boundary = get_local_files()
+            # Change this according the test case to be used. Note that it must reference to the end folder that will
+            # be used. Also it must be unique enough do be distinguished from other folders (for example instead of
+            # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc)
             folder_to_study = 'TC3_T3_Conform'
             available_models, latest_boundary = get_local_entsoe_files(folder_to_study)
         else:
