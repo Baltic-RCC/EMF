@@ -1,4 +1,3 @@
-import io
 import os.path
 import shutil
 import zipfile
@@ -6,7 +5,6 @@ from enum import Enum
 from io import BytesIO
 from os import listdir
 from os.path import join
-from pathlib import Path
 from zipfile import ZipFile
 
 import logging
@@ -16,7 +14,7 @@ import math
 import requests
 
 import config
-from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy
+from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, SEPARATOR_SYMBOL
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
 from emf.common.config_parser import parse_app_properties
@@ -37,12 +35,14 @@ TSO_KEYWORD = 'pmd:TSO'
 DATA_KEYWORD = 'DATA'
 FILENAME_KEYWORD = 'pmd:fileName'
 MODEL_MESSAGE_TYPE = 'Model.messageType'
-MAGIC_XML_IDENTIFICATION = '.xml'
+XML_KEYWORD = '.xml'
+ZIP_KEYWORD = '.zip'
 MODELING_ENTITY = 'Model.modelingEntity'
 OP_COMPONENT_KEYWORD = 'opde:Component'
 OP_PROFILE_KEYWORD = 'opdm:Profile'
 MISSING_TSO_NAME = 'UnknownTSO'
 
+PREFERRED_FILE_TYPES = [XML_KEYWORD, ZIP_KEYWORD]
 IGM_FILE_TYPES = ['_EQ_', '_TP_', '_SV_', '_SSH_']
 BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', ]
 
@@ -50,16 +50,21 @@ BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', ]
 IGM_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                 'Model.scenarioTime': 'pmd:scenarioDate',
                                 'Model.processType': 'pmd:timeHorizon',
-                                'Model.modelingEntity': 'pmd:modelPartReference',
+                                MODELING_ENTITY: 'pmd:modelPartReference',
                                 MODEL_MESSAGE_TYPE: 'pmd:cgmesProfile',
                                 'Model.version': 'pmd:versionNumber'}
 
 """Mapper for the elements of the file name to boundary profile"""
 BOUNDARY_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                      'Model.scenarioTime': 'pmd:scenarioDate',
-                                     'Model.modelingEntity': 'pmd:modelPartReference',
+                                     MODELING_ENTITY: 'pmd:modelPartReference',
                                      MODEL_MESSAGE_TYPE: 'pmd:cgmesProfile',
                                      'Model.version': 'pmd:versionNumber'}
+SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
+UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
+WINDOWS_SEPARATOR = '\\'
+RECURSION_LIMIT = 2
+UNUSED_FIELDS = ["Model.domain", "Model.forEntity"]
 
 
 class LocalInputType(Enum):
@@ -96,7 +101,9 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
-                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network, validation_types=[validation_type])._valid.__bool__()
+                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
+                                                                                          validation_types=[
+                                                                                              validation_type])._valid.__bool__()
             except Exception as error:
                 logger.error(f"Failed {validation_type} validation with error: {error}")
                 continue
@@ -108,14 +115,14 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
 
-
     # Parsing loadflow results
     # TODO move sanitization to Elastic integration
     loadflow_result_dict = {}
     for island in loadflow_result:
         island_results = attr_to_dict(island)
         island_results['status'] = island_results.get('status').name
-        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
+        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else \
+            island_results['distributed_active_power']
         loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
     model_data["loadflow_results"] = loadflow_result_dict
     # model_data["loadflow_report"] = json.loads(loadflow_report.to_json())
@@ -255,7 +262,7 @@ def load_data(file_name: str, file_types: list = None):
     data = None
     if zipfile.is_zipfile(file_name):
         data = read_in_zip_file(file_name, file_types)
-    elif file_name.endswith(MAGIC_XML_IDENTIFICATION):
+    elif file_name.endswith(XML_KEYWORD):
         data = read_in_xml_file(file_name, file_types)
     return data
 
@@ -330,7 +337,7 @@ def get_xml_file_list_from_dir(path_to_dir: str):
     """
     file_list = [join(path_to_dir, file_name)
                  for file_name in listdir(path_to_dir)
-                 if file_name.endswith(MAGIC_XML_IDENTIFICATION)]
+                 if file_name.endswith(XML_KEYWORD)]
     return file_list
 
 
@@ -350,7 +357,7 @@ def get_list_of_content_files(paths: str | list) -> []:
             xml_files = get_xml_file_list_from_dir(element)
             list_of_files.extend(zip_files)
             list_of_files.extend(xml_files)
-        elif os.path.isfile(element) and (zipfile.is_zipfile(element) or element.endswith(MAGIC_XML_IDENTIFICATION)):
+        elif os.path.isfile(element) and (zipfile.is_zipfile(element) or element.endswith(XML_KEYWORD)):
             list_of_files.append(element)
         else:
             logger.error(f"{element} is not a path nor a .xml or a .zip file")
@@ -404,7 +411,7 @@ def get_data_from_files(file_locations: list | str | dict,
     return all_models
 
 
-def filter_file_list_by_file_keywords(file_list: list, file_keywords: list = None):
+def filter_file_list_by_file_keywords(file_list: list | str | dict, file_keywords: list = None):
     """
     Ables to filter the file list by file identifying keywords ('TP', 'SSH', 'EQ', 'SV')
     :param file_list: list of file names
@@ -420,7 +427,7 @@ def filter_file_list_by_file_keywords(file_list: list, file_keywords: list = Non
     return new_file_list
 
 
-def get_local_igm_data(file_locations: list | str, file_keywords: list = None):
+def get_local_igm_data(file_locations: list | str | dict, file_keywords: list = None):
     """
     Call this with a list of files/directories to load igm data
     :param file_locations: list of files or their locations, one element per tso
@@ -451,196 +458,6 @@ def get_local_boundary_data(file_locations: list | str, file_keywords: list = No
     except IndexError:
         logger.error(f"Data for boundaries were not valid, no boundaries were extracted")
         raise LocalFileLoaderError
-
-
-class EntsoeFolder(Enum):
-    """
-    Helper class for hardcoded sub folders in entsoe examples folder
-    """
-    FULL_GRID = 'FullGrid'
-    MICRO_GRID_BASE_CASE = 'MicroGrid/BaseCase_BC'
-    MICRO_GRID_T1 = 'MicroGrid/Type1_T1'
-    MICRO_GRID_T2 = 'MicroGrid/Type2_T2'
-    MICRO_GRID_T3 = 'MicroGrid/Type3_T3'
-    MICRO_GRID_T4 = 'MicroGrid/Type4_T4'
-    MINI_GRID_BUS_BRANCH = 'MiniGrid/BusBranch'
-    MINI_GRID_NODE_BREAKER = 'MiniGrid/NodeBreaker'
-    REAL_GRID = 'RealGrid'
-    SMALL_GRID_BUS_BRANCH = 'SmallGrid/BusBranch'
-    SMALL_GRID_NODE_BREAKER = 'SmallGrid/NodeBreaker'
-    UNDEFINED = 'Undefined'
-
-
-def get_example_data_from_entsoe_zip(entsoe_extracted_folder: str = None,
-                                     load_type: EntsoeFolder = EntsoeFolder.UNDEFINED):
-    """
-    Retrieves the IGMS and boundaries from the ENTSOE examples.
-    To use this:
-        1) Download https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
-        2) Extract the downloaded zip
-        3) set entsoe_extracted_folder as a relative ('./<from here to folder>') or absolute ('C:to folder') path
-        4) select the sub folder by using enum EntsoeFolder
-        5) take the output as set of igms, boundaries and carry on
-    P.S each folder contains documentation of what the examples are and for what they are good for
-    :param entsoe_extracted_folder: location of the
-    :param load_type: sub folder to be used
-    :return set of igms, boundaries
-    """
-    # Adjust these according to the need
-    if entsoe_extracted_folder is None:
-        try:
-            if ENTSOE_FOLDER is not None:
-                entsoe_extracted_folder = ENTSOE_FOLDER
-        except NameError:
-            logger.error("No path exists in local script, switching to remote")
-            raise LocalFileLoaderError
-    if load_type == EntsoeFolder.UNDEFINED:
-        logger.warning(f"For ENTSOE test cases no subdirectory was given, taking some random folder")
-        load_type = EntsoeFolder.MICRO_GRID_BASE_CASE
-    # End of adjusting the input parameters
-    boundary_files = None
-    match load_type:
-        case EntsoeFolder.FULL_GRID:
-            # 1. FullGrid: Pybowsybl error
-            igm_files = [
-                f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
-                f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v1.zip',
-                # f'{entsoe_extracted_folder}{EntsoeFolder.FULL_GRID.value}/'
-                # f'CGMES_v2.4.15_FullGridTestConfiguration_BB_BE_v2.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
-                # f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v3.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
-                # f'CGMES_v2.4.15_FullGridTestConfiguration_NB_BE_v4.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.FULL_GRID.value}/'
-                              f'CGMES_v2.4.15_FullGridTestConfiguration_BD_v1.zip')
-        case EntsoeFolder.MICRO_GRID_BASE_CASE:
-            # 2.1 BaseCase_BC: validation: True, used as main case
-            igm_files = [
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_Assembled_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_BE_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_BC_NL_v2.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_BASE_CASE.value}/'
-                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-        case EntsoeFolder.MICRO_GRID_T1:
-            # 2.2 Type1_T1: validation: True
-            igm_files = [
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_Assembled_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T1_NL_Complete_v2.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T1.value}/'
-                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-        case EntsoeFolder.MICRO_GRID_T2:
-            # 2.3 Type2_T2: validation: true, pypwosybl errors
-            igm_files = [
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MIRCO_GRID_T2.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_Assembled_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_BE_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T2_NL_Complete_v2.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T2.value}/'
-                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-        case EntsoeFolder.MICRO_GRID_T3:
-            # 2.4 Type3_T3: validation True
-            igm_files = [
-                # f'{entsoe_extracted_folder}/{MICRO_GRID_T3}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_Assembled_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_BE_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T3_NL_Complete_v2.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T3.value}/'
-                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-        case EntsoeFolder.MICRO_GRID_T4:
-            # 2.5 Type4_T4: validation: true
-            igm_files = [
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_BB_Complete_v2.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_Assembled_NB_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_BB_Complete_v2.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_BE_NB_Complete_v2.zip',
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_BB_Complete_v2.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                # f'CGMES_v2.4.15_MicroGridTestConfiguration_T4_NL_NB_Complete_v2.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MICRO_GRID_T4.value}/'
-                              f'CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2.zip')
-        case EntsoeFolder.MINI_GRID_BUS_BRANCH:
-            # 3.1 BusBranch: validation: false
-            igm_files = [
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
-                f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_v3.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
-                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
-                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_BUS_BRANCH.value}/'
-                              f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
-        case EntsoeFolder.MINI_GRID_NODE_BREAKER:
-            # 3.2 NodeBreaker: validation: false
-            igm_files = [
-                f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
-                f'CGMES_v2.4.15_MiniGridTestConfiguration_BaseCase_Complete_v3.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
-                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T1_Complete_v3.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
-                # f'CGMES_v2.4.15_MiniGridTestConfiguration_T2_Complete_v3.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.MINI_GRID_NODE_BREAKER.value}/'
-                              f'CGMES_v2.4.15_MiniGridTestConfiguration_Boundary_v3.zip')
-        case EntsoeFolder.REAL_GRID:
-            # 4. RealGrid: validation: true
-            igm_files = [f'{entsoe_extracted_folder}/{EntsoeFolder.REAL_GRID.value}/'
-                         f'CGMES_v2.4.15_RealGridTestConfiguration_v2.zip']
-        case EntsoeFolder.SMALL_GRID_BUS_BRANCH:
-            # 5.1 BusBranch: validation: True
-            igm_files = [
-                f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
-                f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
-                # f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
-                # f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_BUS_BRANCH.value}/'
-                              f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
-        case EntsoeFolder.SMALL_GRID_NODE_BREAKER:
-            # 5.2 NodeBreaker: validation: True
-            igm_files = [
-                f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
-                f'CGMES_v2.4.15_SmallGridTestConfiguration_BaseCase_Complete_v3.0.0.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
-                # f'CGMES_v2.4.15_SmallGridTestConfiguration_HVDC_Complete_v3.0.0.zip',
-                # f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
-                # f'CGMES_v2.4.15_SmallGridTestConfiguration_ReducedNetwork_Complete_v3.0.0.zip'
-            ]
-            boundary_files = (f'{entsoe_extracted_folder}/{EntsoeFolder.SMALL_GRID_NODE_BREAKER.value}/'
-                              f'CGMES_v2.4.15_SmallGridTestConfiguration_Boundary_v3.0.0.zip')
-        case _:
-            return None, None
-    # Get data and carry on
-    models = get_local_igm_data(igm_files, IGM_FILE_TYPES)
-    try:
-        boundaries = get_local_boundary_data(boundary_files)
-    except NameError:
-        boundaries = None
-    return models, boundaries
 
 
 def get_local_files():
@@ -688,94 +505,232 @@ def get_local_files():
     return models, boundary
 
 
-"""
-In order to get a relatively large file from ENTSOE:
-1) Download the file
-2) Extract file level 1
-3) Extract file level 2
-"""
+def check_the_folder_path(folder_path: str):
+    """
+    Checks folder path for special characters
+    :param folder_path: input given
+    :return checked folder path
+    """
+    if not folder_path.endswith(SEPARATOR_SYMBOL):
+        folder_path = folder_path + SEPARATOR_SYMBOL
+    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
+    # Escape '//'
+    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
+    # Escape '\'
+    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
+    return folder_path
 
 
-def download_zip_file(url_to_zip: str):
+def check_and_create_the_folder_path(folder_path: str):
+    """
+    Checks if folder path doesn't have any excessive special characters and it exists. Creates it if it does not
+    :param folder_path: input given
+    :return checked folder path
+    """
+    folder_path = check_the_folder_path(folder_path)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+    return folder_path
+
+
+def download_zip_file(url_to_zip: str, path_to_download: str = None):
     """
     Downloads a zip file from url.
     Note that the file may be rather large so do it in stream
     :param url_to_zip: url of the zip file
+    :param path_to_download: location to download the file
+    : return loaded_file_name: the path to downloaded zip file
     """
     loaded_file_name = url_to_zip.split('/')[-1]
+    if path_to_download is not None:
+        path_to_download = check_the_folder_path(path_to_download)
+        loaded_file_name = path_to_download + loaded_file_name
     with requests.get(url_to_zip, stream=True) as r:
         with open(loaded_file_name, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
     return loaded_file_name
 
 
-def recursive_zip_file_extraction(current_zip_file: str, root_folder: str):
+def check_and_extract_zip_files_in_folder(root_folder: str, files: [], depth: int = 0, max_depth: int = 5):
     """
-    Extract zip file, if extracted zip file contains zip file, extract them and continue onwards
-    Ended with recursion error
+    Checks if files in folder are zip files, and extracts them recursively
+    :param root_folder: the name of the root folder
+    :param files: list of files
+    :param depth: current depth of recursion
+    :param max_depth: max allowed recursion depth
     """
+    root_folder = check_the_folder_path(root_folder)
+    for file_name in files:
+        full_file_name = root_folder + file_name
+        file_extension = os.path.splitext(full_file_name)[-1]
+        xml_file = os.path.splitext(full_file_name)[0] + ".xlm"
+        if file_extension == ".xlm" or xml_file in files:
+            return
+        if zipfile.is_zipfile(full_file_name) and file_extension not in UNWANTED_FILE_TYPES:
+            extract_zip_file(current_zip_file=full_file_name,
+                             root_folder=root_folder,
+                             depth=depth + 1,
+                             max_depth=max_depth)
+
+
+def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 0, max_depth: int = RECURSION_LIMIT):
+    """
+    Extracts content of the zip file to the root.
+    :param current_zip_file: zip file to be extracted
+    :param root_folder: folder where to extract
+    :param depth: current depth of recursion
+    :param max_depth: max allowed recursion depth
+    """
+    # Stop the recursion before going to deep
+    if depth > max_depth:
+        return
+    root_folder = check_the_folder_path(root_folder)
+    logger.info(f"Extracting {current_zip_file} to {root_folder}")
     with zipfile.ZipFile(current_zip_file, 'r') as level_one_zip_file:
         level_one_zip_file.extractall(path=root_folder)
-    # os.remove(current_zip_file)
-    for root, folders, files in os.walk(root_folder):
-        for file_name in files:
-            if zipfile.is_zipfile(root + '/' + file_name):
-                file_spec = os.path.join(root, file_name)
-                recursive_zip_file_extraction(file_spec, root)
+    os.remove(current_zip_file)
+    # Getting relevant paths
+    all_elements = [x for x in os.walk(root_folder)]
+    for root, folders, files in all_elements:
+        # Don't go to system specific folders or generate endless recursion
+        if any(root in system_folder for system_folder in SYSTEM_SPECIFIC_FOLDERS) or root == root_folder:
+            continue
+        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth + 1)
         for folder in folders:
-            sub_folder_path = root_folder + '/' + folder
+            sub_folder_path = check_the_folder_path(root_folder + folder)
             for folder_path, folder_folders, folder_file_names in os.walk(sub_folder_path):
-                for folder_file in folder_file_names:
-                    if zipfile.is_zipfile(folder_path + '/' + folder_file):
-                        folder_file_spec = os.path.join(folder_path, folder_file)
-                        recursive_zip_file_extraction(folder_file_spec, folder_path)
+                check_and_extract_zip_files_in_folder(root_folder=folder_path,
+                                                      files=folder_file_names,
+                                                      depth=depth + 1,
+                                                      max_depth=max_depth)
 
 
-def extract_examples_zip_file(location_of_zip_file: str):
+def search_directory(root_folder: str, search_path: str):
     """
-    Extracts local zip file
-    :param location_of_zip_file: path to zip file
+    Searches the search_path starting from the root_folder. Note that the requested path has to end with the search_path
+    :param root_folder: root folder from where to start looking
+    :param search_path: the part of the path to search from the root_folder
+    :return full path from root_folder to search_path if found, raise exception otherwise
     """
-    loaded_zip_file = zipfile.ZipFile(location_of_zip_file)
-    for file_name in loaded_zip_file.namelist():
-        folder_name = os.path.splitext(file_name)[0]
-        os.mkdir(folder_name)
-        content = io.BytesIO(loaded_zip_file.read(folder_name))
-        zip_file = zipfile.ZipFile(content)
-        for file_instance in zip_file.namelist():
-            zip_file.extract(file_instance, folder_name)
+    all_folders = [check_the_folder_path(x[0]) for x in os.walk(root_folder)]
+    search_path = check_the_folder_path(search_path)
+    matches = [path_name for path_name in all_folders if str(path_name).endswith(search_path)]
+    matches_count = len(matches)
+    if matches_count == 1:
+        return matches[0]
+    elif matches_count == 0:
+        raise LocalFileLoaderError(f"{search_path} not found in {root_folder}")
+    else:
+        raise LocalFileLoaderError(f"{search_path} is too broad, found {matches_count} possible matches")
 
 
-def check_and_get_examples(local_folder_for_examples: str = ENTSOE_EXAMPLES_LOCAL,
-                           url_for_examples: str=ENTSOE_EXAMPLES_EXTERNAL):
+def check_and_get_examples(path_to_search: str,
+                           local_folder_for_examples: str = ENTSOE_EXAMPLES_LOCAL,
+                           url_for_examples: str = ENTSOE_EXAMPLES_EXTERNAL,
+                           recursion_depth: int = RECURSION_LIMIT):
     """
     Checks if examples are present if no then downloads and extracts them
-    Order:
-    1) Check if path given is present, if no, create it
-    2) Check if examples folder is present in path (name from the url), if yes return
-    3) Check if examples zip is present in path (name from the url), if yes, extract and return
-    4) If zip or folder didn't exist, download zip from url and extract it
     :param local_folder_for_examples: path to the examples
     :param url_for_examples: path to online storage
+    :param recursion_depth: the max allowed iterations for the recursion
+    :param path_to_search: folder to search
     """
     file_name = url_for_examples.split('/')[-1]
-    folder_name = os.path.splitext(file_name)[0]
+    local_folder_for_examples = check_the_folder_path(local_folder_for_examples)
     full_file_name = local_folder_for_examples + file_name
-    full_folder_name = local_folder_for_examples + folder_name
-    # 1) Check if path exists, if not make it
+    # Check if folder exists, create it otherwise
     if not os.path.exists(local_folder_for_examples):
         os.makedirs(local_folder_for_examples)
-    # 2) Check if extracted folder exists in path, if yes then return:
-    if os.path.isdir(full_folder_name):
-        return True
-    # 3) Check if zip file exists in folder, if yes then extract and return
-    if os.path.isfile(full_file_name) and zipfile.is_zipfile(full_file_name):
-        recursive_zip_file_extraction(full_file_name, full_folder_name)
-        # extract_examples_zip_file(full_file_name)
-        return True
-    # 4) OK, nothing was found, so download the file and extract it
-    zip_file_name = download_zip_file(url_for_examples)
-    recursive_zip_file_extraction(zip_file_name, full_folder_name)
+    try:
+        # Try to get the directory, catch error if not found
+        directory_needed = search_directory(local_folder_for_examples, path_to_search)
+        return directory_needed
+    except LocalFileLoaderError:
+        # Check if directory contains necessary file and it is zip file
+        if not os.path.isfile(full_file_name) or not zipfile.is_zipfile(full_file_name):
+            # Download the file
+            logger.info(f"Downloading examples from {url_for_examples} to {local_folder_for_examples}")
+            full_file_name = download_zip_file(url_for_examples, local_folder_for_examples)
+        # Now, there should be a zip present, extract it
+        extract_zip_file(current_zip_file=full_file_name,
+                         root_folder=local_folder_for_examples,
+                         max_depth=recursion_depth)
+    # And try to find the necessary path
+    return search_directory(local_folder_for_examples, path_to_search)
+
+
+def group_files_by_origin(list_of_files: [], root_folder: str = None):
+    """
+    When input is a directory containing the .xml and .zip files for all the TSOs and boundaries as well and
+    if files follow the standard name convention, then this one sorts them by TSOs and by boundaries
+    The idea is that one tso can have only one type of file only once (e.g. one tso cannot have two 'TP' files)
+    and there is only one list of boundaries
+    :param list_of_files: list of files to divide
+    :param root_folder: root folder for relative or absolute paths
+    :return: dictionaries for containing TSO files, boundary files
+    """
+    tso_files = {}
+    # Take assumption that we have only one boundary
+    boundaries = {}
+    igm_file_types = [file_type.replace('_', '') for file_type in IGM_FILE_TYPES]
+    boundary_file_types = [file_type.replace('_', '') for file_type in BOUNDARY_FILE_TYPES]
+    if root_folder is not None:
+        root_folder = check_the_folder_path(root_folder)
+    for file_name in list_of_files:
+        file_extension = os.path.splitext(file_name)[-1]
+        file_base = None
+        # Check if file is supported file
+        if file_extension not in ['.xml', '.zip']:
+            continue
+        # Check if file supports standard naming convention, refer to helper.get_metadata_from_filename for more details
+        file_name_meta = get_meta_from_filename(file_name)
+        if root_folder is not None:
+            file_name = root_folder + file_name
+        if any(key in UNUSED_FIELDS for key in file_name_meta.keys()):
+            file_base = os.path.splitext(file_name)[0]
+        if MODELING_ENTITY in file_name_meta.keys() and MODEL_MESSAGE_TYPE in file_name_meta.keys():
+            tso_name = file_name_meta[MODELING_ENTITY]
+            file_type_name = file_name_meta[MODEL_MESSAGE_TYPE]
+            # Handle TSOs
+            if file_type_name in igm_file_types:
+                if tso_name not in tso_files.keys():
+                    tso_files[tso_name] = []
+                if (not any(file_type_name in saved_file_type for saved_file_type in tso_files[tso_name])
+                        or (file_base is not None and file_base not in tso_files[tso_name])):
+                    tso_files[tso_name].append(file_name)
+            # Handle boundaries
+            elif file_type_name in boundary_file_types:
+                if tso_name not in boundaries.keys():
+                    boundaries[tso_name] = []
+                if not any(file_type_name in boundary for boundary in boundaries):
+                    boundaries[tso_name].append(file_name)
+            else:
+                logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
+        else:
+            logger.warning(f"Unrecognized file: {file_name}")
+    return tso_files, boundaries
+
+
+def get_local_entsoe_files(path_to_directory: str):
+    """
+    Gets list of files in directory and divides them to model and boundary data
+    :param path_to_directory: path to directory from where to search
+    :return dictionary of tso files and list of boundary data
+    """
+    try:
+        full_path = check_and_get_examples(path_to_directory)
+    except Exception as ex:
+        logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
+        sys.exit()
+    full_path = check_the_folder_path(full_path)
+    file_names = next(os.walk(full_path), (None, None, []))[2]
+    models_data, boundary_data = group_files_by_origin(file_names, full_path)
+    models = get_local_igm_data(models_data, IGM_FILE_TYPES)
+    try:
+        boundary = get_local_boundary_data(boundary_data, BOUNDARY_FILE_TYPES)
+    except NameError:
+        boundary = None
+    return models, boundary
 
 
 """-----------------END OF CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE----------------------------------------"""
@@ -806,10 +761,10 @@ if __name__ == "__main__":
     # print_to_console: propagate log to parent
     # reporting_level: level that triggers policy
     pypowsybl_log_gatherer = PyPowsyblLogGatherer(topic_name='IGM_validation',
-                                                  send_to_elastic=True,
-                                                  upload_to_minio=True,
+                                                  send_to_elastic=False,
+                                                  upload_to_minio=False,
                                                   report_on_command=False,
-                                                  logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
+                                                  logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
                                                   print_to_console=False,
                                                   reporting_level=logging.ERROR)
 
@@ -817,12 +772,9 @@ if __name__ == "__main__":
     load_data_from_local_storage = True
     try:
         if load_data_from_local_storage:
-            check_and_get_examples()
             # available_models, latest_boundary = get_local_files()
-            # available_models, latest_boundary = get_example_data_from_entsoe_zip(
-            #      load_type=EntsoeFolder.MINI_GRID_BUS_BRANCH)
-            # available_models, latest_boundary = get_example_data_from_entsoe_zip(
-            #      load_type=EntsoeFolder.MICRO_GRID_BASE_CASE)
+            folder_to_study = 'TC3_T3_Conform'
+            available_models, latest_boundary = get_local_entsoe_files(folder_to_study)
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
@@ -858,7 +810,9 @@ if __name__ == "__main__":
             logger.error("Validation failed", error)
     pypowsybl_log_gatherer.stop_working()
     # Print validation statuses
-    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'), duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in validated_models]
+    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'),
+                duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in
+     validated_models]
 
     # With EMF IGM Validation settings
     # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}

@@ -7,7 +7,6 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import requests
-from rcc_common_tools.elk_api import Elk
 
 from emf.common.integrations import elastic
 import config
@@ -267,7 +266,11 @@ class PyPowsyblLogGatherer:
         self.minio_instance = None
         self.minio_bucket = minio_bucket
         if upload_to_minio:
-            self.minio_instance = ObjectStorage()
+            try:
+                self.minio_instance = ObjectStorage()
+            except Exception as ex:
+                # Check the exception
+                logger.warning(f"Cannot connect to Minio, staying offline")
         self.identifier = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         # if needed use identifier
         # self.identifier = uuid.uuid4()
