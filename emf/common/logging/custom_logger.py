@@ -23,6 +23,7 @@ CUSTOM_LOG_BUFFER_LINE_BREAK = '\r\n'
 DAYS_TO_STORE_DATA_IN_MINIO = 7  # Max allowed by Minio
 # Default name of the subfolder for storing the results if needed
 SEPARATOR_SYMBOL = '/'
+WINDOWS_SEPARATOR = '\\'
 
 
 def save_content_to_zip_file(content: {}):
@@ -204,6 +205,22 @@ def get_buffer_size(buffer):
     return len(buffer.encode('utf-8'))
 
 
+def check_the_folder_path(folder_path: str):
+    """
+    Checks folder path for special characters
+    :param folder_path: input given
+    :return checked folder path
+    """
+    if not folder_path.endswith(SEPARATOR_SYMBOL):
+        folder_path = folder_path + SEPARATOR_SYMBOL
+    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
+    # Escape '\\'
+    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
+    # Escape '//'
+    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
+    return folder_path
+
+
 class PyPowsyblLogGatherer:
     """
     Governing class for the PyPowsyblLogHandler
@@ -219,6 +236,7 @@ class PyPowsyblLogGatherer:
                  send_to_elastic: bool = True,
                  upload_to_minio: bool = False,
                  report_on_command: bool = True,
+                 path_to_local_folder: str = LOCAL_FOLDER_FOR_PYPOWSYBL_LOGS,
                  minio_bucket: str = MINIO_BUCKET_FOR_PYPOWSYBL_LOGS,
                  logging_policy: PyPowsyblLogReportingPolicy = PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
                  elk_server=elastic.ELK_SERVER,
@@ -256,6 +274,7 @@ class PyPowsyblLogGatherer:
         # Switch reporting to console on or off
         self.package_logger.propagate = print_to_console
         # Initialize the elk instance
+        self.path_to_local_folder = check_the_folder_path(path_to_local_folder)
         self.elastic_server = elk_server
         self.index = index
         self.send_to_elastic = send_to_elastic
@@ -481,13 +500,13 @@ class PyPowsyblLogGatherer:
         if file_name is None or file_name == '':
             time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             file_name = f"{self.topic_name}_pypowsybl_error_log_for_{self.tso}_from_{time_moment_now}.log"
-            if use_folders:
-                file_name = (MINIO_FOLDER_FOR_PYPOWSYBL_LOGS +
-                             SEPARATOR_SYMBOL +
-                             str(self.identifier) +
-                             SEPARATOR_SYMBOL + file_name)
-                if use_local:
-                    file_name = './' + file_name
+        if use_folders:
+            file_name = (MINIO_FOLDER_FOR_PYPOWSYBL_LOGS +
+                         SEPARATOR_SYMBOL +
+                         str(self.identifier) +
+                         SEPARATOR_SYMBOL + file_name)
+        if use_local:
+            file_name = self.path_to_local_folder + file_name
         return file_name
 
     def post_log_to_minio(self, buffer='', file_name: str = None):

@@ -15,6 +15,7 @@ import requests
 
 import config
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, SEPARATOR_SYMBOL
+from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, check_the_folder_path
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
 from emf.common.config_parser import parse_app_properties
@@ -576,7 +577,7 @@ def check_and_extract_zip_files_in_folder(root_folder: str,
                              max_depth=max_depth)
 
 
-def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 0, max_depth: int = RECURSION_LIMIT):
+def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 1, max_depth: int = RECURSION_LIMIT):
     """
     Extracts content of the zip file to the root.
     :param current_zip_file: zip file to be extracted
@@ -598,7 +599,7 @@ def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 0, ma
         # Don't go to system specific folders or generate endless recursion
         if any(root in system_folder for system_folder in SYSTEM_SPECIFIC_FOLDERS) or root == root_folder:
             continue
-        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth + 1, max_depth=max_depth)
+        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth, max_depth=max_depth)
 
 
 def search_directory(root_folder: str, search_path: str):
@@ -771,7 +772,8 @@ if __name__ == "__main__":
             # Change this according the test case to be used. Note that it must reference to the end folder that will
             # be used. Also it must be unique enough do be distinguished from other folders (for example instead of
             # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc)
-            folder_to_study = 'TC3_T3_Conform'
+            # folder_to_study = 'TC3_T3_Conform'
+            folder_to_study = 'TC4_T1_Conform/Initial'
             available_models, latest_boundary = get_local_entsoe_files(folder_to_study)
         else:
             raise LocalFileLoaderError
