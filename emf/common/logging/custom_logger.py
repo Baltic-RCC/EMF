@@ -26,6 +26,22 @@ SEPARATOR_SYMBOL = '/'
 WINDOWS_SEPARATOR = '\\'
 
 
+def check_the_folder_path(folder_path: str):
+    """
+    Checks folder path for special characters
+    :param folder_path: input given
+    :return checked folder path
+    """
+    if not folder_path.endswith(SEPARATOR_SYMBOL):
+        folder_path = folder_path + SEPARATOR_SYMBOL
+    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
+    # Escape '//'
+    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
+    # Escape '\'
+    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
+    return folder_path
+
+
 def save_content_to_zip_file(content: {}):
     """
     Saves content to zip file (in memory)
@@ -205,22 +221,6 @@ def get_buffer_size(buffer):
     return len(buffer.encode('utf-8'))
 
 
-def check_the_folder_path(folder_path: str):
-    """
-    Checks folder path for special characters
-    :param folder_path: input given
-    :return checked folder path
-    """
-    if not folder_path.endswith(SEPARATOR_SYMBOL):
-        folder_path = folder_path + SEPARATOR_SYMBOL
-    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
-    # Escape '\\'
-    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
-    # Escape '//'
-    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
-    return folder_path
-
-
 class PyPowsyblLogGatherer:
     """
     Governing class for the PyPowsyblLogHandler
@@ -273,8 +273,8 @@ class PyPowsyblLogGatherer:
         self.package_logger.addHandler(self.gathering_handler)
         # Switch reporting to console on or off
         self.package_logger.propagate = print_to_console
-        # Initialize the elk instance
         self.path_to_local_folder = check_the_folder_path(path_to_local_folder)
+        # Initialize the elk instance
         self.elastic_server = elk_server
         self.index = index
         self.send_to_elastic = send_to_elastic
@@ -663,3 +663,4 @@ if __name__ == '__main__':
     if elk_handler.connected:
         logger.addHandler(elk_handler)
     logger.info(f"Info message", extra={'extra': 'logger testing'})
+

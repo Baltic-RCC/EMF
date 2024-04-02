@@ -6,6 +6,7 @@ from io import BytesIO
 from os import listdir
 from os.path import join
 from zipfile import ZipFile
+import ntpath
 
 import logging
 import time
@@ -14,7 +15,6 @@ import math
 import requests
 
 import config
-from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, SEPARATOR_SYMBOL
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, check_the_folder_path
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
@@ -35,37 +35,42 @@ ENTSOE_FOLDER = './path_to_ENTSOE_zip/TestConfigurations_packageCASv2.0'
 TSO_KEYWORD = 'pmd:TSO'
 DATA_KEYWORD = 'DATA'
 FILENAME_KEYWORD = 'pmd:fileName'
+CGMES_PROFILE = 'pmd:cgmesProfile'
 MODEL_MESSAGE_TYPE = 'Model.messageType'
 XML_KEYWORD = '.xml'
 ZIP_KEYWORD = '.zip'
 MODELING_ENTITY = 'Model.modelingEntity'
-OP_COMPONENT_KEYWORD = 'opde:Component'
-OP_PROFILE_KEYWORD = 'opdm:Profile'
+MERGING_ENTITY = 'Model.mergingEntity'
+MODEL_DOMAIN = 'Model.domain'
+MODEL_FOR_ENTITY = 'Model.forEntity'
+OPDE_COMPONENT_KEYWORD = 'opde:Component'
+OPDM_PROFILE_KEYWORD = 'opdm:Profile'
 MISSING_TSO_NAME = 'UnknownTSO'
+LONG_FILENAME_SUFFIX = u"\\\\?\\"
 
 PREFERRED_FILE_TYPES = [XML_KEYWORD, ZIP_KEYWORD]
 IGM_FILE_TYPES = ['_EQ_', '_TP_', '_SV_', '_SSH_']
-BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', ]
+BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', '_EQ_BD_', '_TP_BD_']
+BOUNDARY_FILE_TYPE_FIX = {'_EQ_BD_': '_EQBD_', '_TP_BD_': '_TPBD_'}
 
 """Mapper for elements of the file name to igm profile"""
 IGM_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                 'Model.scenarioTime': 'pmd:scenarioDate',
                                 'Model.processType': 'pmd:timeHorizon',
                                 MODELING_ENTITY: 'pmd:modelPartReference',
-                                MODEL_MESSAGE_TYPE: 'pmd:cgmesProfile',
+                                MODEL_MESSAGE_TYPE: CGMES_PROFILE,
                                 'Model.version': 'pmd:versionNumber'}
 
 """Mapper for the elements of the file name to boundary profile"""
 BOUNDARY_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                      'Model.scenarioTime': 'pmd:scenarioDate',
                                      MODELING_ENTITY: 'pmd:modelPartReference',
-                                     MODEL_MESSAGE_TYPE: 'pmd:cgmesProfile',
+                                     MODEL_MESSAGE_TYPE: CGMES_PROFILE,
                                      'Model.version': 'pmd:versionNumber'}
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
 UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
-WINDOWS_SEPARATOR = '\\'
 RECURSION_LIMIT = 2
-UNUSED_FIELDS = ["Model.domain", "Model.forEntity"]
+USE_ROOT = False        # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
 
 
 class LocalInputType(Enum):
@@ -232,7 +237,11 @@ def get_meta_from_filename(file_name: str):
     :return: dictionary with metadata
     """
     try:
-        meta_data = get_metadata_from_filename(file_name)
+        fixed_file_name = file_name
+        for key in BOUNDARY_FILE_TYPE_FIX:
+            if key in fixed_file_name:
+                fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
+        meta_data = get_metadata_from_filename(fixed_file_name)
     except ValueError as err:
         logger.warning(f"Unable to parse file name: {err}, trying to salvage")
         meta_data = salvage_data_from_file_name(file_name=file_name)
@@ -276,7 +285,7 @@ def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None,
     :param file_types: list of file types
     :return: dictionary that wants to be similar to OPDM profile
     """
-    igm_value = {OP_COMPONENT_KEYWORD: []}
+    igm_value = {OPDE_COMPONENT_KEYWORD: []}
     if tso_name is not None:
         igm_value[TSO_KEYWORD] = tso_name
     for file_name in file_names:
@@ -290,7 +299,7 @@ def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None,
                                                          meta_dict=meta_for_data[datum],
                                                          key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
-            igm_value[OP_COMPONENT_KEYWORD].append({OP_PROFILE_KEYWORD: opdm_profile_content})
+            igm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return igm_value
 
 
@@ -301,7 +310,7 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
     :param file_types: list of file types
     :return: dictionary that wants to be similar to OPDM profile
     """
-    boundary_value = {OP_COMPONENT_KEYWORD: []}
+    boundary_value = {OPDE_COMPONENT_KEYWORD: []}
     for file_name in file_names:
         if (data := load_data(file_name, file_types)) is None:
             continue
@@ -314,7 +323,7 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
                                                          meta_dict=meta_for_data[datum],
                                                          key_dict=BOUNDARY_FILENAME_MAPPING_TO_OPDM)
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
-            boundary_value[OP_COMPONENT_KEYWORD].append({OP_PROFILE_KEYWORD: opdm_profile_content})
+            boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return boundary_value
 
 
@@ -506,22 +515,6 @@ def get_local_files():
     return models, boundary
 
 
-def check_the_folder_path(folder_path: str):
-    """
-    Checks folder path for special characters
-    :param folder_path: input given
-    :return checked folder path
-    """
-    if not folder_path.endswith(SEPARATOR_SYMBOL):
-        folder_path = folder_path + SEPARATOR_SYMBOL
-    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
-    # Escape '//'
-    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
-    # Escape '\'
-    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
-    return folder_path
-
-
 def check_and_create_the_folder_path(folder_path: str):
     """
     Checks if folder path doesn't have any excessive special characters and it exists. Creates it if it does not
@@ -554,13 +547,15 @@ def download_zip_file(url_to_zip: str, path_to_download: str = None):
 
 def check_and_extract_zip_files_in_folder(root_folder: str,
                                           files: [],
-                                          depth: int = 0,
+                                          depth: int = 1,
+                                          use_root: bool = USE_ROOT,
                                           max_depth: int = RECURSION_LIMIT):
     """
     Checks if files in folder are zip files, and extracts them recursively
     :param root_folder: the name of the root folder
     :param files: list of files
     :param depth: current depth of recursion
+    :param use_root: use root folder for extraction
     :param max_depth: max allowed recursion depth
     """
     root_folder = check_the_folder_path(root_folder)
@@ -573,25 +568,53 @@ def check_and_extract_zip_files_in_folder(root_folder: str,
         if zipfile.is_zipfile(full_file_name) and file_extension not in UNWANTED_FILE_TYPES:
             extract_zip_file(current_zip_file=full_file_name,
                              root_folder=root_folder,
+                             use_root=use_root,
                              depth=depth + 1,
                              max_depth=max_depth)
 
 
-def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 1, max_depth: int = RECURSION_LIMIT):
+def extract_zip_file(current_zip_file: str,
+                     root_folder: str = None,
+                     use_root: bool = USE_ROOT,
+                     depth: int = 1,
+                     max_depth: int = RECURSION_LIMIT):
     """
     Extracts content of the zip file to the root.
     :param current_zip_file: zip file to be extracted
     :param root_folder: folder where to extract
+    :param use_root: use root folder for extraction
     :param depth: current depth of recursion
     :param max_depth: max allowed recursion depth
     """
     # Stop the recursion before going to deep
     if depth > max_depth:
         return
+    if root_folder is None or use_root is False:
+        root_folder = os.path.splitext(current_zip_file)[0]
     root_folder = check_the_folder_path(root_folder)
     logger.info(f"Extracting {current_zip_file} to {root_folder}")
     with zipfile.ZipFile(current_zip_file, 'r') as level_one_zip_file:
-        level_one_zip_file.extractall(path=root_folder)
+        # level_one_zip_file.extractall(path=root_folder)
+        for info in level_one_zip_file.infolist():
+            zip_file_name = info.filename
+            try:
+                level_one_zip_file.extract(zip_file_name, path=root_folder)
+            except FileNotFoundError:
+                # Workaround for extracting long file names
+                output_path = root_folder + zip_file_name
+                check_and_create_the_folder_path(os.path.dirname(output_path))
+                output_path_unicode = output_path.encode('unicode_escape').decode()
+                file_path = os.path.abspath(os.path.normpath(output_path_unicode))
+                file_path = LONG_FILENAME_SUFFIX + file_path
+                buffer_size = 16 * 1024
+                with level_one_zip_file.open(info) as f_in, open(file_path, 'wb') as f_out:
+                    while True:
+                        buffer = f_in.read(buffer_size)
+                        if not buffer:
+                            break
+                        f_out.write(buffer)
+            except Exception as e:
+                logger.error(f"Uncaught exception: {e}")
     os.remove(current_zip_file)
     # Getting relevant paths
     all_elements = [x for x in os.walk(root_folder)]
@@ -599,7 +622,11 @@ def extract_zip_file(current_zip_file: str, root_folder: str, depth: int = 1, ma
         # Don't go to system specific folders or generate endless recursion
         if any(root in system_folder for system_folder in SYSTEM_SPECIFIC_FOLDERS) or root == root_folder:
             continue
-        check_and_extract_zip_files_in_folder(root_folder=root, files=files, depth=depth, max_depth=max_depth)
+        check_and_extract_zip_files_in_folder(root_folder=root,
+                                              use_root=use_root,
+                                              files=files,
+                                              depth=depth,
+                                              max_depth=max_depth)
 
 
 def search_directory(root_folder: str, search_path: str):
@@ -622,12 +649,14 @@ def search_directory(root_folder: str, search_path: str):
 
 
 def check_and_get_examples(path_to_search: str,
+                           use_root: bool = USE_ROOT,
                            local_folder_for_examples: str = ENTSOE_EXAMPLES_LOCAL,
                            url_for_examples: str = ENTSOE_EXAMPLES_EXTERNAL,
                            recursion_depth: int = RECURSION_LIMIT):
     """
     Checks if examples are present if no then downloads and extracts them
     :param local_folder_for_examples: path to the examples
+    :param use_root: use root folder for extraction
     :param url_for_examples: path to online storage
     :param recursion_depth: the max allowed iterations for the recursion
     :param path_to_search: folder to search
@@ -651,12 +680,13 @@ def check_and_get_examples(path_to_search: str,
         # Now, there should be a zip present, extract it
         extract_zip_file(current_zip_file=full_file_name,
                          root_folder=local_folder_for_examples,
+                         use_root=use_root,
                          max_depth=recursion_depth)
     # And try to find the necessary path
     return search_directory(local_folder_for_examples, path_to_search)
 
 
-def group_files_by_origin(list_of_files: [], root_folder: str = None):
+def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = True):
     """
     When input is a directory containing the .xml and .zip files for all the TSOs and boundaries as well and
     if files follow the standard name convention, then this one sorts them by TSOs and by boundaries
@@ -664,6 +694,7 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
     and there is only one list of boundaries
     :param list_of_files: list of files to divide
     :param root_folder: root folder for relative or absolute paths
+    :param allow_merging_entities: true: allow cases like TECNET-CE-ELIA to list of models
     :return: dictionaries for containing TSO files, boundary files
     """
     tso_files = {}
@@ -686,6 +717,10 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
         if MODELING_ENTITY in file_name_meta.keys() and MODEL_MESSAGE_TYPE in file_name_meta.keys():
             tso_name = file_name_meta[MODELING_ENTITY]
             file_type_name = file_name_meta[MODEL_MESSAGE_TYPE]
+            if all(key in file_name_meta for key in [MERGING_ENTITY, MODEL_DOMAIN, MODEL_FOR_ENTITY]):
+                if file_name_meta[MERGING_ENTITY] != '' and allow_merging_entities:
+                    tso_name = file_name_meta[MODEL_FOR_ENTITY] if file_name_meta[MODEL_FOR_ENTITY] != '' else \
+                        file_name_meta[MERGING_ENTITY]
             # Handle TSOs
             if file_type_name in igm_file_types:
                 if tso_name not in tso_files.keys():
@@ -707,25 +742,73 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None):
     return tso_files, boundaries
 
 
-def get_local_entsoe_files(path_to_directory: str):
+def check_model_completeness(model_data: list | dict, file_types: list | str):
+    """
+    Skips models which do not contain necessary files
+    :param model_data: models to be checked
+    :param file_types: list of file types to search
+    :return updated file list
+    """
+    checked_models = []
+    if isinstance(file_types, str):
+        file_types = [file_types]
+    if isinstance(model_data, dict):
+        model_data = [model_data]
+    for model_datum in model_data:
+        existing_types = [item[OPDM_PROFILE_KEYWORD][CGMES_PROFILE] for item in model_datum[OPDE_COMPONENT_KEYWORD]]
+        if all(file_type in existing_types for file_type in file_types):
+            checked_models.append(model_datum)
+    return checked_models
+
+
+def get_local_entsoe_files(path_to_directory: str | list,
+                           allow_merging_entities: bool = True,
+                           igm_files_needed: list = None,
+                           boundary_files_needed: list = None):
     """
     Gets list of files in directory and divides them to model and boundary data
     :param path_to_directory: path to directory from where to search
+    :param allow_merging_entities: true allow cases like TECNET-CE-ELIA to list of models
+    :param igm_files_needed: specify explicitly the file types needed (escape pypowsybl "EQ" missing error)
+    :param boundary_files_needed: specify explicitly the file types needed for boundary data
     :return dictionary of tso files and list of boundary data
     """
-    try:
-        full_path = check_and_get_examples(path_to_directory)
-    except Exception as ex:
-        logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
-        sys.exit()
-    full_path = check_the_folder_path(full_path)
-    file_names = next(os.walk(full_path), (None, None, []))[2]
-    models_data, boundary_data = group_files_by_origin(file_names, full_path)
-    models = get_local_igm_data(models_data, IGM_FILE_TYPES)
-    try:
-        boundary = get_local_boundary_data(boundary_data, BOUNDARY_FILE_TYPES)
-    except NameError:
-        boundary = None
+    if isinstance(path_to_directory, str):
+        path_to_directory = [path_to_directory]
+    models = []
+    all_boundaries = []
+    boundary = None
+    for single_path in path_to_directory:
+        try:
+            full_path = check_and_get_examples(single_path)
+        except Exception as ex:
+            logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
+            sys.exit()
+        full_path = check_the_folder_path(full_path)
+        file_names = next(os.walk(full_path), (None, None, []))[2]
+        models_data, boundary_data = group_files_by_origin(list_of_files=file_names,
+                                                           root_folder=full_path,
+                                                           allow_merging_entities=allow_merging_entities)
+        if models_data:
+            models_transformed = get_local_igm_data(models_data, IGM_FILE_TYPES)
+            models.extend(models_transformed)
+        if boundary_data:
+            try:
+                boundary_transformed = get_local_boundary_data(boundary_data, BOUNDARY_FILE_TYPES)
+            except NameError:
+                boundary_transformed = None
+            if boundary_transformed is not None:
+                all_boundaries.append(boundary_transformed)
+    if len(all_boundaries) == 0:
+        logger.warning(f"No boundaries found")
+    else:
+        if len(all_boundaries) > 1:
+            logger.warning(f"Multiple boundaries detected, taking first occurrence")
+        boundary = all_boundaries[0]
+    if igm_files_needed is not None:
+        models = check_model_completeness(models, igm_files_needed)
+    if boundary_files_needed is not None:
+        boundary = check_model_completeness(boundary, boundary_files_needed)
     return models, boundary
 
 
@@ -747,7 +830,9 @@ if __name__ == "__main__":
     # Add a pypowsybl log gatherer
     # Set up the log gatherer:
     # topic name: currently used as a start of a file name
-    # send_it_to_elastic: send the log to elastic, not operational yet
+    # send_it_to_elastic: send the triggered log entry to elastic (parameters are defined in custom_logger.properties)
+    # upload_to_minio: upload log file to minio (parameters are defined in custom_logger.properties)
+    # report_on_command: trigger reporting explicitly
     # logging policy: choose according to the need. Currently:
     #   ALL_ENTRIES: gathers all log entries no matter of what
     #   ENTRIES_IF_LEVEL_REACHED: gathers all log entries when at least one entry was at least on the level specified
@@ -760,7 +845,7 @@ if __name__ == "__main__":
                                                   send_to_elastic=False,
                                                   upload_to_minio=False,
                                                   report_on_command=False,
-                                                  logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
+                                                  logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_IF_LEVEL_REACHED,
                                                   print_to_console=False,
                                                   reporting_level=logging.ERROR)
 
@@ -772,9 +857,29 @@ if __name__ == "__main__":
             # Change this according the test case to be used. Note that it must reference to the end folder that will
             # be used. Also it must be unique enough do be distinguished from other folders (for example instead of
             # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc)
+            # Some examples for
+            #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/QoCDC_v3.2.1_test_models.zip
+            # folder_to_study = 'TC3_T1_Conform'
             # folder_to_study = 'TC3_T3_Conform'
             folder_to_study = 'TC4_T1_Conform/Initial'
-            available_models, latest_boundary = get_local_entsoe_files(folder_to_study)
+            # Some examples for
+            #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
+            # folder_to_study = ['CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2',
+            #                    'CGMES_v2.4.15_MicroGridTestConfiguration_T1_NL_Complete_v2',
+            #                    'Type1_T1/CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2']
+            # In general this function checks if the paths (path_to_directory) exist in ENTSOE_EXAMPLES_LOCAL,
+            # if not then it tries to download and extract zip from ENTSOE_EXAMPLES_EXTERNAL. If this fails or path
+            # is not still found it carries on as usual.
+            # Note that zip can be downloaded and extracted but in this case it must be extracted to the path
+            # path_to_directory: string or list, end of the path from where to load the files
+            # (starting from ENTSOE_EXAMPLES_LOCAL). Note that these must be unique enough (errors are thrown when
+            # two or more paths are found)
+            # allow_merging_entities: Whether to allow merging entities, pypowsybl validation was not happy about that
+            # igm_files_needed: in order for pypowsybl validation to work, atleast these files should be present in
+            # igm
+            available_models, latest_boundary = get_local_entsoe_files(path_to_directory=folder_to_study,
+                                                                       allow_merging_entities=False,
+                                                                       igm_files_needed=['EQ'])
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
