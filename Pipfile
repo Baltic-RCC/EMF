@@ -18,6 +18,7 @@ pytz = "*"
 requests = "*"
 pika = "*"
 saxonche = "*"
+croniter = "*"
 
 [dev-packages]
 tabulate = "*"
