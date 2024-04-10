@@ -122,7 +122,9 @@ class HandlerMetadataToElastic:
     # TODO might be one generic elastic handler
     """Handler to send OPDM metadata object to Elastic"""
     def __init__(self):
-        self.elastic_service = elastic.HandlerSendToElastic(index=ELK_INDEX, id_from_metadata=True, id_metadata_list=['opde:Id'])
+        self.elastic_service = elastic.HandlerSendToElastic(index=ELK_INDEX,
+                                                            id_from_metadata=True,
+                                                            id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','))
 
     def handle(self, opdm_objects: List[dict], **kwargs):
 
@@ -132,7 +134,7 @@ class HandlerMetadataToElastic:
                 component['opdm:Profile'].pop('DATA')
 
         self.elastic_service.handle(byte_string=json.dumps(opdm_objects, default=str).encode('utf-8'),
-                                  properties=kwargs.get('properties'))
+                                    properties=kwargs.get('properties'))
         logger.info(f"Network model metadata sent to object-storage.elk")
 
         return opdm_objects
