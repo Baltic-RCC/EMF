@@ -5,7 +5,7 @@ name = "pip_conf_index_install"
 
 [packages]
 pandas = "*"
-pypowsybl = "*"
+pypowsybl = "==1.2.1"
 aniso8601 = "*"
 lxml = "*"
 edx = "*"
