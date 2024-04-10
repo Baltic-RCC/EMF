@@ -20,18 +20,18 @@ parse_app_properties(caller_globals=globals(), path=config.paths.integrations.el
 
 class Elastic:
 
-    def __init__(self, server=ELK_SERVER, debug=False):
+    def __init__(self, server: str = ELK_SERVER, debug: bool = False):
         self.server = server
         self.debug = debug
         self.client = Elasticsearch(self.server)
 
     @staticmethod
-    def send_to_elastic(index,
-                        json_message,
-                        id=None,
-                        server=ELK_SERVER,
-                        iso_timestamp=None,
-                        debug=False):
+    def send_to_elastic(index: str,
+                        json_message: dict,
+                        id: str = None,
+                        server: str = ELK_SERVER,
+                        iso_timestamp: str = None,
+                        debug: bool = False):
         """
         Method to send single message to ELK
         :param index: index pattern in ELK
@@ -70,13 +70,13 @@ class Elastic:
         return response
 
     @staticmethod
-    def send_to_elastic_bulk(index,
-                             json_message_list,
-                             id_from_metadata=False,
-                             id_metadata_list=ID_FROM_METADATA_FIELDS.split(','),
-                             server=ELK_SERVER,
-                             batch_size=int(BATCH_SIZE),
-                             debug=False):
+    def send_to_elastic_bulk(index: str,
+                             json_message_list: List[dict],
+                             id_from_metadata: bool = False,
+                             id_metadata_list: List[str] | None = None,
+                             server: str = ELK_SERVER,
+                             batch_size: int = int(BATCH_SIZE),
+                             debug: bool = False):
         """
         Method to send bulk message to ELK
         :param index: index pattern in ELK
@@ -88,6 +88,9 @@ class Elastic:
         :param debug: flag for debug mode
         :return:
         """
+        # Validate if_metadata_list parameter if id_from_metadata is True
+        if id_from_metadata and id_metadata_list is None:
+            raise Exception(f"Argument id_metadata_list not provided")
 
         # Define server url with relevant index pattern (monthly indication is added)
         index = f"{index}-{datetime.datetime.today():%Y%m}"
@@ -114,12 +117,12 @@ class Elastic:
 
         return all(response_list)
 
-    def get_doc_by_id(self, index, id):
+    def get_doc_by_id(self, index: str, id: str):
         response = self.client.get(index=index, id=id)
 
         return response
 
-    def get_docs_by_query(self, index, query, size=None, return_df=True):
+    def get_docs_by_query(self, index: str, query: dict, size: int | None = None, return_df: bool = True):
 
         response = self.client.search(index=index, query=query, size=size)
         if self.debug:
@@ -185,7 +188,7 @@ class HandlerSendToElastic:
                  index: str,
                  server: str = ELK_SERVER,
                  id_from_metadata: bool = False,
-                 id_metadata_list: List[str] = ID_FROM_METADATA_FIELDS.split(','),
+                 id_metadata_list: List[str] | None = None,
                  headers=None,
                  auth=None,
                  verify=False,

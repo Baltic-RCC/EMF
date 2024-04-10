@@ -1,3 +1,5 @@
+import pytz
+import pandas as pd
 from lxml import etree
 import aniso8601
 from json import dumps
@@ -76,9 +78,9 @@ def get_metadata_from_xml(xml, include_namespace=True, prefix_root=False):
     return properties_dict
 
 
-def parse_iec_xml(element_tree):
-    """Parses iec xml to dictionary, meta on the same row wit value and start/end time"""
-
+def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H'):
+    """Parses iec xml to dictionary, meta on the same row with value and start/end time"""
+    # TODO make return_values_per_mtu argument in parameters
     # TODO - maybe first analyse the xml, by getting all elements and try to match names, ala point_element_name = unique_element_namelist.contains("point") etc.
 
     # To lxml
@@ -116,6 +118,7 @@ def parse_iec_xml(element_tree):
 
         points = period.findall('{*}Point')
 
+        covered_position_counter = 0  # used to calculate position number if per MTU approach is used
         for n, point in enumerate(points):
             position = int(point.find("{*}position").text)
             value = float(point.find("{*}quantity").text)
@@ -127,17 +130,31 @@ def parse_iec_xml(element_tree):
                     next_position = int(points[n+1].find("{*}position").text)
                     timestamp_end = (start_time + resolution * (next_position - 1)).replace(tzinfo=None)
                 else:
-
                     timestamp_end = end_time.replace(tzinfo=None)
-
             else:
                 # Else the value is on only valid during specified resolution
                 timestamp_end = timestamp_start + resolution
 
-            data_list.append({"value": value,
-                              "position": position,
-                              "utc_start": timestamp_start.isoformat(),
-                              "utc_end": timestamp_end.isoformat(),
-                              **whole_meta})
+            if return_values_per_mtu:
+                # Refactoring A03 curve type data into data per MTU
+                mtu_start_range = pd.date_range(start=timestamp_start,
+                                                end=timestamp_end,
+                                                inclusive='left',
+                                                freq=aniso8601.parse_duration(mtu_resolution),
+                                                tz=pytz.utc)
+                for mtu_start in mtu_start_range:
+                    covered_position_counter += 1
+                    data_list.append({"value": value,
+                                      "position": covered_position_counter,
+                                      "utc_start": mtu_start.isoformat(),
+                                      "utc_end": (mtu_start + aniso8601.parse_duration(mtu_resolution)).isoformat(),
+                                      **whole_meta})
+            else:
+                data_list.append({"value": value,
+                                  "position": position,
+                                  "utc_start": timestamp_start.isoformat(),
+                                  "utc_end": timestamp_end.isoformat(),
+                                  **whole_meta})
+    # df = pd.DataFrame(data_list)  # DEBUG
 
     return data_list
