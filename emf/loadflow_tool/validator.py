@@ -4,23 +4,26 @@ import json
 import time
 import math
 import config
+from dict2xml import dict2xml
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic
+from emf.common.integrations import elastic, rabbit
+
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
+parse_app_properties(caller_globals=globals(), path=config.paths.xslt_service.xslt)
 
 # TODO - record AC NP and DC Flows to metadata storage (and more), this is useful for replacement logic and scaling
 # note - multiple islands wo load or generation can be an issue
 
 
-def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
+def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True, send_qas_report=True, report_type = "IGM"):
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
@@ -78,6 +81,29 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
         response = elastic.Elastic.send_to_elastic(index=ELK_INDEX, json_message=model_data)
     except Exception as error:
         logger.error(f"Validation report sending to Elastic failed: {error}")
+    
+    #for QAS report preparation take model_data and modify to xml for transformation
+    if send_qas_report:
+        #get correct XLT
+        if report_type == "IGM":
+            xsl_path = "config/xslt_service/IGM_entsoeQAReport_Level_8.xsl"
+        elif report_type == "CGM": 
+            xsl_path = "config/xslt_service/CGM_entsoeQAReport_Level_8.xsl"
+        else:
+            logger.error(f"Unknown report type, not able to generate report")
+
+        with open(xsl_bytes, 'rb') as file:
+            xsl_bytes = file.read()
+
+        data = {"XML": dict2xml(model_data),"XSL": xsl_bytes}
+        try:#publish message to Rabbit to wait for conversion
+            rabbit_service = rabbit.BlockingClient()
+            rabbit_service.publish(model_data_xml, RMQ_EXCHANGE)
+            logger.info(f"Validation report sending to Rabbit for ..")
+        except Exception as error:
+            logger.error(f"Validation report sending to Rabbit for {error}")
+
+
 
     return model_data
 
