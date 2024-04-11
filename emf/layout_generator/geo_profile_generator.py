@@ -5,7 +5,8 @@ import geopandas as gpd
 from thefuzz import process, fuzz
 import uuid
 import shapely
-from shapely import LineString, Point, line_merge, unary_union
+from shapely import LineString, Point, line_merge, unary_union, ops
+from pathlib import Path
 
 NAME = f"Baltic_GL_2024"
 DIST_ID = str(uuid.uuid4())
@@ -34,7 +35,7 @@ namespace_map = {
     "dcterms": "http://purl.org/dc/terms/",
 }
 
-rdf_map = json.load(open("../../entsoe_v2.4.15_2014-08-07.json"))
+rdf_map = json.load(open(Path(__file__).parent.joinpath("entsoe_v2.4.15_2014-08-07.json")))
 
 
 def map_by_column(data_frame_1, column_1: str, data_frame_2, column_2: str):
@@ -64,14 +65,25 @@ def generate_geomap(df, name: str):
     m.save(f"{name}.html")
 
 
+def multiline_to_linestring(multiline):
+    points = [point for line in multiline for point in line.coords]
+    return LineString(points)
+
+
+def process_group(group):
+    result = group.agg(lambda x: x.unique()[0] if x.nunique() == 1 else None)
+    result['geometry'] = unary_union(group['geometry'].tolist())
+    return result
+
+
 # Load EQ profiles
-eq_df = pandas.concat([pandas.read_RDF(['20240110T0030Z_1D_LT_EQ_001.xml']),
-                       pandas.read_RDF(['20240110T0030Z_1D_LV_EQ_001.xml']),
-                       pandas.read_RDF(['20240213T2330Z_1D_Estonia_EQ_002.xml']),
+eq_df = pandas.concat([pandas.read_RDF([Path(__file__).parent.joinpath('20240110T0030Z_1D_LT_EQ_001.xml')]),
+                       pandas.read_RDF([Path(__file__).parent.joinpath('20240110T0030Z_1D_LV_EQ_001.xml')]),
+                       pandas.read_RDF([Path(__file__).parent.joinpath('20240213T2330Z_1D_Estonia_EQ_002.xml')]),
                        ])
 
 # Load GeoJSON data
-geo_df = gpd.read_file('../../data_clean.geojson')
+geo_df = gpd.read_file(Path(__file__).parent.joinpath('data_clean.geojson'))
 geo_df.loc[geo_df['ref'].isnull() == True, 'ref'] = geo_df['name']
 geo_df.loc[geo_df['name'].isnull() == True, 'name'] = geo_df['ref']
 geo_df = geo_df.dropna(subset=['name', 'ref'])
@@ -131,7 +143,6 @@ substations_mapped_330 = map_by_column(substations_330, 'name', substation_geo_d
 
 # lines_mapped = map_by_column(lines, 'IdentifiedObject.shortName', line_geo_df, 'ref')
 # substations_mapped = map_by_column(substations, 'name', substation_geo_df, 'name').drop(columns='name')
-
 
 mapping_330 = pandas.concat([substations_mapped_330, lines_mapped_330], ignore_index=True)
 mapping_330['location_id'] = [uuid.uuid4() for num in range(len(mapping_330.index))]
