@@ -164,13 +164,14 @@ def opdmprofile_to_bytes(opdm_profile):
     # Temporary fix: input data (['opdm:Profile']['DATA']) can be a zip file, figure it out and extract
     # before proceeding further
     data = BytesIO(opdm_profile['opdm:Profile']['DATA'])
-    if zipfile.is_zipfile(data):
+    file_name = opdm_profile['opdm:Profile']['pmd:fileName']
+    if zipfile.is_zipfile(data) and not file_name.endswith('.zip'):
         xml_tree_file = get_xml_from_zip(data)
         bytes_object = BytesIO()
         xml_tree_file.write(bytes_object, encoding='utf-8')
         bytes_object.seek(0)
         data = bytes_object
-    data.name = opdm_profile['opdm:Profile']['pmd:fileName']
+    data.name = file_name
     return data
 
 
