@@ -29,6 +29,10 @@ powsybl_default_export_settings = {
     "iidm.export.cgmes.modeling-authority-set": "powsybl.org"
 }
 
+NETWORK_KEYWORD = 'network'
+NETWORK_META_KEYWORD = 'network_meta'
+NETWORK_VALID_KEYWORD = 'network_valid'
+
 
 # TODO - Add comments and docstring
 def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
@@ -164,20 +168,24 @@ def opdmprofile_to_bytes(opdm_profile):
     # Temporary fix: input data (['opdm:Profile']['DATA']) can be a zip file, figure it out and extract
     # before proceeding further
     data = BytesIO(opdm_profile['opdm:Profile']['DATA'])
-    if zipfile.is_zipfile(data):
+    file_name = opdm_profile['opdm:Profile']['pmd:fileName']
+    if zipfile.is_zipfile(data) and not file_name.endswith('.zip'):
         xml_tree_file = get_xml_from_zip(data)
         bytes_object = BytesIO()
         xml_tree_file.write(bytes_object, encoding='utf-8')
         bytes_object.seek(0)
         data = bytes_object
-    data.name = opdm_profile['opdm:Profile']['pmd:fileName']
+    data.name = file_name
     return data
 
 
 def load_opdm_data(opdm_objects, profile=None):
-    if profile:
-        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
-    return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
+    try:
+        if profile:
+            return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
+        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
+    except Exception as ex:
+        logger.error(f"Got loading exception {ex}")
 
 
 def filename_from_metadata(metadata):

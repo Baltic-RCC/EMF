@@ -17,7 +17,7 @@ import requests
 import config
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, check_the_folder_path
 from emf.loadflow_tool.loadflow_settings import *
-from emf.loadflow_tool.helper import attr_to_dict, load_model, get_metadata_from_filename
+from emf.loadflow_tool.helper import attr_to_dict, load_model, metadata_from_filename
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 
@@ -36,35 +36,44 @@ TSO_KEYWORD = 'pmd:TSO'
 DATA_KEYWORD = 'DATA'
 FILENAME_KEYWORD = 'pmd:fileName'
 CGMES_PROFILE = 'pmd:cgmesProfile'
+MODEL_PART_REFERENCE = 'pmd:modelPartReference'
 MODEL_MESSAGE_TYPE = 'Model.messageType'
 XML_KEYWORD = '.xml'
 ZIP_KEYWORD = '.zip'
-MODELING_ENTITY = 'Model.modelingEntity'
-MERGING_ENTITY = 'Model.mergingEntity'
+MODEL_MODELING_ENTITY = 'Model.modelingEntity'
+MODEL_MERGING_ENTITY = 'Model.mergingEntity'
+PMD_MERGING_ENTITY = 'pmd:mergingEntity'
 MODEL_DOMAIN = 'Model.domain'
+PMD_MERGING_AREA = 'pmd:mergingArea'
 MODEL_FOR_ENTITY = 'Model.forEntity'
 OPDE_COMPONENT_KEYWORD = 'opde:Component'
 OPDM_PROFILE_KEYWORD = 'opdm:Profile'
 MISSING_TSO_NAME = 'UnknownTSO'
 LONG_FILENAME_SUFFIX = u"\\\\?\\"
 
+VALIDATION_STATUS_KEYWORD = 'VALIDATION_STATUS'
+VALID_KEYWORD = 'valid'
+VALIDATION_DURATION_KEYWORD = 'validation_duration_s'
+LOADFLOW_RESULTS_KEYWORD = 'loadflow_results'
+
 PREFERRED_FILE_TYPES = [XML_KEYWORD, ZIP_KEYWORD]
 IGM_FILE_TYPES = ['_EQ_', '_TP_', '_SV_', '_SSH_']
 BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', '_EQ_BD_', '_TP_BD_']
 BOUNDARY_FILE_TYPE_FIX = {'_EQ_BD_': '_EQBD_', '_TP_BD_': '_TPBD_'}
+SPECIAL_TSO_NAME = ['ENTSO-E']
 
 """Mapper for elements of the file name to igm profile"""
 IGM_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                 'Model.scenarioTime': 'pmd:scenarioDate',
                                 'Model.processType': 'pmd:timeHorizon',
-                                MODELING_ENTITY: 'pmd:modelPartReference',
+                                MODEL_MODELING_ENTITY: MODEL_PART_REFERENCE,
                                 MODEL_MESSAGE_TYPE: CGMES_PROFILE,
                                 'Model.version': 'pmd:versionNumber'}
 
 """Mapper for the elements of the file name to boundary profile"""
 BOUNDARY_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
                                      'Model.scenarioTime': 'pmd:scenarioDate',
-                                     MODELING_ENTITY: 'pmd:modelPartReference',
+                                     MODEL_MODELING_ENTITY: MODEL_PART_REFERENCE,
                                      MODEL_MESSAGE_TYPE: CGMES_PROFILE,
                                      'Model.version': 'pmd:versionNumber'}
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
@@ -138,7 +147,8 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     # TODO check only main island component 0?
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
     model_data["valid"] = model_valid
-    model_data["validation_duration_s"] = time.time() - start_time
+    model_data["validation_duration_s"] = round(time.time() - start_time, 3)
+    logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
     # Pop out pypowsybl network object
     model_data.pop('network')
@@ -241,7 +251,16 @@ def get_meta_from_filename(file_name: str):
         for key in BOUNDARY_FILE_TYPE_FIX:
             if key in fixed_file_name:
                 fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
-        meta_data = get_metadata_from_filename(fixed_file_name)
+        # meta_data = get_metadata_from_filename(fixed_file_name)
+        meta_data = metadata_from_filename(fixed_file_name)
+        # Revert back cases where there is a '-' in TSO's name like ENTSO-E
+        for case in SPECIAL_TSO_NAME:
+            if case in fixed_file_name:
+                meta_data[MODEL_PART_REFERENCE] = case
+                if "-".join([meta_data.get(PMD_MERGING_ENTITY,''), meta_data.get(PMD_MERGING_AREA, '')]) == case:
+                    meta_data[PMD_MERGING_ENTITY] = None
+                    meta_data[PMD_MERGING_AREA] = None
+                break
     except ValueError as err:
         logger.warning(f"Unable to parse file name: {err}, trying to salvage")
         meta_data = salvage_data_from_file_name(file_name=file_name)
@@ -258,7 +277,7 @@ def salvage_data_from_file_name(file_name: str):
     meta_data = {}
     for element in IGM_FILE_TYPES:
         if element in file_name:
-            meta_data["Model.messageType"] = element.replace("_", "")
+            meta_data[MODEL_MESSAGE_TYPE] = element.replace("_", "")
     return meta_data
 
 
@@ -293,11 +312,12 @@ def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None,
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
-            if MODELING_ENTITY in meta_for_data[datum] and TSO_KEYWORD not in igm_value:
-                igm_value[TSO_KEYWORD] = meta_for_data[datum][MODELING_ENTITY]
-            opdm_profile_content = map_meta_dict_to_dict(input_dict={},
-                                                         meta_dict=meta_for_data[datum],
-                                                         key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
+            if MODEL_MODELING_ENTITY in meta_for_data[datum] and TSO_KEYWORD not in igm_value:
+                igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY]
+            opdm_profile_content = meta_for_data[datum]
+            # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
+            #                                              meta_dict=meta_for_data[datum],
+            #                                              key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             igm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return igm_value
@@ -319,9 +339,12 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
             if MODEL_MESSAGE_TYPE in meta_for_data:
                 meta_for_data[MODEL_MESSAGE_TYPE] = parse_boundary_message_type_profile(
                     meta_for_data[MODEL_MESSAGE_TYPE])
-            opdm_profile_content = map_meta_dict_to_dict(input_dict={},
-                                                         meta_dict=meta_for_data[datum],
-                                                         key_dict=BOUNDARY_FILENAME_MAPPING_TO_OPDM)
+            elif CGMES_PROFILE in meta_for_data:
+                meta_for_data[CGMES_PROFILE] = parse_boundary_message_type_profile(meta_for_data[CGMES_PROFILE])
+            opdm_profile_content = meta_for_data[datum]
+            # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
+            #                                              meta_dict=meta_for_data[datum],
+            #                                              key_dict=BOUNDARY_FILENAME_MAPPING_TO_OPDM)
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return boundary_value
@@ -701,26 +724,31 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
     # Take assumption that we have only one boundary
     boundaries = {}
     igm_file_types = [file_type.replace('_', '') for file_type in IGM_FILE_TYPES]
-    boundary_file_types = [file_type.replace('_', '') for file_type in BOUNDARY_FILE_TYPES]
+    boundary_file_types = [file_type.strip("_") for file_type in BOUNDARY_FILE_TYPES]
     if root_folder is not None:
         root_folder = check_the_folder_path(root_folder)
     for file_name in list_of_files:
         file_extension = os.path.splitext(file_name)[-1]
         file_base = os.path.splitext(file_name)[0]
         # Check if file is supported file
-        if file_extension not in ['.xml', '.zip']:
+        if file_extension not in PREFERRED_FILE_TYPES:
             continue
         # Check if file supports standard naming convention, refer to helper.get_metadata_from_filename for more details
         file_name_meta = get_meta_from_filename(file_name)
         if root_folder is not None:
             file_name = root_folder + file_name
-        if MODELING_ENTITY in file_name_meta.keys() and MODEL_MESSAGE_TYPE in file_name_meta.keys():
-            tso_name = file_name_meta[MODELING_ENTITY]
-            file_type_name = file_name_meta[MODEL_MESSAGE_TYPE]
-            if all(key in file_name_meta for key in [MERGING_ENTITY, MODEL_DOMAIN, MODEL_FOR_ENTITY]):
-                if file_name_meta[MERGING_ENTITY] != '' and allow_merging_entities:
-                    tso_name = file_name_meta[MODEL_FOR_ENTITY] if file_name_meta[MODEL_FOR_ENTITY] != '' else \
-                        file_name_meta[MERGING_ENTITY]
+        tso_name = file_name_meta.get(MODEL_MODELING_ENTITY) or file_name_meta.get(MODEL_PART_REFERENCE)
+        file_type_name = file_name_meta.get(MODEL_MESSAGE_TYPE) or file_name_meta.get(CGMES_PROFILE)
+        merging_entity = file_name_meta.get(PMD_MERGING_ENTITY, '') or file_name_meta.get(MODEL_MERGING_ENTITY, '')
+        merging_entity = None if merging_entity == '' else merging_entity
+        modeling_entity = file_name_meta.get(MODEL_FOR_ENTITY, '')
+        modeling_entity = None if modeling_entity == '' else modeling_entity
+        # if needed skip the cases when there is merging entity and part_reference present, didn't like to pypowsybl
+        if not allow_merging_entities and tso_name and merging_entity and tso_name not in SPECIAL_TSO_NAME:
+            continue
+        if not tso_name:
+            tso_name = modeling_entity or merging_entity
+        if tso_name and file_type_name:
             # Handle TSOs
             if file_type_name in igm_file_types:
                 if tso_name not in tso_files.keys():
@@ -850,7 +878,7 @@ if __name__ == "__main__":
                                                   reporting_level=logging.ERROR)
 
     # Switch this to True if files from local storage are used
-    load_data_from_local_storage = False
+    load_data_from_local_storage = True
     try:
         if load_data_from_local_storage:
             # available_models, latest_boundary = get_local_files()
@@ -859,9 +887,9 @@ if __name__ == "__main__":
             # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc)
             # Some examples for
             #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/QoCDC_v3.2.1_test_models.zip
-            # folder_to_study = 'TC3_T1_Conform'
+            folder_to_study = 'TC3_T1_Conform'
             # folder_to_study = 'TC3_T3_Conform'
-            folder_to_study = 'TC4_T1_Conform/Initial'
+            # folder_to_study = 'TC4_T1_Conform/Initial'
             # Some examples for
             #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
             # folder_to_study = ['CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2',
@@ -887,10 +915,14 @@ if __name__ == "__main__":
         logger.info(f"Fetching data from external resources")
         opdm = OPDM()
         latest_boundary = opdm.get_latest_boundary()
-        available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                               scenario_date='2024-03-14T09:30',
+        available_models = opdm.get_latest_models_and_download(time_horizon='ID',
+                                                               scenario_date='2024-04-05T22:30',
                                                                # tso='ELERING'
                                                                )
+        # available_models = opdm.get_latest_models_and_download(time_horizon='1D',
+        #                                                        scenario_date='2024-03-14T09:30',
+        #                                                        # tso='ELERING'
+        #                                                        )
 
     validated_models = []
 
@@ -903,9 +935,9 @@ if __name__ == "__main__":
                 response = validate_model([model, latest_boundary])
             else:
                 response = validate_model([model])
-            model["VALIDATION_STATUS"] = response
+            model[VALIDATION_STATUS_KEYWORD] = response
             # Example for manual triggering for posting the logs. The value given must be positive:
-            log_post_trigger = model.get('VALIDATION_STATUS', {}).get('valid') is False
+            log_post_trigger = model.get(VALIDATION_STATUS_KEYWORD, {}).get('valid') is False
             # Note that this switch is governed by report_on_command in PyPowsyblLogGatherer initialization
             pypowsybl_log_gatherer.trigger_to_report_externally(log_post_trigger)
             validated_models.append(model)

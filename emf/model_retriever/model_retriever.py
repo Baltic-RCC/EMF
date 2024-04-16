@@ -4,10 +4,14 @@ from io import BytesIO
 from zipfile import ZipFile
 from typing import List
 import json
+
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import edx, elastic, opdm, minio
 from emf.common.converters import opdm_metadata_to_json
 from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.helper import load_opdm_data
+from emf.loadflow_tool.model_statistics import get_system_metrics
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +33,23 @@ class HandlerModelsToMinio:
         for opdm_object in opdm_objects:
 
             # Get model from OPDM
-            response = self.opdm_service.download_object(opdm_object=opdm_object)
+            self.opdm_service.download_object(opdm_object=opdm_object)
 
             # Put all components to bytesio zip (each component to different zip)
-            for component in response['opde:Component']:
+            for component in opdm_object['opde:Component']:
+
+                # Sanitize content-reference url
+                content_reference = component['opdm:Profile']['pmd:content-reference']
+                content_reference = content_reference.replace('//', '/')
+
+                # Check whether profile already exist in object storage (Minio)
+                if component['opdm:Profile']['pmd:cgmesProfile'] == "EQ":  # TODO currently only for EQ
+                    profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
+                    if profile_exist:
+                        logger.info(f"Profile already stored in object storage: {content_reference}")
+                        continue
+
+                # Put content data into bytes object
                 output_object = BytesIO()
                 with ZipFile(output_object, "w") as component_zip:
                     with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
@@ -41,8 +58,7 @@ class HandlerModelsToMinio:
                             component_zip.writestr(file_name, profile_zip.open(file_name).read())
 
                 # Upload components to minio storage
-                output_object.name = component['opdm:Profile']['pmd:content-reference']
-                output_object.name = output_object.name.replace('//', '/')  # sanitize double slash in url
+                output_object.name = content_reference
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
@@ -65,6 +81,55 @@ class HandlerModelsToMinio:
 
         return updated_opdm_objects
 
+    def handle_reduced(self, opdm_objects: List[dict], **kwargs):
+        # Download each OPDM object network model from OPDE
+        updated_opdm_objects = []
+        for opdm_object in opdm_objects:
+            # Put all components to bytesio zip (each component to different zip)
+            for component in opdm_object['opde:Component']:
+                # Sanitize content-reference url
+                content_reference = component['opdm:Profile']['pmd:content-reference']
+                content_reference = content_reference.replace('//', '/')
+                # Check whether profile already exist in object storage (Minio)
+                if component['opdm:Profile']['pmd:cgmesProfile'] == "EQ":  # TODO currently only for EQ
+                    profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
+                    if profile_exist:
+                        logger.info(f"Profile already stored in object storage: {content_reference}")
+                        continue
+                # Put content data into bytes object
+                output_object = BytesIO()
+                with ZipFile(output_object, "w") as component_zip:
+                    with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
+                        for file_name in profile_zip.namelist():
+                            logger.debug(f"Adding file: {file_name}")
+                            component_zip.writestr(file_name, profile_zip.open(file_name).read())
+
+                # Upload components to minio storage
+                output_object.name = content_reference
+                logger.info(f"Uploading component to object storage: {output_object.name}")
+                self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
+            updated_opdm_objects.append(opdm_object)
+        return updated_opdm_objects
+
+
+class HandlerModelsStat:
+
+    def handle(self, opdm_objects: List[dict], **kwargs):
+        # Get the latest boundary set for validation
+        latest_boundary = self.opdm_service.get_latest_boundary() # TODO - get BDS from ELK+MINIO
+
+        # Extract statistics
+        for opdm_object in opdm_objects:
+            stat = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+            opdm_object['total_load'] = stat['total_load']
+            opdm_object['generation'] = stat['generation']
+            opdm_object['losses'] = stat['losses']
+            opdm_object['losses_coefficient'] = stat['losses_coefficient']
+            opdm_object['acnp'] = stat['tieflow_acnp']['EquivalentInjection.p']
+            opdm_object['hvdc'] = {key: value['EquivalentInjection.p'] for key, value in stat["tieflow_hvdc"].items()}
+
+        return opdm_objects
+
 
 class HandlerModelsValidator:
 
@@ -73,14 +138,14 @@ class HandlerModelsValidator:
 
     def handle(self, opdm_objects: List[dict], **kwargs):
         # Get the latest boundary set for validation
-        latest_boundary = self.opdm_service.get_latest_boundary()
+        latest_boundary = kwargs.get('latest_boundary')
+        if not latest_boundary:
+            latest_boundary = self.opdm_service.get_latest_boundary()
 
         # Run network model validation
         for opdm_object in opdm_objects:
             response = validate_model(opdm_objects=[opdm_object, latest_boundary])
             opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
-            for component in opdm_object['opde:Component']:  # pop out initial binary network model data
-                component['opdm:Profile'].pop('DATA')
 
         return opdm_objects
 
@@ -92,6 +157,12 @@ class HandlerMetadataToElastic:
         self.elastic_service = elastic.HandlerSendToElastic(index=ELK_INDEX, id_from_metadata=True, id_metadata_list=['opde:Id'])
 
     def handle(self, opdm_objects: List[dict], **kwargs):
+
+        # pop out initial binary network model data
+        for opdm_object in opdm_objects:
+            for component in opdm_object['opde:Component']:
+                component['opdm:Profile'].pop('DATA')
+
         self.elastic_service.handle(byte_string=json.dumps(opdm_objects, default=str).encode('utf-8'),
                                   properties=kwargs.get('properties'))
         logger.info(f"Network model metadata sent to object-storage.elk")

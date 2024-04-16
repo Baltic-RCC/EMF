@@ -11,11 +11,20 @@ from emf.common.config_parser import parse_app_properties
 
 import warnings
 from elasticsearch.exceptions import ElasticsearchWarning
+
 warnings.simplefilter('ignore', ElasticsearchWarning)
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
+
+SCROLL_ID_FIELD = '_scroll_id'
+RESULT_FIELD = 'hits'
+DOCUMENT_COUNT = 10000
+DEFAULT_COLUMNS = ["value"]
+INITIAL_SCROLL_TIME = "15m"
+CONSECUTIVE_SCROLL_TIME = "12m"
+MAGIC_KEYWORD = '_source'
 
 
 class Elastic:
@@ -60,7 +69,10 @@ class Elastic:
         # Executing POST to push message into ELK
         if debug:
             logger.debug(f"Sending data to {url}")
-        response = requests.post(url=url, json=json_message)
+        if json_message.get('args', None):  # TODO revise if this is best solution
+            json_message.pop('args')
+        json_data = json.dumps(json_message, default=str)
+        response = requests.post(url=url, data=json_data.encode(), headers={"Content-Type": "application/json"})
         if debug:
             logger.debug(f"ELK response: {response.content}")
 
@@ -92,9 +104,16 @@ class Elastic:
 
         if id_from_metadata:
             id_separator = "_"
-            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index, "_id": id_separator.join([str(element.get(key, '')) for key in id_metadata_list])}}, element)]
+            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index,
+                                                                                                 "_id": id_separator.join(
+                                                                                                     [str(element.get(
+                                                                                                         key, '')) for
+                                                                                                      key in
+                                                                                                      id_metadata_list])}},
+                                                                                      element)]
         else:
-            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index}}, element)]
+            json_message_list = [value for element in json_message_list for value in
+                                 ({"index": {"_index": index}}, element)]
 
         response_list = []
         for batch in range(0, len(json_message_list), batch_size):
@@ -102,7 +121,7 @@ class Elastic:
             if debug:
                 logger.debug(f"Sending batch ({batch}-{batch + batch_size})/{len(json_message_list)} to {url}")
             response = requests.post(url=url,
-                                     data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
+                                     data=(ndjson.dumps(json_message_list[batch:batch + batch_size]) + "\n").encode(),
                                      timeout=None,
                                      headers={"Content-Type": "application/x-ndjson"})
             if debug:
@@ -127,6 +146,55 @@ class Elastic:
             response.columns = response.columns.astype(str).map(lambda x: x.replace("_source.", ""))
 
         return response
+
+    def get_data_by_scrolling(self,
+                              query: dict,
+                              index: str,
+                              fields: []):
+        """
+        Gets a large bulk of data from elastic
+        :param query: dictionary with parameters by which to select data from elastic
+        :param index: table name in elastic
+        :param fields: fields or columns to return from query
+        :return: dataframe with results
+        """
+        result = self.client.search(index=index,
+                                    query=query,
+                                    source=fields,
+                                    size=DOCUMENT_COUNT,
+                                    scroll=INITIAL_SCROLL_TIME)
+
+        scroll_id = result[SCROLL_ID_FIELD]
+        # Extract and return the relevant data from the initial response
+        hits = result[RESULT_FIELD][RESULT_FIELD]
+        yield hits
+        # Continue scrolling through the results until there are no more
+        while hits:
+            result = self.client.scroll(scroll_id=scroll_id, scroll=CONSECUTIVE_SCROLL_TIME)
+            hits = result[RESULT_FIELD][RESULT_FIELD]
+            yield hits
+        # Clear the scroll context after processing all results
+        self.client.clear_scroll(scroll_id=scroll_id)
+
+    def get_data(self,
+                 query: dict,
+                 index: str,
+                 fields: [] = None):
+        """
+        Gets data from elastic
+        :param query: dictionary with parameters by which to select data from elastic
+        :param index: table name in elastic
+        :param fields: fields or columns to return from query
+        :return: dataframe with results
+        """
+        # Gather all the results to list (of dictionaries)
+        list_of_lines = []
+        for hits in self.get_data_by_scrolling(query=query, index=index, fields=fields):
+            for hit in hits:
+                list_of_lines.append({field: hit[MAGIC_KEYWORD][field] for field in fields})
+        # convert list (of dictionaries) to pandas dataframe
+        data_frame = pd.DataFrame(list_of_lines)
+        return data_frame
 
     def query_schedules_from_elk(self,
                                  index: str,
@@ -187,7 +255,6 @@ class HandlerSendToElastic:
                  auth=None,
                  verify=False,
                  debug=False):
-
         self.index = index
         self.server = server
         self.id_from_metadata = id_from_metadata
@@ -203,7 +270,6 @@ class HandlerSendToElastic:
         self.session.auth = auth
 
     def handle(self, byte_string, properties):
-
         Elastic.send_to_elastic_bulk(index=self.index,
                                      json_message_list=json.loads(byte_string),
                                      id_from_metadata=self.id_from_metadata,
@@ -215,7 +281,6 @@ class HandlerSendToElastic:
 
 
 if __name__ == '__main__':
-
     # Create client
     server = "http://test-rcc-logs-master.elering.sise:9200"
     service = Elastic(server=server)

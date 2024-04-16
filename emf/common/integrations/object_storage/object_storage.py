@@ -68,9 +68,10 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     logger.info(f"Getting data from MinIO")
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
+        # Minio considers // as /
+        content_reference = content_reference.replace('//', '/')
         logger.info(f"Downloading {content_reference}")
         component["opdm:Profile"]["DATA"] = minio_service.download_object(bucket_name, content_reference)
-
     return metadata
 
 
