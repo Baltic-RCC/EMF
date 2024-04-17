@@ -10,6 +10,7 @@ from emf.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, rabbit
+from pathlib import Path
 
 
 # Initialize custom logger
@@ -92,13 +93,13 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
         else:
             logger.error(f"Unknown report type, not able to generate report")
 
-        with open(xsl_bytes, 'rb') as file:
+        with open(Path(__file__).parent.parent.parent.joinpath(xsl_path), 'rb') as file:
             xsl_bytes = file.read()
 
-        data = {"XML": dict2xml(model_data),"XSL": xsl_bytes}
+        message_data = {"XML": dict2xml(model_data),"XSL": xsl_bytes}
         try:#publish message to Rabbit to wait for conversion
             rabbit_service = rabbit.BlockingClient()
-            rabbit_service.publish(model_data_xml, RMQ_EXCHANGE)
+            rabbit_service.publish(str(message_data), RMQ_EXCHANGE)
             logger.info(f"Validation report sending to Rabbit for ..")
         except Exception as error:
             logger.error(f"Validation report sending to Rabbit for {error}")
