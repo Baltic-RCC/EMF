@@ -96,7 +96,12 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
         with open(Path(__file__).parent.parent.parent.joinpath(xsl_path), 'rb') as file:
             xsl_bytes = file.read()
 
-        message_data = {"XML": dict2xml(model_data),"XSL": xsl_bytes}
+        report_data = {'validation': {}, 'metadata': {'profile': {}}}
+        report_data['validation'] = model_data
+        report_data['metadata']['profile'] = [profile['opdm:Profile'] for profile in opdm_objects[0]['opde:Component']]
+        data = [var.pop('DATA') for var in report_data['metadata']['profile']]
+        message_data = {"XML": dict2xml(report_data, wrap='report'), "XSL": xsl_bytes}
+
         try:#publish message to Rabbit to wait for conversion
             rabbit_service = rabbit.BlockingClient()
             rabbit_service.publish(str(message_data), RMQ_EXCHANGE)
@@ -125,7 +130,7 @@ if __name__ == "__main__":
     opdm = OPDM()
 
     latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-08-16T09:30")#, tso="ELERING")
+    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2024-04-16T09:30", tso="Litgrid")
 
     validated_models = []
 
@@ -139,8 +144,8 @@ if __name__ == "__main__":
             validated_models.append(model)
 
         except Exception as error:
-            validated_models.append(model)
-            #logger.error("Validation failed", error)
+            # validated_models.append(model)
+            logger.error("Validation failed", error)
 
     # Print validation statuses
     [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
