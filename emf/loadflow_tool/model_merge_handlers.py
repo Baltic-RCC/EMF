@@ -239,8 +239,6 @@ class HandlerGetModels:
                 version_number = get_version_number(scenario_date=scenario_date,
                                                     time_horizon=time_horizon,
                                                     modeling_entity=f"{self.merging_entity}-{area}")
-                if running_in_local_machine():
-                    version_number = '001'
                 # Pack everything and pass it on
                 cgm_input = CgmModelComposer(igm_models=available_models,
                                              boundary_data=latest_boundary,
@@ -406,6 +404,6 @@ if __name__ == "__main__":
                 logger.error(f"Message handling failed: {ex}")
     if running_in_local_machine():
         print("FAILED:")
-        print(failed_cases_collector)
+        print('\r\n'.join(failed_cases_collector))
         print("SUCCESS:")
-        print(succeeded_cases_collector)
+        print('\r\n'.join(succeeded_cases_collector))

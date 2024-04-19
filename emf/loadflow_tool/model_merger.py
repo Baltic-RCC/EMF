@@ -1110,9 +1110,6 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_BUCKET,
             file_type = file_name_exploded.get("Model.messageType")
             file_path_elements = [folder_in_bucket, time_horizon, merging_entity, area,
                                   scenario_date, scenario_time, version, file_type, cgm_file.name]
-            if "PYCHARM_HOSTED" in os.environ:
-                file_path_elements = [folder_in_bucket, time_horizon, merging_entity, area,
-                                      scenario_date, scenario_time, file_type, cgm_file.name]
             full_file_name = SEPARATOR_SYMBOL.join(file_path_elements)
             full_file_name = full_file_name.replace('//', '/')
             cgm_file.name = full_file_name
