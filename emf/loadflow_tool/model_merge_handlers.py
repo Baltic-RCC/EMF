@@ -346,9 +346,9 @@ if __name__ == "__main__":
     )
 
     testing_time_horizon = '1D'
-    testing_merging_type = 'CGM'
-    start_date = parse_datetime("2024-04-11T00:30:00+00:00")
-    end_date = parse_datetime("2024-04-12T00:00:00+00:00")
+    testing_merging_type = 'RMM'
+    start_date = parse_datetime("2024-04-10T00:30:00+00:00")
+    end_date = parse_datetime("2024-04-11T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds

@@ -662,7 +662,7 @@ def get_version_number(scenario_date: str,
     version_number_minio = None
     version_number_elastic = None
     if use_minio:
-        version_number_minio = get_version_number_from_minio(time_horizon=scenario_date, scenario_date=time_horizon)
+        version_number_minio = get_version_number_from_minio(time_horizon=time_horizon, scenario_date=scenario_date)
     if use_elastic:
         if start_looking:
             version_number_elastic = get_version_number_from_elastic(start_looking=start_looking,
@@ -674,7 +674,8 @@ def get_version_number(scenario_date: str,
                                                                      time_horizon=time_horizon,
                                                                      scenario_date=scenario_date)
     if version_number_minio and version_number_elastic:
-        version_number = version_number if int(version_number) > int(version_number_elastic) else version_number_elastic
+        version_number = version_number_minio if int(version_number_minio) > int(version_number_elastic) \
+            else version_number_elastic
     else:
         version_number = version_number_minio or version_number_elastic or version_number
     return version_number
