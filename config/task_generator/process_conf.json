@@ -215,10 +215,7 @@
       "data_resolution": "PT1H",
       "tags": [],
       "properties": {
-        "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
-        "excluded": [],
-        "local_import": ["LITGRID"],
+        "merge_type": "CGM",
         "time_horizon": "2D"
       }
     }
