@@ -36,9 +36,9 @@ TIMESTAMP_KEYWORD = 'timestamp_utc'
 MERGE_TYPE_KEYWORD = 'merge_type'
 TIME_HORIZON_KEYWORD = 'time_horizon'
 
-SAVE_MERGED_MODEL_TO_LOCAL_STORAGE = True
+SAVE_MERGED_MODEL_TO_LOCAL_STORAGE = False
 PUBLISH_MERGED_MODEL_TO_MINIO = True
-PUBLISH_MERGED_MODEL_TO_OPDM = False
+PUBLISH_MERGED_MODEL_TO_OPDM = True
 PUBLISH_METADATA_TO_ELASTIC = False
 
 failed_cases_collector = []
@@ -314,19 +314,19 @@ class HandlerMergeModels:
             cgm_files = cgm_compose.cgm
             folder_name = cgm_compose.get_folder_name()
             # And send them out
-            if self.send_to_opdm or not running_in_local_machine():
+            if self.send_to_opdm:
                 publish_merged_model_to_opdm(cgm_files=cgm_files)
-            if self.send_to_minio or not running_in_local_machine():
+            if self.send_to_minio:
                 save_merged_model_to_minio(cgm_files=cgm_files,
                                            minio_bucket=self.minio_bucket,
                                            folder_in_bucket=self.folder_in_bucket)
             # For the future reference, store merge data to elastic
-            if self.send_to_elastic and False:
+            if self.send_to_elastic:
                 consolidated_metadata = cgm_compose.get_consolidated_metadata()
                 publish_metadata_to_elastic(metadata=consolidated_metadata,
                                             cgm_index=self.cgm_index,
                                             elastic_server=self.elastic_server)
-            if self.save_to_local_storage or running_in_local_machine():
+            if self.save_to_local_storage:
                 save_merged_model_to_local_storage(cgm_files=cgm_files,
                                                    cgm_folder_name=folder_name)
             if running_in_local_machine():
@@ -345,10 +345,10 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    testing_time_horizon = '1D'
-    testing_merging_type = 'RMM'
-    start_date = parse_datetime("2024-04-10T00:30:00+00:00")
-    end_date = parse_datetime("2024-04-11T00:00:00+00:00")
+    testing_time_horizon = 'ID'
+    testing_merging_type = 'CGM'
+    start_date = parse_datetime("2024-04-11T00:30:00+00:00")
+    end_date = parse_datetime("2024-04-12T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds
@@ -393,7 +393,10 @@ if __name__ == "__main__":
                 }
         }
 
-        message_handlers = [HandlerGetModels(), HandlerMergeModels()]
+        message_handlers = [HandlerGetModels(),
+                            HandlerMergeModels(publish_to_opdm=False,
+                                               publish_to_minio=False,
+                                               save_to_local_storage=True)]
         body = (example_input_from_rabbit,)
         properties = {}
         for message_handler in message_handlers:

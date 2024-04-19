@@ -681,6 +681,28 @@ def get_version_number(scenario_date: str,
     return version_number
 
 
+def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_past_scenario_dates: bool = False):
+    """
+    Taken as is from previous code
+    :param time_horizon: time_horizon of the merged model
+    :param scenario_date: scenario date of the merged model
+    :param skip_past_scenario_dates: either to skip past intra day scenarios
+    :return updated time horizon value
+    """
+    if time_horizon == "ID":
+        utc_now = datetime.datetime.now(datetime.timezone.utc)
+        parsed_date = parse_datetime(scenario_date)
+        time_delta = parsed_date.replace(tzinfo=None) - utc_now.replace(tzinfo=None)
+        if skip_past_scenario_dates and utc_now > parsed_date.replace(tzinfo=datetime.timezone.utc):
+            raise IntraDayPastScenarioDateException
+        time_horizon = f"{int(time_delta.seconds / 3600) + 1 :02d}"
+    return time_horizon
+
+
+class IntraDayPastScenarioDateException(Exception):
+    pass
+
+
 class CgmModelComposer:
     """
     Class for gathering the data and running the merge function (copy from merge.py)
@@ -780,8 +802,9 @@ class CgmModelComposer:
         """
         Gets base for opdm object meta
         """
-        if self._opdm_object_meta is None and self.merged_model is not None:
+        if self._opdm_object_meta is None:
             sv_id = self.merged_model[NETWORK_META_KEYWORD]['id'].split("uuid:")[-1]
+            self.time_horizon = get_time_horizon_for_intra_day(self.time_horizon, self.scenario_date)
             self._opdm_object_meta = {'pmd:fullModel_ID': sv_id,
                                       'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
                                       'pmd:timeHorizon': self.time_horizon,
@@ -1095,8 +1118,6 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_BUCKET,
             file_name_exploded = get_metadata_from_filename(file_name)
             time_horizon = time_horizon or file_name_exploded.get("Model.processType", '')
             # TODO Keep intra day merged model in one folder?
-            if time_horizon not in ['1D', '2D']:
-                time_horizon = 'ID'
             file_scenario_datetime = scenario_datetime or file_name_exploded.get("Model.scenarioTime", None)
             if file_scenario_datetime:
                 file_scenario_datetime = parse_datetime(file_scenario_datetime)
@@ -1192,5 +1213,5 @@ if __name__ == '__main__':
     cgm = cgm_input.compose_cgm()
     test_folder_name = cgm_input.get_folder_name()
     save_merged_model_to_local_storage(cgm_files=cgm, cgm_folder_name=test_folder_name)
-    save_merged_model_to_minio(cgm_files=cgm)
-    publish_merged_model_to_opdm(cgm_files=cgm)
+    # save_merged_model_to_minio(cgm_files=cgm)
+    # publish_merged_model_to_opdm(cgm_files=cgm)
