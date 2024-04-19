@@ -151,7 +151,7 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
     # Pop out pypowsybl network object
-    model_data.pop('network')
+    # model_data.pop('network')
 
     # Send validation data to Elastic
     try:
@@ -160,6 +160,34 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
         logger.error(f"Validation report sending to Elastic failed: {error}")
 
     return model_data
+
+
+def validate_models(available_models: list = None, latest_boundary: list = None):
+    """
+    Validates the raw output from the opdm
+    :param available_models: list of igm models
+    :param latest_boundary: dictionary containing the boundary data
+    :return list of validated models
+    """
+    valid_models = []
+    invalid_models = []
+    # Validate models
+    if not available_models or not latest_boundary:
+        logger.error(f"Missing input data")
+        return valid_models
+    for model in available_models:
+
+        try:
+            response = validate_model([model, latest_boundary])
+            model[VALIDATION_STATUS_KEYWORD] = response
+            if response[VALID_KEYWORD]:
+                valid_models.append(model)
+            else:
+                invalid_models.append(model)
+        except:
+            invalid_models.append(model)
+            logger.error("Validation failed")
+    return valid_models
 
 
 """-----------------CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE-----------------------------------------------"""
@@ -925,7 +953,6 @@ if __name__ == "__main__":
         #                                                        )
 
     validated_models = []
-
     # Validate models
     for model in available_models:
         tso = model['pmd:TSO']
@@ -941,10 +968,9 @@ if __name__ == "__main__":
             # Note that this switch is governed by report_on_command in PyPowsyblLogGatherer initialization
             pypowsybl_log_gatherer.trigger_to_report_externally(log_post_trigger)
             validated_models.append(model)
-
         except Exception as error:
             validated_models.append(model)
-            logger.error("Validation failed", error)
+            logger.error(f"For {model.get('pmd:TSO')} validation failed", error)
     pypowsybl_log_gatherer.stop_working()
     # Print validation statuses
     [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'),
@@ -961,3 +987,4 @@ if __name__ == "__main__":
     # {'tso': 'SEPS', 'valid': None, 'duration': None}
     # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
     # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
+

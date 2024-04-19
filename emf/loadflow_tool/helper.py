@@ -180,12 +180,9 @@ def opdmprofile_to_bytes(opdm_profile):
 
 
 def load_opdm_data(opdm_objects, profile=None):
-    try:
-        if profile:
-            return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
-        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
-    except Exception as ex:
-        logger.error(f"Got loading exception {ex}")
+    if profile:
+        return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
+    return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
 
 
 def filename_from_metadata(metadata):
@@ -356,16 +353,17 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
         profiles = "SV,SSH,TP,EQ"
 
     file_base_name = filename_from_metadata(opdm_object_meta).split(".xml")[0]
-
-    bytes_object = network.save_to_binary_buffer(
-        format="CGMES",
-        parameters={
-            "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
-            "iidm.export.cgmes.base-name": file_base_name,
-            "iidm.export.cgmes.profiles": profiles,
-            "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
-        })
-
-    bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
-
-    return bytes_object
+    try:
+        bytes_object = network.save_to_binary_buffer(
+            format="CGMES",
+            parameters={
+                "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
+                "iidm.export.cgmes.base-name": file_base_name,
+                "iidm.export.cgmes.profiles": profiles,
+                "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
+            })
+        bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
+        return bytes_object
+    except pypowsybl._pypowsybl.PyPowsyblError as p_error:
+        logger.error(f"Pypowsybl error on export: {p_error}")
+        raise Exception(p_error)
