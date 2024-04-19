@@ -16,17 +16,17 @@
       "valid_to": "",
       "gate_open": "PT1H",
       "gate_close": "PT45M",
-      "run_at": "05 23 * * *",
+      "run_at": "01 00 * * *",
       "time_frame": "H-8",
       "data_timestamps": "30 * * * *",
       "data_resolution": "PT1H",
       "tags": [],
       "properties": {
-        "merge_type": "CGM",
+        "merge_type": "EU",
         "time_horizon": "ID"
       }
     },
-        {
+    {
       "@context": "https://example.com/schemas/run.jsonld",
       "@id": "https://example.com/runs/IntraDayCGM/2",
       "@type": "Run",
@@ -35,17 +35,17 @@
       "valid_to": "",
       "gate_open": "PT1H",
       "gate_close": "PT45M",
-      "run_at": "05 07 * * *",
+      "run_at": "00 08 * * *",
       "time_frame": "H-8",
       "data_timestamps": "30 * * * *",
       "data_resolution": "PT1H",
       "tags": [],
       "properties": {
-        "merge_type": "CGM",
+        "merge_type": "EU",
         "time_horizon": "ID"
       }
     },
-        {
+    {
       "@context": "https://example.com/schemas/run.jsonld",
       "@id": "https://example.com/runs/IntraDayCGM/3",
       "@type": "Run",
@@ -54,13 +54,13 @@
       "valid_to": "",
       "gate_open": "PT1H",
       "gate_close": "PT45M",
-      "run_at": "05 15 * * *",
+      "run_at": "00 16 * * *",
       "time_frame": "H-8",
       "data_timestamps": "30 * * * *",
       "data_resolution": "PT1H",
       "tags": [],
       "properties": {
-        "merge_type": "CGM",
+        "merge_type": "EU",
         "time_horizon": "ID"
       }
     },
@@ -73,12 +73,13 @@
       "valid_to": "",
       "gate_open": "PT6H",
       "gate_close": "PT5H",
-      "run_at": "50 18 * * *",
+      "run_at": "05 18 * * *",
       "time_frame": "D-1",
       "data_timestamps": "30 * * * *",
       "data_resolution": "PT1H",
+      "tags": [],
       "properties": {
-        "merge_type": "CGM",
+        "merge_type": "EU",
         "time_horizon": "1D"
       }
     },
@@ -91,12 +92,123 @@
       "valid_to": "",
       "gate_open": "P1DT5H",
       "gate_close": "P1DT4H",
-      "run_at": "50 19 * * *",
+      "run_at": "05 19 * * *",
       "time_frame": "D-2",
       "data_timestamps": "30 * * * *",
       "data_resolution": "PT1H",
+      "tags": [],
       "properties": {
-        "merge_type": "CGM",
+        "merge_type": "EU",
+        "time_horizon": "2D"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM/1",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "00 23 * * *",
+      "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "BA",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
+        "local_import": ["LITGRID"],
+        "time_horizon": "ID"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM/2",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "00 07 * * *",
+      "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "BA",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
+        "local_import": ["LITGRID"],
+        "time_horizon": "ID"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/IntraDayCGM/3",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT1H",
+      "gate_close": "PT45M",
+      "run_at": "00 15 * * *",
+      "time_frame": "H-8",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "BA",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
+        "local_import": ["LITGRID"],
+        "time_horizon": "ID"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/DayAheadCGM",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "PT6H",
+      "gate_close": "PT5H",
+      "run_at": "00 19 * * *",
+      "time_frame": "D-1",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "BA",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
+        "local_import": ["LITGRID"],
+        "time_horizon": "1D"
+      }
+    },
+    {
+      "@context": "https://example.com/schemas/run.jsonld",
+      "@id": "https://example.com/runs/TwoDaysAheadCGM",
+      "@type": "Run",
+      "process_id": "https://example.com/processes/CGM_CREATION",
+      "valid_from": "",
+      "valid_to": "",
+      "gate_open": "P1DT5H",
+      "gate_close": "P1DT4H",
+      "run_at": "00 20 * * *",
+      "time_frame": "D-2",
+      "data_timestamps": "30 * * * *",
+      "data_resolution": "PT1H",
+      "tags": [],
+      "properties": {
+        "merge_type": "BA",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG", "50Hertz"],
+        "local_import": ["LITGRID"],
         "time_horizon": "2D"
       }
     }
