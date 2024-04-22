@@ -15,6 +15,12 @@ parse_app_properties(globals(), config.paths.xslt_service.xslt)
 rabbit_service = rabbit.BlockingClient()
 
 
+def run_service():
+
+    logger.info(f"Shoveling from queue '{RMQ_QUEUE}' to exchange '{RMQ_EXCHANGE}'")
+    rabbit_service.shovel(RMQ_QUEUE, RMQ_EXCHANGE, do_conversion)
+
+
 def do_conversion(channel, method, properties, body: str):
 
     message_dict = json.loads(body)
@@ -23,7 +29,7 @@ def do_conversion(channel, method, properties, body: str):
     if 'XSD' in message_dict.keys():
         is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
     else:
-        logger.warning("XSD file not found in message, report was not validated")
+        # logger.info("XSD file not found in message, report was not validated")
         is_valid = None
 
     properties.headers = {"file-type": "XML",
@@ -32,12 +38,6 @@ def do_conversion(channel, method, properties, body: str):
                           }
 
     return channel, method, properties, body
-
-
-def run_service():
-
-    logger.info(f"Shoveling from queue '{RMQ_QUEUE}' to exchange '{RMQ_EXCHANGE}'")
-    rabbit_service.shovel(RMQ_QUEUE, RMQ_EXCHANGE, do_conversion)
 
 
 def xslt30_convert(source_file, stylesheet_file, output_file=None):
@@ -82,17 +82,16 @@ def validate_xml(input_xml, schema_xml):
     is_valid = schema.validate(document)
     for error in schema.error_log:
         logger.error(error)
-    # if is_valid:
-    #     logger.info(f"XML file is valid")
-    # if not is_valid:
-    #     logger.error(f"XML file is invalid")
+    if is_valid:
+        logger.info(f"XML file is valid")
+    if not is_valid:
+        logger.error(f"XML file is not valid")
 
     return is_valid
 
 
 if __name__ == '__main__':
     # Testing
-
     logging.basicConfig(stream=sys.stdout,
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
@@ -104,7 +103,7 @@ if __name__ == '__main__':
     with open('QAR_v2.6.1.xsd', 'rb') as file:
         xsd_bytes = file.read()
 
-    data = {"XML": xml_bytes.decode(),"XSL": xsl_bytes.decode(), "XSD": xsd_bytes.decode()}
+    data = {"XML": xml_bytes.decode(), "XSL": xsl_bytes.decode(),}#"XSD": xsd_bytes.decode()}
     message_json = json.dumps(data)
 
     rabbit_service.publish(message_json, 'emfos.xslt')
@@ -113,4 +112,4 @@ if __name__ == '__main__':
 
     run_service()
 
-    print('Script finished')
+    print('Test finished')
