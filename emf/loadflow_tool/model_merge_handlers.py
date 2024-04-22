@@ -15,9 +15,8 @@ from emf.common.logging.custom_logger import ElkLoggingHandler
 from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, get_local_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
                                             publish_merged_model_to_opdm, save_merged_model_to_minio,
-                                            publish_metadata_to_elastic, DEFAULT_MERGE_TYPES, AREA_KEYWORD,
-                                            DEFAULT_AREA, INCLUDED_TSO_KEYWORD, DownloadModels, EXCLUDED_TSO_KEYWORD,
-                                            get_version_number)
+                                            publish_metadata_to_elastic, DEFAULT_AREA,
+                                            DownloadModels, get_version_number)
 from emf.task_generator.time_helper import parse_duration
 
 logger = logging.getLogger(__name__)
@@ -29,12 +28,14 @@ NUMBER_OF_CGM_TRIES = 3
 NUMBER_OF_CGM_TRIES_KEYWORD = 'task_retry_count'
 TASK_TIMEOUT = 'PT5M'
 TASK_TIMEOUT_KEYWORD = 'task_timeout'
-SLEEP_BETWEEN_TRIES = 'PT1M'
+SLEEP_BETWEEN_TRIES = 'PT5S'
 
 TASK_PROPERTIES_KEYWORD = 'task_properties'
 TIMESTAMP_KEYWORD = 'timestamp_utc'
 MERGE_TYPE_KEYWORD = 'merge_type'
 TIME_HORIZON_KEYWORD = 'time_horizon'
+
+USE_FALLBACK_MERGE = True
 
 SAVE_MERGED_MODEL_TO_LOCAL_STORAGE = False
 PUBLISH_MERGED_MODEL_TO_MINIO = True
@@ -43,6 +44,22 @@ PUBLISH_METADATA_TO_ELASTIC = False
 
 failed_cases_collector = []
 succeeded_cases_collector = []
+
+AREA_KEYWORD = 'area'
+INCLUDED_TSO_KEYWORD = 'included'
+EXCLUDED_TSO_KEYWORD = 'excluded'
+IMPORT_TSO_LOCALLY_KEYWORD = 'local_import'
+DEFAULT_MERGE_TYPES = {'CGM': {AREA_KEYWORD: 'EU',
+                               INCLUDED_TSO_KEYWORD: [],
+                               EXCLUDED_TSO_KEYWORD: ['APG'],
+                               IMPORT_TSO_LOCALLY_KEYWORD: []
+                               },
+                       'RMM': {AREA_KEYWORD: 'BA',
+                               INCLUDED_TSO_KEYWORD: ['ELERING', 'AST', 'LITGRID', 'PSE'],
+                               EXCLUDED_TSO_KEYWORD: [],
+                               IMPORT_TSO_LOCALLY_KEYWORD: ['LITGRID']
+                               }
+                       }
 
 
 def running_in_local_machine():
@@ -147,7 +164,8 @@ class HandlerGetModels:
                  default_area: str = DEFAULT_AREA,
                  cgm_minio_bucket: str = EMF_OS_MINIO_BUCKET,
                  cgm_minio_prefix: str = EMF_OS_MINIO_FOLDER,
-                 merge_types: str |dict = MERGE_TYPES,
+                 merge_types: str | dict = MERGE_TYPES,
+                 use_fallback_merge: bool = USE_FALLBACK_MERGE,
                  merging_entity: str = MERGING_ENTITY,
                  sleep_between_tries: str = SLEEP_BETWEEN_TRIES,
                  elk_index_version_number: str = ELK_VERSION_INDEX):
@@ -158,6 +176,7 @@ class HandlerGetModels:
         :param cgm_minio_bucket: bucket where combined models are stored
         :param cgm_minio_prefix: prefix of models
         :param merge_types: the default dict consisting areas, included tsos and excluded tsos
+        :param use_fallback_merge: use merge types specified in properties section
         :param merging_entity: the name of the merging entity
         :param sleep_between_tries: sleep between igm requests if failed
         :param elk_index_version_number: elastic index from where look version number
@@ -170,12 +189,23 @@ class HandlerGetModels:
             merge_types = merge_types.replace("'", "\"")
             merge_types = json.loads(merge_types)
         self.merge_types = merge_types
+        self.use_fallback_merge = use_fallback_merge
         self.merging_entity = merging_entity
         self.cgm_minio_bucket = cgm_minio_bucket
         self.cgm_minio_prefix = cgm_minio_prefix
-        self.sleep_between_tries = parse_duration(sleep_between_tries)
+        self.sleep_between_tries = 0
+        self.set_sleep_between_tries(input_value=sleep_between_tries)
         self.elk_index_for_version_number = elk_index_version_number
         self.default_area = default_area
+
+    def set_sleep_between_tries(self, input_value: str | int):
+        """
+        Sets time to sleep between tries
+        :param input_value: time interval value
+        """
+        if isinstance(input_value, str):
+            input_value = parse_duration(input_value).total_seconds()
+        self.sleep_between_tries = input_value
 
     def handle(self, *args, **kwargs):
         """
@@ -197,16 +227,26 @@ class HandlerGetModels:
 
             if TASK_PROPERTIES_KEYWORD in input_data and isinstance(input_data[TASK_PROPERTIES_KEYWORD], dict):
                 # Unpack the properties section
-                scenario_date = input_data[TASK_PROPERTIES_KEYWORD].get(TIMESTAMP_KEYWORD)
-                time_horizon = input_data[TASK_PROPERTIES_KEYWORD].get(TIME_HORIZON_KEYWORD)
-                merge_type = input_data[TASK_PROPERTIES_KEYWORD].get(MERGE_TYPE_KEYWORD)
-                # Get some models, allow only max tries
+                task_properties_data = input_data[TASK_PROPERTIES_KEYWORD]
+                if not isinstance(task_properties_data, dict):
+                    handle_not_received_case("Cannot parse the payload in the context")
+                scenario_date = task_properties_data.get(TIMESTAMP_KEYWORD)
+                time_horizon = task_properties_data.get(TIME_HORIZON_KEYWORD)
+                # Get area
+                area = task_properties_data.get(MERGE_TYPE_KEYWORD)
+                if not area:
+                    handle_not_received_case(f"Merging area not defined")
+                # Extract tso data     
+                included_tsos = task_properties_data.get(INCLUDED_TSO_KEYWORD, [])
+                excluded_tsos = task_properties_data.get(EXCLUDED_TSO_KEYWORD, [])
+                local_import_tsos = task_properties_data.get(IMPORT_TSO_LOCALLY_KEYWORD, [])
+                if self.use_fallback_merge:
+                    included_tsos = included_tsos or self.merge_types.get(area, {}).get(INCLUDED_TSO_KEYWORD, [])
+                    excluded_tsos = excluded_tsos or self.merge_types.get(area, {}).get(EXCLUDED_TSO_KEYWORD, [])
+                    local_import_tsos = (local_import_tsos or 
+                                         self.merge_types.get(area, {}).get(IMPORT_TSO_LOCALLY_KEYWORD, []))
                 get_igms_try = 1
                 available_models, latest_boundary = None, None
-                # Extract tso and area data
-                area = self.merge_types.get(merge_type, {}).get(AREA_KEYWORD, self.default_area)
-                included_tsos = self.merge_types.get(merge_type, {}).get(INCLUDED_TSO_KEYWORD, [])
-                excluded_tsos = self.merge_types.get(merge_type, {}).get(EXCLUDED_TSO_KEYWORD, [])
                 while get_igms_try <= number_of_tries:
                     if running_in_local_machine() and manual_testing:
                         available_models, latest_boundary = get_local_models(time_horizon=time_horizon,
@@ -218,7 +258,8 @@ class HandlerGetModels:
                                                                        scenario_date=scenario_date,
                                                                        download_policy=DownloadModels.MINIO,
                                                                        included_tsos=included_tsos,
-                                                                       excluded_tsos=excluded_tsos)
+                                                                       excluded_tsos=excluded_tsos,
+                                                                       locally_imported_tsos=local_import_tsos)
                     available_models = [model for model in available_models
                                         if model.get('pmd:TSO') not in ['APG', 'SEPS', '50Hertz']]
                     if available_models and latest_boundary:
@@ -345,8 +386,11 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    testing_time_horizon = 'ID'
-    testing_merging_type = 'CGM'
+    testing_time_horizon = '1D'
+    testing_merging_type = 'BA'
+    testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
+    testing_excluded_tsos = ['APG', '50Hertz']
+    testing_local_import = ['LITGRID']
     start_date = parse_datetime("2024-04-11T00:30:00+00:00")
     end_date = parse_datetime("2024-04-12T00:00:00+00:00")
 
@@ -389,7 +433,10 @@ if __name__ == "__main__":
                 {
                     "timestamp_utc": testing_scenario_date,
                     "merge_type": testing_merging_type,
-                    "time_horizon": testing_time_horizon
+                    "included": testing_included_tsos,
+                    "excluded": testing_excluded_tsos,
+                    "local_import": testing_local_import,
+                    "time_horizon": testing_time_horizon,
                 }
         }
 

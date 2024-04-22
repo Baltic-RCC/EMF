@@ -1,8 +1,10 @@
-import math
 from datetime import timedelta
 from enum import Enum
+from io import BytesIO
+from zipfile import ZipFile
 
 import pypowsybl
+import pytz
 import zeep.exceptions
 
 import config
@@ -16,7 +18,8 @@ from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_
 from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError,
                                          parse_boundary_message_type_profile, OPDE_COMPONENT_KEYWORD,
                                          MODEL_MESSAGE_TYPE,
-                                         OPDM_PROFILE_KEYWORD, DATA_KEYWORD, validate_models)
+                                         OPDM_PROFILE_KEYWORD, DATA_KEYWORD, validate_models,
+                                         get_one_set_of_igms_from_local_storage)
 import logging
 import json
 from emf.loadflow_tool import loadflow_settings
@@ -120,15 +123,6 @@ RUN_ID_KEYWORD = 'run_id'
 JOB_ID_KEYWORD = 'job_id'
 
 FULL_PATH_KEYWORD = 'full_path'
-AREA_KEYWORD = 'AREA'
-INCLUDED_TSO_KEYWORD = 'INCLUDED'
-EXCLUDED_TSO_KEYWORD = 'EXCLUDED'
-DEFAULT_MERGE_TYPES = {'CGM': {AREA_KEYWORD: 'EU',
-                               INCLUDED_TSO_KEYWORD: [],
-                               EXCLUDED_TSO_KEYWORD: ['APG']},
-                       'RMM': {AREA_KEYWORD: 'BA',
-                               INCLUDED_TSO_KEYWORD: ['ELERING', 'AST', 'LITGRID', 'PSE'],
-                               EXCLUDED_TSO_KEYWORD: []}}
 
 LOCAL_STORAGE_LOCATION = './merged_examples/'
 
@@ -267,6 +261,7 @@ def get_models(time_horizon: str = TIME_HORIZON,
                scenario_date: str = SCENARIO_DATE,
                included_tsos: list | str = None,
                excluded_tsos: list | str = None,
+               locally_imported_tsos: list | str = None,
                download_policy: DownloadModels = DownloadModels.OPDM_AND_MINIO,
                model_retriever_pipeline: bool = False,
                opdm_client: OPDM = None):
@@ -274,24 +269,35 @@ def get_models(time_horizon: str = TIME_HORIZON,
     Gets models from opdm and/or minio
     NB! Priority is given to Minio!
     Workflow:
-    1) Get models from opdm if selected
-    2) Get models from minio if selected or opdm failed
-    3) If requested from both, take data from minio and extend it from opdm
-    4) By default get boundary from opdm
-    5) Fallback: get boundary from minio
+    1) Get models from local storage (if given)
+    2) Get models from opdm if selected
+    3) Get models from minio if selected or opdm failed
+    4) If requested from both, take data from minio and extend it from opdm
+    5) Merge 4 with 1, that one model per one tso
+    6) By default get boundary from opdm
+    7) Fallback: get boundary from minio
     :param time_horizon: time horizon of the igms
     :param scenario_date: the date of the scenario for which the igm was created
     :param included_tsos: list or string of tso names, that should be included
     :param excluded_tsos: list or string of tso names, that should be excluded
+    :param locally_imported_tsos: list or string of tso names, that should be loaded locally
     :param download_policy: from where to download models
     :param model_retriever_pipeline
     :param opdm_client: client for the opdm
     """
+    igm_models = []
     opdm_models = None
     minio_models = None
     # 1 Get boundary data
     boundary_data = get_latest_boundary(opdm_client=opdm_client, download_policy=download_policy)
-    # 1 if opdm is selected, try to download from there
+    # 2 if there are some tsos specified to be locally imported, find them first
+    if locally_imported_tsos:
+        local_models = get_igm_models_from_minio_by_metadata(tsos=locally_imported_tsos,
+                                                             scenario_date=scenario_date,
+                                                             time_horizon=time_horizon)
+        if local_models:
+            igm_models.extend(local_models)
+    # 3 if opdm is selected, try to download from there
     if download_policy == DownloadModels.OPDM or download_policy == DownloadModels.OPDM_AND_MINIO:
         opdm_models = get_models_from_opdm(time_horizon=time_horizon,
                                            scenario_date=scenario_date,
@@ -314,18 +320,20 @@ def get_models(time_horizon: str = TIME_HORIZON,
     if download_policy == DownloadModels.OPDM:
         if model_retriever_pipeline and opdm_models:
             opdm_models = run_model_retriever_pipeline(opdm_models=opdm_models)
-        igm_models = opdm_models or minio_models
+        found_models = opdm_models or minio_models
     elif download_policy == DownloadModels.MINIO:
-        igm_models = minio_models
+        found_models = minio_models
     else:
         # 3. When merge is requested, give priority to minio, update it from opdm
-        igm_models = minio_models
+        found_models = minio_models
         existing_tso_names = [model.get('pmd:TSO') for model in minio_models]
         if opdm_models:
             additional_tso_models = [model for model in opdm_models if model.get('pmd:TSO') not in existing_tso_names]
             if model_retriever_pipeline and additional_tso_models:
                 additional_tso_models = run_model_retriever_pipeline(opdm_models=additional_tso_models)
-            igm_models.extend(additional_tso_models)
+            found_models.extend(additional_tso_models)
+    found_tsos = [model.get('pmd:TSO') for model in igm_models]
+    igm_models.extend([model for model in found_models if not model.get('pmd:TSO') in found_tsos])
     return igm_models, boundary_data
 
 
@@ -523,8 +531,8 @@ def get_filename_dataframe_from_minio(minio_bucket: str,
     return exploded_results
 
 
-def get_boundary_data_from_minio(minio_bucket: str = 'opdm-data',
-                                 sub_folder: str = 'CGMES/ENTSOE/',
+def get_boundary_data_from_minio(minio_bucket: str = EMF_OS_MINIO_OPDM_DATA_BUCKET,
+                                 sub_folder: str = EMF_OS_MINIO_OPDM_DATA_FOLDER,
                                  minio_client: minio.ObjectStorage = None):
     """
     Searches given bucket for boundary data (ENTSOE files) takes the last entries by message types
@@ -553,6 +561,62 @@ def get_boundary_data_from_minio(minio_bucket: str = 'opdm-data',
         opdm_profile_content.pop(FULL_PATH_KEYWORD)
         boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return boundary_value
+
+
+def get_igm_models_from_minio_by_metadata(tsos: list | str,
+                                          time_horizon: str,
+                                          scenario_date: datetime.datetime | str,
+                                          minio_client: minio.ObjectStorage = None,
+                                          minio_bucket: str = EMF_OS_MINIO_BUCKET):
+    """
+    Gets models from minio, Code borrowed from m-karo
+    Note that this is one implementation. Actual possibilities may vary
+    :param minio_client: instance of Minio
+    :param minio_bucket: bucket where to search data
+    :param tsos: list of tsos
+    :param time_horizon: time horizon
+    :param scenario_date: scenario date
+    :return list of models
+    """
+    if isinstance(tsos, str):
+        tsos = [tsos]
+    minio_client = minio_client or minio.ObjectStorage()
+    if isinstance(scenario_date, str):
+        scenario_date = parse_datetime(scenario_date)
+    if scenario_date.tzinfo:
+        scenario_date = scenario_date.astimezone(pytz.utc)
+    else:
+        logger.warning(f"Time zone is not defined for scenario_time variable, localizing as UTC time zone")
+        scenario_date = scenario_date.tz_localize(pytz.utc)
+
+    # Define model search pattern and query/download
+    if time_horizon == 'ID':
+        # takes any integer between 0-32 which can be in network model name
+        model_name_pattern = f"{scenario_date:%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(tsos)})"
+    else:
+        model_name_pattern = f"{scenario_date:%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(tsos)})"
+    external_model_metadata = {'bamessageid': model_name_pattern}
+    external_models = minio_client.query_objects(bucket_name=minio_bucket,
+                                                 prefix='IGM',
+                                                 metadata=external_model_metadata,
+                                                 use_regex=True)
+
+    igm_models = []
+    if external_models:
+        logger.info(f"Number of external models received: {len(external_models)}")
+        for model in external_models:
+            logger.info(f"Retrieving file from Minio storage: {model.object_name}")
+            model_datum = BytesIO(minio_client.download_object(bucket_name=minio_bucket, object_name=model.object_name))
+            model_datum.name = model.object_name
+            # Convert received model to OPDM format, may need some fields
+            model_datum.seek(0)
+            model_datum = ZipFile(model_datum)
+            model_data = [BytesIO(model_datum.read(file_name)) for file_name in model_datum.namelist()]
+            model_data = get_one_set_of_igms_from_local_storage(file_data=model_data)
+            igm_models.append(model_data)
+    else:
+        logger.warning(f"No external models returned from Minio with metadata: {external_model_metadata}")
+    return igm_models
 
 
 def get_version_number_from_elastic(index_name: str = DEFAULT_INDEX_NAME,
@@ -693,13 +757,23 @@ def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_p
         utc_now = datetime.datetime.now(datetime.timezone.utc)
         parsed_date = parse_datetime(scenario_date)
         time_delta = parsed_date.replace(tzinfo=None) - utc_now.replace(tzinfo=None)
-        if skip_past_scenario_dates and utc_now > parsed_date.replace(tzinfo=datetime.timezone.utc):
-            raise IntraDayPastScenarioDateException
+        parsed_date_utc = parsed_date.replace(tzinfo=datetime.timezone.utc)
+        if (skip_past_scenario_dates and
+                (parsed_date_utc.hour + parsed_date_utc.minute / 60) < (utc_now.hour + utc_now.minute / 60)):
+            raise IntraDayPastScenarioDateException(f"Skipping merge, past timestamp for intra day")
         time_horizon = f"{int(time_delta.seconds / 3600) + 1 :02d}"
     return time_horizon
 
 
 class IntraDayPastScenarioDateException(Exception):
+    pass
+
+
+class PyPowsyblError(Exception):
+    pass
+
+
+class NotEnoughInputDataError(Exception):
     pass
 
 
@@ -762,7 +836,10 @@ class CgmModelComposer:
         return ', '.join([model.get('pmd:TSO', '') for model in self.igm_models])
 
     def get_log_message(self):
-        return f"Merge at {self.scenario_date}, time horizon {self.time_horizon}, tsos: {self.get_tso_list()}"
+        return (f"Merge at {self.scenario_date}, "
+                f"time horizon {self.time_horizon}, "
+                f"area {self.area}, "
+                f"tsos: {self.get_tso_list()}")
 
     @property
     def merged_model(self):
@@ -783,7 +860,7 @@ class CgmModelComposer:
                 self.merge_report["LOADFLOW_RESULTS"] = loadflow_result_dict
             except pypowsybl._pypowsybl.PyPowsyblError as p_error:
                 logger.error(f"Error at calculating loadflow: {p_error}")
-                raise Exception(p_error)
+                raise PyPowsyblError(p_error)
         return self._merged_model
 
     @property
@@ -998,6 +1075,10 @@ class CgmModelComposer:
         """
         Composes the cgm
         """
+        if not self.igm_models or not self.boundary_data:
+            raise NotEnoughInputDataError(f"Missing {'igm data' if not self.igm_models else ''} "
+                                          f"{'and' if (not self.igm_models and not self.boundary_data) else ''} "
+                                          f"{'boundary data' if not self.boundary_data else ''}")
         logger.info(f"Merging at {self.scenario_date}, "
                     f"time horizon: {self.time_horizon}, "
                     f"version: {self.version}, "
@@ -1176,16 +1257,17 @@ if __name__ == '__main__':
     # testing_scenario_date = "2024-04-12T21:30:00+00:00"
     # testing_scenario_date = "2024-04-11T21:30:00+00:00"
     # testing_scenario_date = "2024-04-12T03:30:00+00:00"
-    testing_scenario_date = "2024-04-11T11:30:00+00:00"
+    testing_scenario_date = "2024-04-12T14:30:00+00:00"
     testing_area = 'EU'
-    take_data_from_local = False
+    take_data_from_local = True
     testing_merging_entity = MERGING_ENTITY
 
     wanted_tsos = []
-    unwanted_tsos = ['APG', '50Hertz', 'SEPS']
+    unwanted_tsos = []
 
     if take_data_from_local:
-        folder_to_study = 'test_case'
+        # folder_to_study = 'test_case'
+        folder_to_study = 'local_litgrid'
         igm_model_data, latest_boundary_data = get_local_entsoe_files(path_to_directory=folder_to_study,
                                                                       allow_merging_entities=False,
                                                                       igm_files_needed=['EQ'])
@@ -1195,7 +1277,7 @@ if __name__ == '__main__':
                                                           scenario_date=testing_scenario_date,
                                                           included_tsos=wanted_tsos,
                                                           excluded_tsos=unwanted_tsos,
-                                                          download_policy=DownloadModels.OPDM_AND_MINIO)
+                                                          download_policy=DownloadModels.MINIO)
     test_version_number = get_version_number(scenario_date=testing_scenario_date,
                                              time_horizon=testing_time_horizon,
                                              modeling_entity=f"{testing_merging_entity}-{testing_area}")

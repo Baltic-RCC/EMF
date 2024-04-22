@@ -193,7 +193,7 @@ def validate_models(available_models: list = None, latest_boundary: list = None)
 """-----------------CONTENT RELATED TO LOADING DATA FROM LOCAL STORAGE-----------------------------------------------"""
 
 
-def read_in_zip_file(zip_file_path: str, file_types: [] = None) -> {}:
+def read_in_zip_file(zip_file_path: str | BytesIO, file_types: [] = None) -> {}:
     """
     Reads in files from the given zip file
     :param zip_file_path: path to the zip file (relative or absolute)
@@ -309,7 +309,7 @@ def salvage_data_from_file_name(file_name: str):
     return meta_data
 
 
-def load_data(file_name: str, file_types: list = None):
+def load_data(file_name: str | BytesIO, file_types: list = None):
     """
     Loads data from given file.
     :param file_name: file from where to load (with relative or absolute path)
@@ -324,10 +324,10 @@ def load_data(file_name: str, file_types: list = None):
     return data
 
 
-def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None, file_types: [] = None):
+def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, file_types: [] = None):
     """
     Loads igm data from local storage.
-    :param file_names: list of file names
+    :param file_data: list of file names
     :param tso_name: the name of the tso if given
     :param file_types: list of file types
     :return: dictionary that wants to be similar to OPDM profile
@@ -335,13 +335,17 @@ def get_one_set_of_igms_from_local_storage(file_names: [], tso_name: str = None,
     igm_value = {OPDE_COMPONENT_KEYWORD: []}
     if tso_name is not None:
         igm_value[TSO_KEYWORD] = tso_name
-    for file_name in file_names:
-        if (data := load_data(file_name, file_types)) is None:
+    for file_datum in file_data:
+        if (data := load_data(file_datum, file_types)) is None:
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
-            if MODEL_MODELING_ENTITY in meta_for_data[datum] and TSO_KEYWORD not in igm_value:
-                igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY]
+            if TSO_KEYWORD not in igm_value:
+                if MODEL_MODELING_ENTITY in meta_for_data[datum]:
+                    igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY]
+                elif MODEL_PART_REFERENCE in meta_for_data[datum]:
+                    igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_PART_REFERENCE]
+
             opdm_profile_content = meta_for_data[datum]
             # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
             #                                              meta_dict=meta_for_data[datum],
@@ -447,7 +451,7 @@ def get_data_from_files(file_locations: list | str | dict,
                 all_models.append(get_one_set_of_boundaries_from_local_storage(file_names=file_set,
                                                                                file_types=file_keywords))
             else:
-                all_models.append(get_one_set_of_igms_from_local_storage(file_names=file_set,
+                all_models.append(get_one_set_of_igms_from_local_storage(file_data=file_set,
                                                                          tso_name=element,
                                                                          file_types=file_keywords))
     elif isinstance(file_locations, list):
@@ -457,7 +461,7 @@ def get_data_from_files(file_locations: list | str | dict,
                 all_models.append(get_one_set_of_boundaries_from_local_storage(file_names=file_set,
                                                                                file_types=file_keywords))
             else:
-                igm_value = get_one_set_of_igms_from_local_storage(file_names=file_set,
+                igm_value = get_one_set_of_igms_from_local_storage(file_data=file_set,
                                                                    file_types=file_keywords)
                 if TSO_KEYWORD not in igm_value:
                     tso_name = f"{MISSING_TSO_NAME}-{tso_counter}"
@@ -987,4 +991,3 @@ if __name__ == "__main__":
     # {'tso': 'SEPS', 'valid': None, 'duration': None}
     # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
     # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
-
