@@ -11,15 +11,20 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
-from emf.common.integrations.object_storage.object_storage import query_data, get_content
+from emf.common.integrations.object_storage.object_storage import query_data, get_content, query_data_as_is
 from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
                                       NETWORK_KEYWORD, NETWORK_META_KEYWORD, get_metadata_from_filename, attr_to_dict)
 from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError,
                                          parse_boundary_message_type_profile, OPDE_COMPONENT_KEYWORD,
-                                         MODEL_MESSAGE_TYPE,
+                                         MODEL_MESSAGE_TYPE_KEYWORD,
                                          OPDM_PROFILE_KEYWORD, DATA_KEYWORD, validate_models,
-                                         get_one_set_of_igms_from_local_storage)
+                                         get_one_set_of_igms_from_local_storage, PMD_TSO_KEYWORD,
+                                         PMD_SCENARIO_DATE_KEYWORD, OPDE_DEPENDENCIES_KEYWORD, OPDE_DEPENDS_ON_KEYWORD,
+                                         OPDM_OPDM_OBJECT_KEYWORD, PMD_TIME_HORIZON_KEYWORD, PMD_VERSION_NUMBER_KEYWORD,
+                                         MODEL_MODELING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD,
+                                         MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, MODEL_DOMAIN_KEYWORD,
+                                         MODEL_MERGING_ENTITY_KEYWORD)
 import logging
 import json
 from emf.loadflow_tool import loadflow_settings
@@ -99,15 +104,7 @@ NAMESPACE_MAP = {
 RDF_MAP_JSON = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'entsoe_v2.4.15_2014-08-07.json')
 PATTERN_WITHOUT_TIMEZONE = '%Y-%m-%dT%H:%M:%S'
 
-CGM_CREATION_DATE_KEYWORD = "pmd:creationDate"
-CGM_MERGING_ENTITY_KEYWORD = "pmd:mergingEntity"
-CGM_MERGING_ENTITY = "BALTICRSC"
-CGM_VERSION_NUMBER_KEYWORD = "pmd:versionNumber"
-CGM_TIME_HORIZON_KEYWORD = 'pmd:timeHorizon'
-CGM_MERGING_AREA_KEYWORD = 'pmd:mergingArea'
-CGM_VALID_FROM_KEYWORD = 'pmd:validFrom'
-
-DEFAULT_INDEX_NAME = "emfos-logs*"
+INTRA_DAY_TIME_HORIZON = 'ID'
 
 # Variables used for local testing
 TIME_HORIZON = '1D'
@@ -126,8 +123,6 @@ FULL_PATH_KEYWORD = 'full_path'
 
 LOCAL_STORAGE_LOCATION = './merged_examples/'
 
-DEFAULT_TSO = []
-
 
 class DownloadModels(Enum):
     """
@@ -138,10 +133,31 @@ class DownloadModels(Enum):
     OPDM_AND_MINIO = 3
 
 
+class CgmModelType(Enum):
+    BOUNDARY = 1
+    IGM = 2
+
+
+class IntraDayPastScenarioDateException(Exception):
+    pass
+
+
+class PyPowsyblError(Exception):
+    pass
+
+
+class NotEnoughInputDataError(Exception):
+    pass
+
+
+class NoContentFromElasticException(Exception):
+    pass
+
+
 def load_rdf_map(file_name: str = RDF_MAP_JSON):
     """
-    loads rdf map file
-    :param file_name: file from where to load
+    Loads rdf map file
+    :param file_name: from where to load
     :return: rdf map
     """
     with open(file_name, 'r') as file_object:
@@ -197,11 +213,6 @@ def get_local_models(time_horizon: str = TIME_HORIZON,
                                                        download_policy=download_policy,
                                                        opdm_client=opdm_client)
     return available_models, latest_boundary
-
-
-class CgmModelType(Enum):
-    BOUNDARY = 1
-    IGM = 2
 
 
 def run_model_retriever_pipeline(opdm_models: dict | list,
@@ -268,6 +279,7 @@ def get_models(time_horizon: str = TIME_HORIZON,
     """
     Gets models from opdm and/or minio
     NB! Priority is given to Minio!
+    NB! Extend this according to the need and means available
     Workflow:
     1) Get models from local storage (if given)
     2) Get models from opdm if selected
@@ -306,8 +318,8 @@ def get_models(time_horizon: str = TIME_HORIZON,
                                            opdm_client=opdm_client)
         # Validate raw input models
         if not model_retriever_pipeline:
-            opdm_models = validate_models(available_models=opdm_models, latest_boundary=boundary_data)
-    # 2 if minio is selected or opdm failed, download data from there
+            opdm_models = validate_models(igm_models=opdm_models, boundary_data=boundary_data)
+    # 4 if minio is selected or opdm failed, download data from there
     if download_policy == DownloadModels.MINIO or download_policy == DownloadModels.OPDM_AND_MINIO or not opdm_models:
         minio_models = get_models_from_elastic_minio(time_horizon=time_horizon,
                                                      scenario_date=scenario_date,
@@ -324,16 +336,17 @@ def get_models(time_horizon: str = TIME_HORIZON,
     elif download_policy == DownloadModels.MINIO:
         found_models = minio_models
     else:
-        # 3. When merge is requested, give priority to minio, update it from opdm
+        # 5. When merge is requested, give priority to minio, update it from opdm
         found_models = minio_models
-        existing_tso_names = [model.get('pmd:TSO') for model in minio_models]
+        existing_tso_names = [model.get(PMD_TSO_KEYWORD) for model in minio_models]
         if opdm_models:
-            additional_tso_models = [model for model in opdm_models if model.get('pmd:TSO') not in existing_tso_names]
+            additional_tso_models = [model for model in opdm_models
+                                     if model.get(PMD_TSO_KEYWORD) not in existing_tso_names]
             if model_retriever_pipeline and additional_tso_models:
                 additional_tso_models = run_model_retriever_pipeline(opdm_models=additional_tso_models)
             found_models.extend(additional_tso_models)
-    found_tsos = [model.get('pmd:TSO') for model in igm_models]
-    igm_models.extend([model for model in found_models if not model.get('pmd:TSO') in found_tsos])
+    found_tsos = [model.get(PMD_TSO_KEYWORD) for model in igm_models]
+    igm_models.extend([model for model in found_models if not model.get(PMD_TSO_KEYWORD) in found_tsos])
     return igm_models, boundary_data
 
 
@@ -347,10 +360,10 @@ def filter_models_by_tsos(igm_models: list, included_tsos: list | str = None, ex
     """
     if included_tsos:
         included_tsos = [included_tsos] if isinstance(included_tsos, str) else included_tsos
-        igm_models = [model for model in igm_models if model.get('pmd:TSO') in included_tsos]
+        igm_models = [model for model in igm_models if model.get(PMD_TSO_KEYWORD) in included_tsos]
     if excluded_tsos:
         excluded_tsos = [excluded_tsos] if isinstance(excluded_tsos, str) else excluded_tsos
-        igm_models = [model for model in igm_models if not model.get('pmd:TSO') in excluded_tsos]
+        igm_models = [model for model in igm_models if not model.get(PMD_TSO_KEYWORD) in excluded_tsos]
     return igm_models
 
 
@@ -396,18 +409,20 @@ def get_boundary_from_dependencies(igm_models: list):
     """
     # Get all dependencies
     try:
-        dependencies = [model.get('opde:Dependencies', {}).get('opde:DependsOn') for model in igm_models]
+        dependencies = [model.get(OPDE_DEPENDENCIES_KEYWORD, {}).get(OPDE_DEPENDS_ON_KEYWORD) for model in igm_models]
         boundaries = [dependency for dependency in dependencies
-                      if dependency.get('opdm:OPDMObject', {}).get('opde:Object-Type') == 'BDS']
-        latest_date = max([parse_datetime(entry.get('opdm:OPDMObject', {}).get('pmd:scenarioDate'))
+                      if dependency.get(OPDM_OPDM_OBJECT_KEYWORD, {}).get('opde:Object-Type') == 'BDS']
+        latest_date = max([parse_datetime(entry.get(OPDM_OPDM_OBJECT_KEYWORD, {}).get(PMD_SCENARIO_DATE_KEYWORD))
                            for entry in boundaries])
         latest_boundaries = [boundary for boundary in boundaries
                              if
-                             parse_datetime(boundary.get('opdm:OPDMObject', {}).get('pmd:scenarioDate')) == latest_date]
-        if len(latest_boundaries) > 0 and (latest_boundary_value := (latest_boundaries[0]).get('opdm:OPDMObject')):
+                             parse_datetime(boundary.get(OPDM_OPDM_OBJECT_KEYWORD, {}).
+                                            get(PMD_SCENARIO_DATE_KEYWORD)) == latest_date]
+        if (len(latest_boundaries) > 0 and
+                (latest_boundary_value := (latest_boundaries[0]).get(OPDM_OPDM_OBJECT_KEYWORD))):
             latest_boundary_value = get_content(metadata=latest_boundary_value)
-            if all(profile.get('opdm:Profile', {}).get('DATA')
-                   for profile in dict(latest_boundary_value).get('opde:Component', [])):
+            if all(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD)
+                   for profile in dict(latest_boundary_value).get(OPDE_COMPONENT_KEYWORD, [])):
                 return latest_boundary_value
     except ValueError:
         logger.warning(f"Dependencies do not contain any boundary data")
@@ -421,79 +436,66 @@ def get_models_from_elastic_minio(time_horizon: str,
     """
     Asks metadata from elastic, attaches files from minio
     NB! currently only those models are returned which have files in minio
+    Example of include, exclude, match query
+    "query": {"bool": {"must":[
+        {"match": {"pmd:scenarioDate": scenario_date}},
+        {"match": {  "pmd:timeHorizon":time_horizon}},
+        {"match": {"valid":true} },
+        {"bool": {"should": [{"term": {"pmd:TSO.keyword": tso}} for tso in included_tsos]}},
+        {"bool": {"must_not": [{"term": {"pmd:TSO.keyword": tso}} for tso in excluded_tsos]}}]}}
     :param included_tsos: list or string of tso names, if given, only matching models are returned
     :param excluded_tsos: list or string of tso names, if given, matching models will be discarded
     :param time_horizon: the time horizon
     :param scenario_date: the date requested
     :return: list of models
     """
-    query = {'pmd:scenarioDate': scenario_date, 'valid': True}
-
+    query = {PMD_SCENARIO_DATE_KEYWORD: scenario_date, 'valid': True}
     # If time horizon is not ID, query by time horizon
-    if time_horizon != 'ID':
-        query['pmd:timeHorizon'] = time_horizon
-
+    if time_horizon != INTRA_DAY_TIME_HORIZON:
+        query[PMD_TIME_HORIZON_KEYWORD] = time_horizon
     query_response = query_data(metadata_query=query, return_payload=True)
+    # To reduce the overhead query only what is needed
+    # must_elements = [{"match": {key: query.get(key)}} for key in query]
+    # if included_tsos:
+    #     included = {"bool": {"should": [{"term": {f"{PMD_TSO_KEYWORD}.keyword": tso}} for tso in included_tsos]}}
+    #     must_elements.append(included)
+    # if excluded_tsos:
+    #     excluded = {"bool": {"must_not": [{"term": {f"{PMD_TSO_KEYWORD}.keyword": tso}} for tso in excluded_tsos]}}
+    #     must_elements.append(excluded)
+    # final_query = {"bool": {"must": must_elements}}
+    # query_response = query_data_as_is(query=final_query, return_payload=True)
 
     # filter out duds: igms that are missing file(s)
     files_present = [model for model in query_response
-                     if all(field.get('opdm:Profile', {}).get('DATA') for field in model.get('opde:Component', {}))]
+                     if all(field.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD)
+                            for field in model.get(OPDE_COMPONENT_KEYWORD, {}))]
     query_response = files_present
 
     # If time horizon is ID query everything and filter the smallest run ids per tso
     # TODO check if this is valid
-    if time_horizon == 'ID':
+    if time_horizon == INTRA_DAY_TIME_HORIZON:
         logger.warning(f"Selected time horizon {time_horizon}, smallest number of the runs")
         time_horizon = [f"{time_h:02}" for time_h in range(1, 31)]
         query_response = [response for response in query_response if response.get("pmd:timeHorizon") in time_horizon]
-        tsos = set([model.get('pmd:TSO') for model in query_response])
+        tsos = set([model.get(PMD_TSO_KEYWORD) for model in query_response])
         latest_ids = []
         for tso in tsos:
-            smallest_id = sorted([model.get('pmd:timeHorizon')
-                                  for model in query_response if model.get('pmd:TSO') == tso], key=lambda x: int(x))[0]
+            smallest_id = sorted([model.get(PMD_TIME_HORIZON_KEYWORD)
+                                  for model in query_response
+                                  if model.get(PMD_TSO_KEYWORD) == tso],
+                                 key=lambda x: int(x))[0]
             igms_by_id = [model for model in query_response
-                          if model.get('pmd:TSO') == tso and model.get('pmd:timeHorizon') == smallest_id]
+                          if model.get(PMD_TSO_KEYWORD) == tso and model.get(PMD_TIME_HORIZON_KEYWORD) == smallest_id]
             latest_ids.extend(igms_by_id)
         query_response = latest_ids
 
     # Drop duplicates: take the latest igm if there are multiple for the same scenario date and time horizon
-    latest_versions = [sorted([model for model in query_response if model.get('pmd:TSO') == tso],
-                              key=lambda x: int(x.get('pmd:versionNumber')), reverse=True)[0]
-                       for tso in set([model.get('pmd:TSO') for model in query_response])]
+    latest_versions = [sorted([model for model in query_response if model.get(PMD_TSO_KEYWORD) == tso],
+                              key=lambda x: int(x.get(PMD_VERSION_NUMBER_KEYWORD)), reverse=True)[0]
+                       for tso in set([model.get(PMD_TSO_KEYWORD) for model in query_response])]
     query_response = latest_versions
 
     return filter_models_by_tsos(igm_models=query_response, included_tsos=included_tsos, excluded_tsos=excluded_tsos)
-
-
-def get_version_number_from_minio(minio_bucket: str = EMF_OS_MINIO_BUCKET,
-                                  sub_folder: str = EMF_OS_MINIO_FOLDER,
-                                  minio_client: minio.ObjectStorage = None,
-                                  scenario_date: str = f"{CGM_MERGING_ENTITY}-EU",
-                                  modeling_entity: str = None,
-                                  time_horizon: str = None):
-    """
-    Gets file list from minio, explodes it and retrieves the biggest matched version number
-    :param minio_client: if given
-    :param minio_bucket: the name of the bucket
-    :param sub_folder: prefix
-    :param scenario_date: date of the merge
-    :param modeling_entity: name of the merging entity
-    :param time_horizon: the time horizon
-    """
-    new_version_number = 1
-    try:
-        exploded_results = get_filename_dataframe_from_minio(minio_bucket=minio_bucket,
-                                                             minio_client=minio_client,
-                                                             sub_folder=sub_folder)
-        new_version_number = get_largest_version_from_filename_dataframe(exploded_results=exploded_results,
-                                                                         scenario_date=scenario_date,
-                                                                         time_horizon=time_horizon,
-                                                                         modeling_entity=modeling_entity)
-    except (ValueError, KeyError):
-        logger.info(f"No previous entries found, starting with version number {new_version_number:03}")
-    except Exception as ex:
-        logger.warning(f"Got minio error: {ex}, starting with version number {new_version_number:03}")
-    return f"{new_version_number:03}"
 
 
 def get_filename_dataframe_from_minio(minio_bucket: str,
@@ -546,17 +548,17 @@ def get_boundary_data_from_minio(minio_bucket: str = EMF_OS_MINIO_OPDM_DATA_BUCK
     file_list = get_filename_dataframe_from_minio(minio_bucket=minio_bucket,
                                                   sub_folder=sub_folder,
                                                   minio_client=minio_client)
-    boundary_list = file_list[file_list['Model.modelingEntity'] == 'ENTSOE']
-    filtered = boundary_list.loc[boundary_list.groupby('Model.messageType')['Model.scenarioTime'].idxmax()]
+    boundaries = file_list[file_list[MODEL_MODELING_ENTITY_KEYWORD] == 'ENTSOE']
+    filtered = boundaries.loc[boundaries.groupby(MODEL_MESSAGE_TYPE_KEYWORD)[MODEL_SCENARIO_TIME_KEYWORD].idxmax()]
     # Check if input is valid
-    if len(filtered.index) != 2 or sorted(filtered['Model.messageType']) != ['EQBD', 'TPBD']:
+    if len(filtered.index) != 2 or sorted(filtered[MODEL_MESSAGE_TYPE_KEYWORD]) != ['EQBD', 'TPBD']:
         return None
     filtered_elements = filtered.to_dict('records')
     for opdm_profile_content in filtered_elements:
         object_name = opdm_profile_content[FULL_PATH_KEYWORD]
         downloaded_file = minio_client.download_object(bucket_name=minio_bucket, object_name=object_name)
-        opdm_profile_content[MODEL_MESSAGE_TYPE] = parse_boundary_message_type_profile(
-            opdm_profile_content[MODEL_MESSAGE_TYPE])
+        opdm_profile_content[MODEL_MESSAGE_TYPE_KEYWORD] = parse_boundary_message_type_profile(
+            opdm_profile_content[MODEL_MESSAGE_TYPE_KEYWORD])
         opdm_profile_content[DATA_KEYWORD] = downloaded_file
         opdm_profile_content.pop(FULL_PATH_KEYWORD)
         boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
@@ -567,12 +569,17 @@ def get_igm_models_from_minio_by_metadata(tsos: list | str,
                                           time_horizon: str,
                                           scenario_date: datetime.datetime | str,
                                           minio_client: minio.ObjectStorage = None,
-                                          minio_bucket: str = EMF_OS_MINIO_BUCKET):
+                                          minio_bucket: str = EMF_OS_MINIO_LOCAL_IGM_BUCKET,
+                                          minio_folder: str = EMF_OS_MINIO_LOCAL_IGM_FOLDER,
+                                          minio_metadata_field: str = EMF_OS_MINIO_LOCAL_IGM_METADATA_FIELD):
     """
-    Gets models from minio, Code borrowed from m-karo
+    Gets models from minio by filtering the files in given bucket by minio_metadata_field.
+    Code borrowed from m-karo
     Note that this is one implementation. Actual possibilities may vary
     :param minio_client: instance of Minio
     :param minio_bucket: bucket where to search data
+    :param minio_folder: prefix in minio storage
+    :param minio_metadata_field: parameter by which to search
     :param tsos: list of tsos
     :param time_horizon: time horizon
     :param scenario_date: scenario date
@@ -590,14 +597,14 @@ def get_igm_models_from_minio_by_metadata(tsos: list | str,
         scenario_date = scenario_date.tz_localize(pytz.utc)
 
     # Define model search pattern and query/download
-    if time_horizon == 'ID':
+    if time_horizon == INTRA_DAY_TIME_HORIZON:
         # takes any integer between 0-32 which can be in network model name
         model_name_pattern = f"{scenario_date:%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(tsos)})"
     else:
         model_name_pattern = f"{scenario_date:%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(tsos)})"
-    external_model_metadata = {'bamessageid': model_name_pattern}
+    external_model_metadata = {minio_metadata_field: model_name_pattern}
     external_models = minio_client.query_objects(bucket_name=minio_bucket,
-                                                 prefix='IGM',
+                                                 prefix=minio_folder,
                                                  metadata=external_model_metadata,
                                                  use_regex=True)
 
@@ -619,7 +626,7 @@ def get_igm_models_from_minio_by_metadata(tsos: list | str,
     return igm_models
 
 
-def get_version_number_from_elastic(index_name: str = DEFAULT_INDEX_NAME,
+def get_version_number_from_elastic(index_name: str = ELASTIC_LOGS_INDEX,
                                     start_looking: datetime.datetime | str = datetime.datetime.today(),
                                     scenario_date: str = None,
                                     time_horizon: str = None,
@@ -659,7 +666,7 @@ def get_version_number_from_elastic(index_name: str = DEFAULT_INDEX_NAME,
                             map(get_metadata_from_filename).
                             apply(pandas.Series))
         # Filter the results if needed
-        new_version_number = get_largest_version_from_filename_dataframe(exploded_results=exploded_results,
+        new_version_number = get_largest_version_from_filename_dataframe(exploded_data=exploded_results,
                                                                          scenario_date=scenario_date,
                                                                          time_horizon=time_horizon,
                                                                          modeling_entity=modeling_entity)
@@ -671,13 +678,44 @@ def get_version_number_from_elastic(index_name: str = DEFAULT_INDEX_NAME,
         return f"{new_version_number:03}"
 
 
-def get_largest_version_from_filename_dataframe(exploded_results: pandas.DataFrame,
+def get_version_number_from_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
+                                  sub_folder: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
+                                  minio_client: minio.ObjectStorage = None,
+                                  scenario_date: str | datetime.datetime = None,
+                                  modeling_entity: str = MERGING_ENTITY,
+                                  time_horizon: str = None):
+    """
+    Gets file list from minio, explodes it and retrieves the biggest matched version number
+    :param minio_client: if given
+    :param minio_bucket: the name of the bucket
+    :param sub_folder: prefix
+    :param scenario_date: date of the merge
+    :param modeling_entity: name of the merging entity
+    :param time_horizon: the time horizon
+    """
+    new_version_number = 1
+    try:
+        exploded_results = get_filename_dataframe_from_minio(minio_bucket=minio_bucket,
+                                                             minio_client=minio_client,
+                                                             sub_folder=sub_folder)
+        new_version_number = get_largest_version_from_filename_dataframe(exploded_data=exploded_results,
+                                                                         scenario_date=scenario_date,
+                                                                         time_horizon=time_horizon,
+                                                                         modeling_entity=modeling_entity)
+    except (ValueError, KeyError):
+        logger.info(f"No previous entries found, starting with version number {new_version_number:03}")
+    except Exception as ex:
+        logger.warning(f"Got minio error: {ex}, starting with version number {new_version_number:03}")
+    return f"{new_version_number:03}"
+
+
+def get_largest_version_from_filename_dataframe(exploded_data: pandas.DataFrame,
                                                 scenario_date: str = None,
                                                 time_horizon: str = None,
                                                 modeling_entity: str = None):
     """
     Searches largest version number from a dict. Optionally the dict can be filtered beforehand
-    :param exploded_results: the dictionary containing exploded filenames (used get_metadata_from_filename)
+    :param exploded_data: the dictionary containing exploded filenames (used get_metadata_from_filename)
     :param scenario_date: optionally filter filenames by scenario date
     :param time_horizon: optionally filter filenames by time horizon
     :param modeling_entity: optionally filter filenames by checking if modelling entity is in the field
@@ -685,23 +723,19 @@ def get_largest_version_from_filename_dataframe(exploded_results: pandas.DataFra
     """
     try:
         if modeling_entity is not None:
-            exploded_results = exploded_results[exploded_results['Model.modelingEntity'].str.contains(modeling_entity)]
+            exploded_data = exploded_data[exploded_data[MODEL_MODELING_ENTITY_KEYWORD].str.contains(modeling_entity)]
         if scenario_date is not None:
             scenario_date = f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}"
-            exploded_results = exploded_results[exploded_results['Model.scenarioTime'].str.contains(scenario_date)]
+            exploded_data = exploded_data[exploded_data[MODEL_SCENARIO_TIME_KEYWORD].str.contains(scenario_date)]
         if time_horizon is not None:
-            exploded_results = exploded_results[exploded_results['Model.processType'].str.contains(time_horizon)]
+            exploded_data = exploded_data[exploded_data[MODEL_PROCESS_TYPE_KEYWORD].str.contains(time_horizon)]
         # Get the largest version number and increment it by 1
-        new_version_number = max(pandas.to_numeric(exploded_results["Model.version"])) + 1
+        new_version_number = max(pandas.to_numeric(exploded_data[MODEL_VERSION_KEYWORD])) + 1
         logger.info(f"Continuing with version number {new_version_number:03}")
     except KeyError as key_error:
         logger.info(f"{key_error}")
         new_version_number = 1
     return new_version_number
-
-
-class NoContentFromElasticException(Exception):
-    pass
 
 
 def get_version_number(scenario_date: str,
@@ -745,7 +779,7 @@ def get_version_number(scenario_date: str,
     return version_number
 
 
-def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_past_scenario_dates: bool = False):
+def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_past_scenario_dates: bool = True):
     """
     Taken as is from previous code
     :param time_horizon: time_horizon of the merged model
@@ -765,18 +799,6 @@ def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_p
     return time_horizon
 
 
-class IntraDayPastScenarioDateException(Exception):
-    pass
-
-
-class PyPowsyblError(Exception):
-    pass
-
-
-class NotEnoughInputDataError(Exception):
-    pass
-
-
 class CgmModelComposer:
     """
     Class for gathering the data and running the merge function (copy from merge.py)
@@ -789,7 +811,7 @@ class CgmModelComposer:
                  time_horizon: str = TIME_HORIZON,
                  area: str = DEFAULT_AREA,
                  scenario_date: str = SCENARIO_DATE,
-                 merging_entity: str = CGM_MERGING_ENTITY,
+                 merging_entity: str = MERGING_ENTITY,
                  namespace_map=None,
                  rdf_map_loc: str = RDF_MAP_JSON,
                  rabbit_data: dict = None):
@@ -833,7 +855,7 @@ class CgmModelComposer:
         self.rabbit_data = rabbit_data
 
     def get_tso_list(self):
-        return ', '.join([model.get('pmd:TSO', '') for model in self.igm_models])
+        return ', '.join([model.get(PMD_TSO_KEYWORD, '') for model in self.igm_models])
 
     def get_log_message(self):
         return (f"Merge at {self.scenario_date}, "
@@ -1083,7 +1105,7 @@ class CgmModelComposer:
                     f"time horizon: {self.time_horizon}, "
                     f"version: {self.version}, "
                     f"area: {self.area}, "
-                    f"tsos: {', '.join([model.get('pmd:TSO') for model in self.igm_models])}")
+                    f"tsos: {', '.join([model.get(PMD_TSO_KEYWORD) for model in self.igm_models])}")
         self.set_sv_file()
         self.set_ssh_files()
         self.set_cgm()
@@ -1138,7 +1160,7 @@ def publish_merged_model_to_opdm(opdm_client: opdm.OPDM = None,
                                  cgm_files: list = None):
     """
     Sends files to opdm
-    :param opdm_client: opdm client
+    :param opdm_client: client instance
     :param cgm_files: list of files to be sent
     :return tuple of results
     """
@@ -1164,8 +1186,8 @@ def publish_merged_model_to_opdm(opdm_client: opdm.OPDM = None,
     return result
 
 
-def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_BUCKET,
-                               folder_in_bucket: str = EMF_OS_MINIO_FOLDER,
+def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
+                               folder_in_bucket: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
                                minio_client: minio.ObjectStorage = None,
                                time_horizon: str = None,
                                scenario_datetime: str = None,
@@ -1197,20 +1219,20 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_BUCKET,
         for cgm_file in cgm_files:
             file_name = cgm_file.name
             file_name_exploded = get_metadata_from_filename(file_name)
-            time_horizon = time_horizon or file_name_exploded.get("Model.processType", '')
+            time_horizon = time_horizon or file_name_exploded.get(MODEL_PROCESS_TYPE_KEYWORD, '')
             # TODO Keep intra day merged model in one folder?
-            file_scenario_datetime = scenario_datetime or file_name_exploded.get("Model.scenarioTime", None)
+            file_scenario_datetime = scenario_datetime or file_name_exploded.get(MODEL_SCENARIO_TIME_KEYWORD, None)
             if file_scenario_datetime:
                 file_scenario_datetime = parse_datetime(file_scenario_datetime)
-            merging_entity = merging_entity or file_name_exploded.get("Model.mergingEntity", '')
-            area = area or file_name_exploded.get("Model.domain", '')
-            version = version or file_name_exploded.get("Model.version")
+            merging_entity = merging_entity or file_name_exploded.get(MODEL_MERGING_ENTITY_KEYWORD, '')
+            area = area or file_name_exploded.get(MODEL_DOMAIN_KEYWORD, '')
+            version = version or file_name_exploded.get(MODEL_VERSION_KEYWORD)
             scenario_date = ''
             scenario_time = ''
             if file_scenario_datetime:
                 scenario_date = f"{file_scenario_datetime:%Y%m%d}"
                 scenario_time = f"{file_scenario_datetime:%H%M00}"
-            file_type = file_name_exploded.get("Model.messageType")
+            file_type = file_name_exploded.get(MODEL_MESSAGE_TYPE_KEYWORD)
             file_path_elements = [folder_in_bucket, time_horizon, merging_entity, area,
                                   scenario_date, scenario_time, version, file_type, cgm_file.name]
             full_file_name = SEPARATOR_SYMBOL.join(file_path_elements)
@@ -1250,13 +1272,7 @@ if __name__ == '__main__':
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-    # testing_time_horizon = 'ID'
     testing_time_horizon = '1D'
-    # testing_scenario_date = "2024-04-05T08:30:00+00:00"
-    # testing_scenario_date = "2024-04-12T22:30:00+00:00"
-    # testing_scenario_date = "2024-04-12T21:30:00+00:00"
-    # testing_scenario_date = "2024-04-11T21:30:00+00:00"
-    # testing_scenario_date = "2024-04-12T03:30:00+00:00"
     testing_scenario_date = "2024-04-12T14:30:00+00:00"
     testing_area = 'EU'
     take_data_from_local = True
@@ -1266,11 +1282,13 @@ if __name__ == '__main__':
     unwanted_tsos = []
 
     if take_data_from_local:
-        # folder_to_study = 'test_case'
-        folder_to_study = 'local_litgrid'
+        folder_to_study = 'TC3_T1_Conform'
         igm_model_data, latest_boundary_data = get_local_entsoe_files(path_to_directory=folder_to_study,
                                                                       allow_merging_entities=False,
                                                                       igm_files_needed=['EQ'])
+        igm_model_data = filter_models_by_tsos(igm_models=igm_model_data,
+                                               included_tsos=wanted_tsos,
+                                               excluded_tsos=unwanted_tsos)
     else:
 
         igm_model_data, latest_boundary_data = get_models(time_horizon=testing_time_horizon,

@@ -75,6 +75,25 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     return metadata
 
 
+def query_data_as_is(query: dict, index=ELASTIC_QUERY_INDEX, return_payload=False):
+    """
+    Extension of the query_data. Enables to input query as is
+    For testing purposes only: to see whether the model acquisition can be made faster when only selected
+    tsos are queried
+    :param query: elastic query as is
+    :param index: elastic index
+    :param return_payload: return list with updated metadata
+    """
+    response = elastic_service.client.search(index=index, query=query, size='10000')
+    content_list = [content["_source"] for content in response["hits"]["hits"]]
+
+    if return_payload:
+        for num, item in enumerate(content_list):
+            content_list[num] = get_content(item)
+
+    return content_list
+
+
 if __name__ == '__main__':
     import sys
 

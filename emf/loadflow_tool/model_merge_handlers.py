@@ -23,43 +23,32 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.model_merge)
 
-# TODO handle these constants
+# How many times to try to get models
 NUMBER_OF_CGM_TRIES = 3
-NUMBER_OF_CGM_TRIES_KEYWORD = 'task_retry_count'
-TASK_TIMEOUT = 'PT5M'
-TASK_TIMEOUT_KEYWORD = 'task_timeout'
 SLEEP_BETWEEN_TRIES = 'PT5S'
 
+# Rabbit context keywords
 TASK_PROPERTIES_KEYWORD = 'task_properties'
 TIMESTAMP_KEYWORD = 'timestamp_utc'
 MERGE_TYPE_KEYWORD = 'merge_type'
 TIME_HORIZON_KEYWORD = 'time_horizon'
+AREA_KEYWORD = 'area'
+INCLUDED_TSO_KEYWORD = 'included'
+EXCLUDED_TSO_KEYWORD = 'excluded'
+IMPORT_TSO_LOCALLY_KEYWORD = 'local_import'
 
-USE_FALLBACK_MERGE = True
+# Use default merge type values
+USE_FALLBACK_MERGE = False
 
+# Where to save the results
 SAVE_MERGED_MODEL_TO_LOCAL_STORAGE = False
 PUBLISH_MERGED_MODEL_TO_MINIO = True
 PUBLISH_MERGED_MODEL_TO_OPDM = True
 PUBLISH_METADATA_TO_ELASTIC = False
 
+# Testing purposes only
 failed_cases_collector = []
 succeeded_cases_collector = []
-
-AREA_KEYWORD = 'area'
-INCLUDED_TSO_KEYWORD = 'included'
-EXCLUDED_TSO_KEYWORD = 'excluded'
-IMPORT_TSO_LOCALLY_KEYWORD = 'local_import'
-DEFAULT_MERGE_TYPES = {'CGM': {AREA_KEYWORD: 'EU',
-                               INCLUDED_TSO_KEYWORD: [],
-                               EXCLUDED_TSO_KEYWORD: ['APG'],
-                               IMPORT_TSO_LOCALLY_KEYWORD: []
-                               },
-                       'RMM': {AREA_KEYWORD: 'BA',
-                               INCLUDED_TSO_KEYWORD: ['ELERING', 'AST', 'LITGRID', 'PSE'],
-                               EXCLUDED_TSO_KEYWORD: [],
-                               IMPORT_TSO_LOCALLY_KEYWORD: ['LITGRID']
-                               }
-                       }
 
 
 def running_in_local_machine():
@@ -126,16 +115,6 @@ def get_payload(args, keyword: str = MERGE_TYPE_KEYWORD):
     return None
 
 
-def run_sleep_timer(time_value: any = None):
-    """
-    Waits for some given time
-    :param time_value: seconds to wait
-    """
-    if time_value is not None:
-        if isinstance(time_value, float) and time_value > 0:
-            time.sleep(time_value)
-
-
 class UnknownArgumentException(JSONDecodeError):
     pass
 
@@ -162,13 +141,13 @@ class HandlerGetModels:
                  logger_handler: ElkLoggingHandler = None,
                  number_of_igm_tries: int = NUMBER_OF_CGM_TRIES,
                  default_area: str = DEFAULT_AREA,
-                 cgm_minio_bucket: str = EMF_OS_MINIO_BUCKET,
-                 cgm_minio_prefix: str = EMF_OS_MINIO_FOLDER,
+                 cgm_minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
+                 cgm_minio_prefix: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
                  merge_types: str | dict = MERGE_TYPES,
                  use_fallback_merge: bool = USE_FALLBACK_MERGE,
                  merging_entity: str = MERGING_ENTITY,
                  sleep_between_tries: str = SLEEP_BETWEEN_TRIES,
-                 elk_index_version_number: str = ELK_VERSION_INDEX):
+                 elk_index_version_number: str = ELASTIC_LOGS_INDEX):
         """
         :param logger_handler: attach rabbit context to it
         :param number_of_igm_tries: max allowed tries before quitting
@@ -184,7 +163,6 @@ class HandlerGetModels:
         self.number_of_igm_tries = number_of_igm_tries
         self.logger_handler = logger_handler
         self.opdm_service = None
-        merge_types = merge_types or DEFAULT_MERGE_TYPES
         if isinstance(merge_types, str):
             merge_types = merge_types.replace("'", "\"")
             merge_types = json.loads(merge_types)
@@ -236,14 +214,14 @@ class HandlerGetModels:
                 area = task_properties_data.get(MERGE_TYPE_KEYWORD)
                 if not area:
                     handle_not_received_case(f"Merging area not defined")
-                # Extract tso data     
+                # Extract tso data
                 included_tsos = task_properties_data.get(INCLUDED_TSO_KEYWORD, [])
                 excluded_tsos = task_properties_data.get(EXCLUDED_TSO_KEYWORD, [])
                 local_import_tsos = task_properties_data.get(IMPORT_TSO_LOCALLY_KEYWORD, [])
                 if self.use_fallback_merge:
                     included_tsos = included_tsos or self.merge_types.get(area, {}).get(INCLUDED_TSO_KEYWORD, [])
                     excluded_tsos = excluded_tsos or self.merge_types.get(area, {}).get(EXCLUDED_TSO_KEYWORD, [])
-                    local_import_tsos = (local_import_tsos or 
+                    local_import_tsos = (local_import_tsos or
                                          self.merge_types.get(area, {}).get(IMPORT_TSO_LOCALLY_KEYWORD, []))
                 get_igms_try = 1
                 available_models, latest_boundary = None, None
@@ -275,7 +253,7 @@ class HandlerGetModels:
                     get_igms_try += 1
                 # If no luck report to elastic and call it a day
                 if not available_models and not latest_boundary:
-                    handle_not_received_case(f"Get Models: nothing got")
+                    handle_not_received_case(f"Get Models: nothing found")
                 # Get the version number
                 version_number = get_version_number(scenario_date=scenario_date,
                                                     time_horizon=time_horizon,
@@ -297,12 +275,12 @@ class HandlerMergeModels:
     def __init__(self,
                  publish_to_opdm: bool = PUBLISH_MERGED_MODEL_TO_OPDM,
                  publish_to_minio: bool = PUBLISH_MERGED_MODEL_TO_MINIO,
-                 minio_bucket: str = EMF_OS_MINIO_BUCKET,
-                 folder_in_bucket: str = EMF_OS_MINIO_FOLDER,
+                 minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
+                 folder_in_bucket: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
                  save_to_local_storage: bool = SAVE_MERGED_MODEL_TO_LOCAL_STORAGE,
                  publish_to_elastic: bool = PUBLISH_METADATA_TO_ELASTIC,
                  elk_server: str = elastic.ELK_SERVER,
-                 cgm_index: str = ELK_VERSION_INDEX):
+                 cgm_index: str = ELASTIC_LOGS_INDEX):
         """
         Initializes the handler which starts to send out merged models
         :param publish_to_opdm: publish cgm to opdm
@@ -391,8 +369,8 @@ if __name__ == "__main__":
     testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
     testing_excluded_tsos = ['APG', '50Hertz']
     testing_local_import = ['LITGRID']
-    start_date = parse_datetime("2024-04-11T00:30:00+00:00")
-    end_date = parse_datetime("2024-04-12T00:00:00+00:00")
+    start_date = parse_datetime("2024-04-23T00:30:00+00:00")
+    end_date = parse_datetime("2024-04-24T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds

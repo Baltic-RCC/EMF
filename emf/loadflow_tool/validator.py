@@ -32,22 +32,37 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.vali
 
 ENTSOE_FOLDER = './path_to_ENTSOE_zip/TestConfigurations_packageCASv2.0'
 
-TSO_KEYWORD = 'pmd:TSO'
+OPDE_COMPONENT_KEYWORD = 'opde:Component'
+OPDE_DEPENDENCIES_KEYWORD = 'opde:Dependencies'
+OPDE_DEPENDS_ON_KEYWORD = 'opde:DependsOn'
+OPDM_PROFILE_KEYWORD = 'opdm:Profile'
+OPDM_OPDM_OBJECT_KEYWORD = 'opdm:OPDMObject'
+
+PMD_TSO_KEYWORD = 'pmd:TSO'
+PMD_FILENAME_KEYWORD = 'pmd:fileName'
+PMD_CGMES_PROFILE_KEYWORD = 'pmd:cgmesProfile'
+PMD_MODEL_PART_REFERENCE_KEYWORD = 'pmd:modelPartReference'
+PMD_MERGING_ENTITY_KEYWORD = 'pmd:mergingEntity'
+PMD_MERGING_AREA_KEYWORD = 'pmd:mergingArea'
+PMD_SCENARIO_DATE_KEYWORD = 'pmd:scenarioDate'
+PMD_VERSION_NUMBER_KEYWORD = "pmd:versionNumber"
+PMD_TIME_HORIZON_KEYWORD = 'pmd:timeHorizon'
+PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
+
 DATA_KEYWORD = 'DATA'
-FILENAME_KEYWORD = 'pmd:fileName'
-CGMES_PROFILE = 'pmd:cgmesProfile'
-MODEL_PART_REFERENCE = 'pmd:modelPartReference'
-MODEL_MESSAGE_TYPE = 'Model.messageType'
+
+MODEL_MESSAGE_TYPE_KEYWORD = 'Model.messageType'
+MODEL_MODELING_ENTITY_KEYWORD = 'Model.modelingEntity'
+MODEL_MERGING_ENTITY_KEYWORD = 'Model.mergingEntity'
+MODEL_DOMAIN_KEYWORD = 'Model.domain'
+MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'
+MODEL_SCENARIO_TIME_KEYWORD = 'Model.scenarioTime'
+MODEL_PROCESS_TYPE_KEYWORD = 'Model.processType'
+MODEL_VERSION_KEYWORD = 'Model.version'
+
 XML_KEYWORD = '.xml'
 ZIP_KEYWORD = '.zip'
-MODEL_MODELING_ENTITY = 'Model.modelingEntity'
-MODEL_MERGING_ENTITY = 'Model.mergingEntity'
-PMD_MERGING_ENTITY = 'pmd:mergingEntity'
-MODEL_DOMAIN = 'Model.domain'
-PMD_MERGING_AREA = 'pmd:mergingArea'
-MODEL_FOR_ENTITY = 'Model.forEntity'
-OPDE_COMPONENT_KEYWORD = 'opde:Component'
-OPDM_PROFILE_KEYWORD = 'opdm:Profile'
+
 MISSING_TSO_NAME = 'UnknownTSO'
 LONG_FILENAME_SUFFIX = u"\\\\?\\"
 
@@ -63,19 +78,19 @@ BOUNDARY_FILE_TYPE_FIX = {'_EQ_BD_': '_EQBD_', '_TP_BD_': '_TPBD_'}
 SPECIAL_TSO_NAME = ['ENTSO-E']
 
 """Mapper for elements of the file name to igm profile"""
-IGM_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
-                                'Model.scenarioTime': 'pmd:scenarioDate',
-                                'Model.processType': 'pmd:timeHorizon',
-                                MODEL_MODELING_ENTITY: MODEL_PART_REFERENCE,
-                                MODEL_MESSAGE_TYPE: CGMES_PROFILE,
-                                'Model.version': 'pmd:versionNumber'}
+IGM_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
+                                MODEL_SCENARIO_TIME_KEYWORD: PMD_SCENARIO_DATE_KEYWORD,
+                                MODEL_PROCESS_TYPE_KEYWORD: PMD_TIME_HORIZON_KEYWORD,
+                                MODEL_MODELING_ENTITY_KEYWORD: PMD_MODEL_PART_REFERENCE_KEYWORD,
+                                MODEL_MESSAGE_TYPE_KEYWORD: PMD_CGMES_PROFILE_KEYWORD,
+                                MODEL_VERSION_KEYWORD: PMD_VERSION_NUMBER_KEYWORD}
 
 """Mapper for the elements of the file name to boundary profile"""
-BOUNDARY_FILENAME_MAPPING_TO_OPDM = {FILENAME_KEYWORD: FILENAME_KEYWORD,
-                                     'Model.scenarioTime': 'pmd:scenarioDate',
-                                     MODEL_MODELING_ENTITY: MODEL_PART_REFERENCE,
-                                     MODEL_MESSAGE_TYPE: CGMES_PROFILE,
-                                     'Model.version': 'pmd:versionNumber'}
+BOUNDARY_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
+                                     MODEL_SCENARIO_TIME_KEYWORD: PMD_SCENARIO_DATE_KEYWORD,
+                                     MODEL_MODELING_ENTITY_KEYWORD: PMD_MODEL_PART_REFERENCE_KEYWORD,
+                                     MODEL_MESSAGE_TYPE_KEYWORD: PMD_CGMES_PROFILE_KEYWORD,
+                                     MODEL_VERSION_KEYWORD: PMD_VERSION_NUMBER_KEYWORD}
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
 UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
 RECURSION_LIMIT = 2
@@ -156,36 +171,36 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     # Send validation data to Elastic
     try:
         response = elastic.Elastic.send_to_elastic(index=ELK_INDEX, json_message=model_data)
-    except Exception as error:
-        logger.error(f"Validation report sending to Elastic failed: {error}")
+    except Exception as exception_error:
+        logger.error(f"Validation report sending to Elastic failed: {exception_error}")
 
     return model_data
 
 
-def validate_models(available_models: list = None, latest_boundary: list = None):
+def validate_models(igm_models: list = None, boundary_data: list = None):
     """
     Validates the raw output from the opdm
-    :param available_models: list of igm models
-    :param latest_boundary: dictionary containing the boundary data
+    :param igm_models: list of igm models
+    :param boundary_data: dictionary containing the boundary data
     :return list of validated models
     """
     valid_models = []
     invalid_models = []
     # Validate models
-    if not available_models or not latest_boundary:
+    if not igm_models or not boundary_data:
         logger.error(f"Missing input data")
         return valid_models
-    for model in available_models:
+    for igm_model in igm_models:
 
         try:
-            response = validate_model([model, latest_boundary])
-            model[VALIDATION_STATUS_KEYWORD] = response
-            if response[VALID_KEYWORD]:
-                valid_models.append(model)
+            validation_response = validate_model([igm_model, boundary_data])
+            model[VALIDATION_STATUS_KEYWORD] = validation_response
+            if validation_response[VALID_KEYWORD]:
+                valid_models.append(igm_model)
             else:
-                invalid_models.append(model)
+                invalid_models.append(igm_model)
         except:
-            invalid_models.append(model)
+            invalid_models.append(igm_model)
             logger.error("Validation failed")
     return valid_models
 
@@ -284,15 +299,16 @@ def get_meta_from_filename(file_name: str):
         # Revert back cases where there is a '-' in TSO's name like ENTSO-E
         for case in SPECIAL_TSO_NAME:
             if case in fixed_file_name:
-                meta_data[MODEL_PART_REFERENCE] = case
-                if "-".join([meta_data.get(PMD_MERGING_ENTITY,''), meta_data.get(PMD_MERGING_AREA, '')]) == case:
-                    meta_data[PMD_MERGING_ENTITY] = None
-                    meta_data[PMD_MERGING_AREA] = None
+                meta_data[PMD_MODEL_PART_REFERENCE_KEYWORD] = case
+                if "-".join([meta_data.get(PMD_MERGING_ENTITY_KEYWORD, ''),
+                             meta_data.get(PMD_MERGING_AREA_KEYWORD, '')]) == case:
+                    meta_data[PMD_MERGING_ENTITY_KEYWORD] = None
+                    meta_data[PMD_MERGING_AREA_KEYWORD] = None
                 break
     except ValueError as err:
         logger.warning(f"Unable to parse file name: {err}, trying to salvage")
         meta_data = salvage_data_from_file_name(file_name=file_name)
-    meta_data[FILENAME_KEYWORD] = file_name
+    meta_data[PMD_FILENAME_KEYWORD] = file_name
     return meta_data
 
 
@@ -305,7 +321,7 @@ def salvage_data_from_file_name(file_name: str):
     meta_data = {}
     for element in IGM_FILE_TYPES:
         if element in file_name:
-            meta_data[MODEL_MESSAGE_TYPE] = element.replace("_", "")
+            meta_data[MODEL_MESSAGE_TYPE_KEYWORD] = element.replace("_", "")
     return meta_data
 
 
@@ -334,17 +350,17 @@ def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, 
     """
     igm_value = {OPDE_COMPONENT_KEYWORD: []}
     if tso_name is not None:
-        igm_value[TSO_KEYWORD] = tso_name
+        igm_value[PMD_TSO_KEYWORD] = tso_name
     for file_datum in file_data:
         if (data := load_data(file_datum, file_types)) is None:
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
-            if TSO_KEYWORD not in igm_value:
-                if MODEL_MODELING_ENTITY in meta_for_data[datum]:
-                    igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY]
-                elif MODEL_PART_REFERENCE in meta_for_data[datum]:
-                    igm_value[TSO_KEYWORD] = meta_for_data[datum][MODEL_PART_REFERENCE]
+            if PMD_TSO_KEYWORD not in igm_value:
+                if MODEL_MODELING_ENTITY_KEYWORD in meta_for_data[datum]:
+                    igm_value[PMD_TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY_KEYWORD]
+                elif PMD_MODEL_PART_REFERENCE_KEYWORD in meta_for_data[datum]:
+                    igm_value[PMD_TSO_KEYWORD] = meta_for_data[datum][PMD_MODEL_PART_REFERENCE_KEYWORD]
 
             opdm_profile_content = meta_for_data[datum]
             # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
@@ -368,11 +384,12 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
             continue
         meta_for_data = {key: get_meta_from_filename(key) for key in data.keys()}
         for datum in data:
-            if MODEL_MESSAGE_TYPE in meta_for_data:
-                meta_for_data[MODEL_MESSAGE_TYPE] = parse_boundary_message_type_profile(
-                    meta_for_data[MODEL_MESSAGE_TYPE])
-            elif CGMES_PROFILE in meta_for_data:
-                meta_for_data[CGMES_PROFILE] = parse_boundary_message_type_profile(meta_for_data[CGMES_PROFILE])
+            if MODEL_MESSAGE_TYPE_KEYWORD in meta_for_data:
+                meta_for_data[MODEL_MESSAGE_TYPE_KEYWORD] = parse_boundary_message_type_profile(
+                    meta_for_data[MODEL_MESSAGE_TYPE_KEYWORD])
+            elif PMD_CGMES_PROFILE_KEYWORD in meta_for_data:
+                meta_for_data[PMD_CGMES_PROFILE_KEYWORD] = (
+                    parse_boundary_message_type_profile(meta_for_data[PMD_CGMES_PROFILE_KEYWORD]))
             opdm_profile_content = meta_for_data[datum]
             # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
             #                                              meta_dict=meta_for_data[datum],
@@ -463,11 +480,11 @@ def get_data_from_files(file_locations: list | str | dict,
             else:
                 igm_value = get_one_set_of_igms_from_local_storage(file_data=file_set,
                                                                    file_types=file_keywords)
-                if TSO_KEYWORD not in igm_value:
+                if PMD_TSO_KEYWORD not in igm_value:
                     tso_name = f"{MISSING_TSO_NAME}-{tso_counter}"
                     tso_counter += 1
                     logger.warning(f"TSO name not found assigning default name as {tso_name}")
-                    igm_value[TSO_KEYWORD] = tso_name
+                    igm_value[PMD_TSO_KEYWORD] = tso_name
                 all_models.append(igm_value)
     else:
         logger.error(f"Unsupported input")
@@ -769,11 +786,14 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
         file_name_meta = get_meta_from_filename(file_name)
         if root_folder is not None:
             file_name = root_folder + file_name
-        tso_name = file_name_meta.get(MODEL_MODELING_ENTITY) or file_name_meta.get(MODEL_PART_REFERENCE)
-        file_type_name = file_name_meta.get(MODEL_MESSAGE_TYPE) or file_name_meta.get(CGMES_PROFILE)
-        merging_entity = file_name_meta.get(PMD_MERGING_ENTITY, '') or file_name_meta.get(MODEL_MERGING_ENTITY, '')
+        tso_name = (file_name_meta.get(MODEL_MODELING_ENTITY_KEYWORD) or
+                    file_name_meta.get(PMD_MODEL_PART_REFERENCE_KEYWORD))
+        file_type_name = (file_name_meta.get(MODEL_MESSAGE_TYPE_KEYWORD) or
+                          file_name_meta.get(PMD_CGMES_PROFILE_KEYWORD))
+        merging_entity = (file_name_meta.get(PMD_MERGING_ENTITY_KEYWORD, '') or
+                          file_name_meta.get(MODEL_MERGING_ENTITY_KEYWORD, ''))
         merging_entity = None if merging_entity == '' else merging_entity
-        modeling_entity = file_name_meta.get(MODEL_FOR_ENTITY, '')
+        modeling_entity = file_name_meta.get(MODEL_FOR_ENTITY_KEYWORD, '')
         modeling_entity = None if modeling_entity == '' else modeling_entity
         # if needed skip the cases when there is merging entity and part_reference present, didn't like to pypowsybl
         if not allow_merging_entities and tso_name and merging_entity and tso_name not in SPECIAL_TSO_NAME:
@@ -815,7 +835,8 @@ def check_model_completeness(model_data: list | dict, file_types: list | str):
     if isinstance(model_data, dict):
         model_data = [model_data]
     for model_datum in model_data:
-        existing_types = [item[OPDM_PROFILE_KEYWORD][CGMES_PROFILE] for item in model_datum[OPDE_COMPONENT_KEYWORD]]
+        existing_types = [item[OPDM_PROFILE_KEYWORD][PMD_CGMES_PROFILE_KEYWORD]
+                          for item in model_datum[OPDE_COMPONENT_KEYWORD]]
         if all(file_type in existing_types for file_type in file_types):
             checked_models.append(model_datum)
     return checked_models
