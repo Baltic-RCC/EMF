@@ -23,6 +23,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
         "time_horizon": "ID"
       }
     },
@@ -42,6 +44,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
         "time_horizon": "ID"
       }
     },
@@ -61,6 +65,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
         "time_horizon": "ID"
       }
     },
@@ -80,6 +86,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
         "time_horizon": "1D"
       }
     },
@@ -99,6 +107,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "included" : ["ELERING", "AST", "LITGRID", "PSE"],
+        "excluded": ["APG","50Hertz"],
         "time_horizon": "2D"
       }
     },
