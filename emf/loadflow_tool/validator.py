@@ -94,7 +94,7 @@ BOUNDARY_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
 UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
 RECURSION_LIMIT = 2
-USE_ROOT = False        # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
+USE_ROOT = False  # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
 
 
 class LocalInputType(Enum):
@@ -758,6 +758,34 @@ def check_and_get_examples(path_to_search: str,
     return search_directory(local_folder_for_examples, path_to_search)
 
 
+def check_if_filename_exists_in_list(existing_file_names: list, new_file_name: str):
+    """
+    Checks if filename is present in dict, if not then adds it
+    Also checks version numbers, replaces the filename if the version number is bigger
+    :param existing_file_names: list of existing file names
+    :param new_file_name: new file name to be added
+    """
+    reduced_file_name = os.path.basename(new_file_name)
+    file_base = os.path.splitext(reduced_file_name)[0]
+    file_base_dict = get_meta_from_filename(reduced_file_name)
+    if any([file_base in existing_file_name for existing_file_name in existing_file_names]):
+        return existing_file_names
+    new_version_number = file_base_dict.get(MODEL_VERSION_KEYWORD) or file_base_dict.get(PMD_VERSION_NUMBER_KEYWORD)
+    file_base_reduced = file_base.removesuffix(new_version_number)
+    similar = {file_name: get_meta_from_filename(os.path.basename(file_name))
+               for file_name in existing_file_names if file_base_reduced in file_name}
+    if similar:
+        exists = {file: similar[file].get(MODEL_VERSION_KEYWORD) or similar[file].get(PMD_VERSION_NUMBER_KEYWORD)
+                  for file in similar}
+        max_file = max(exists, key=exists.get)
+        if int(exists[max_file]) < int(new_version_number):
+            existing_file_names.remove(max_file)
+        else:
+            return existing_file_names
+    existing_file_names.append(new_file_name)
+    return existing_file_names
+
+
 def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = True):
     """
     When input is a directory containing the .xml and .zip files for all the TSOs and boundaries as well and
@@ -806,15 +834,15 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
                 if tso_name not in tso_files.keys():
                     tso_files[tso_name] = []
                 # Check if file without the extension is already present
-                if not any(file_base in file_listed for file_listed in tso_files[tso_name]):
-                    tso_files[tso_name].append(file_name)
+                tso_files[tso_name] = check_if_filename_exists_in_list(existing_file_names=tso_files[tso_name],
+                                                                       new_file_name=file_name)
             # Handle boundaries
             elif file_type_name in boundary_file_types:
                 if tso_name not in boundaries.keys():
                     boundaries[tso_name] = []
                 # Check if file without the extension is already present
-                if not any(file_base in file_listed for file_listed in boundaries[tso_name]):
-                    boundaries[tso_name].append(file_name)
+                boundaries[tso_name] = check_if_filename_exists_in_list(existing_file_names=boundaries[tso_name],
+                                                                        new_file_name=file_name)
             else:
                 logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
         else:
