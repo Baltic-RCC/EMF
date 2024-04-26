@@ -12,7 +12,8 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
 from emf.common.integrations.object_storage.object_storage import query_data, get_content, query_data_as_is
-from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path
+from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogGatherer, \
+    PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
                                       NETWORK_KEYWORD, NETWORK_META_KEYWORD, get_metadata_from_filename, attr_to_dict)
 from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError,
@@ -814,7 +815,8 @@ class CgmModelComposer:
                  merging_entity: str = MERGING_ENTITY,
                  namespace_map=None,
                  rdf_map_loc: str = RDF_MAP_JSON,
-                 rabbit_data: dict = None):
+                 rabbit_data: dict = None,
+                 debugging: bool = False):
         """
         Constructor, note that data gathering and filtering must be done beforehand
         This just stores and merges
@@ -853,6 +855,18 @@ class CgmModelComposer:
         self.cgm = None
         self.rdf_map = load_rdf_map(rdf_map_loc)
         self.rabbit_data = rabbit_data
+        self.pypowsybl_gatherer = None
+        self.debugging = debugging
+        if self.debugging:
+            self.pypowsybl_gatherer = PyPowsyblLogGatherer(topic_name='IGM_merge',
+                                                           send_to_elastic=False,
+                                                           upload_to_minio=False,
+                                                           report_on_command=False,
+                                                           tso='_'.join([model.get(PMD_TSO_KEYWORD, '') for model in
+                                                                         self.igm_models]),
+                                                           logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
+                                                           print_to_console=False,
+                                                           reporting_level=logging.ERROR)
 
     def get_tso_list(self):
         return ', '.join([model.get(PMD_TSO_KEYWORD, '') for model in self.igm_models])
@@ -932,6 +946,46 @@ class CgmModelComposer:
         """
         return self._version
 
+    def get_cgm_meta_for_qas(self, default_value: str = ''):
+        """
+        Gets data for the qas from cgm
+        :param default_value: specify default value if the field does not exist
+        """
+        meta_data = {'creationDate': self.opdm_object_meta.get('pmd:creationDate', default_value),
+                     'modelid': self.opdm_object_meta.get('pmd:modelid', default_value),
+                     'scenarioDate': self.opdm_object_meta.get('pmd:scenarioDate', default_value),
+                     'versionNumber': self.opdm_object_meta.get('pmd:versionNumber', default_value),
+                     'timeHorizon': self.opdm_object_meta.get('pmd:timeHorizon', default_value),
+                     'mergingEntity': self.opdm_object_meta.get('pmd:mergingEntity', default_value),
+                     'mergingArea': self.opdm_object_meta.get('pmd:mergingArea', default_value)
+                     }
+        return {'MergeInformation': meta_data}
+
+    def get_igm_metas_for_qas(self, default_value: str = ''):
+        """
+        Gets data for the qas from igms
+        :param default_value: specify default value if the field does not exist
+        """
+        igm_metas = []
+        for igm in self.igm_models:
+            meta_data = {'creationDate': igm.get('pmd:creationDate', default_value),
+                         'timeHorizon': igm.get('pmd:timeHorizon', default_value),
+                         'scenarioDate': igm.get('pmd:scenarioDate', default_value),
+                         'modelingAuthoritySet': igm.get('pmd:modelingAuthoritySet', default_value),
+                         'modelPartReference': igm.get('pmd:modelPartReference', default_value),
+                         'versionNumber': igm.get('pmd:versionNumber', default_value)}
+            components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get('pmd:modelid', default_value)}
+                          for profile in igm.get(OPDE_COMPONENT_KEYWORD, [])]
+            meta_data['Component'] = components
+            igm_metas.append(meta_data)
+        return {'ModelInformation': igm_metas}
+
+    def get_data_for_qas(self):
+        """
+        Return data for the qas containing CGM and IGM information
+        """
+        return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas()
+
     def set_sv_file(self,
                     merged_model=None,
                     opdm_object_meta=None):
@@ -940,7 +994,12 @@ class CgmModelComposer:
         export_report = pypowsybl.report.Reporter()
         exported_model = export_model(network=merged_model[NETWORK_KEYWORD],
                                       opdm_object_meta=opdm_object_meta,
-                                      profiles=["SV"])
+                                      profiles=["SV"],
+                                      debugging=self.debugging)
+        if self.debugging and not exported_model:
+            self.pypowsybl_gatherer.stop_working()
+            raise Exception(f"Failed to export model")
+
         logger.info(f"Exporting merged model to {exported_model.name}")
         # Load SV data
         sv_data = pandas.read_RDF([exported_model])
@@ -1106,9 +1165,13 @@ class CgmModelComposer:
                     f"version: {self.version}, "
                     f"area: {self.area}, "
                     f"tsos: {', '.join([model.get(PMD_TSO_KEYWORD) for model in self.igm_models])}")
+        if self.debugging:
+            self.pypowsybl_gatherer.start_working()
         self.set_sv_file()
         self.set_ssh_files()
         self.set_cgm()
+        if self.debugging:
+            self.pypowsybl_gatherer.stop_working()
         return self.cgm
 
     def get_consolidated_metadata(self, rabbit_data: dict = None, additional_fields: dict = None):
@@ -1311,6 +1374,8 @@ if __name__ == '__main__':
                                  merging_entity=testing_merging_entity,
                                  version=test_version_number)
     cgm = cgm_input.compose_cgm()
+    data_for_qas = cgm_input.get_data_for_qas()
+    logger.info(f"For qas: {data_for_qas}")
     test_folder_name = cgm_input.get_folder_name()
     save_merged_model_to_local_storage(cgm_files=cgm, cgm_folder_name=test_folder_name)
     # save_merged_model_to_minio(cgm_files=cgm)
