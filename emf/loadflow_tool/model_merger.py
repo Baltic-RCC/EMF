@@ -973,12 +973,23 @@ class CgmModelComposer:
                          'scenarioDate': igm.get('pmd:scenarioDate', default_value),
                          'modelingAuthoritySet': igm.get('pmd:modelingAuthoritySet', default_value),
                          'modelPartReference': igm.get('pmd:modelPartReference', default_value),
-                         'versionNumber': igm.get('pmd:versionNumber', default_value)}
+                         'versionNumber': igm.get('pmd:versionNumber', default_value),
+                         'valid': igm.get('valid', default_value)}
             components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get('pmd:modelid', default_value)}
                           for profile in igm.get(OPDE_COMPONENT_KEYWORD, [])]
             meta_data['Component'] = components
             igm_metas.append({'MetaData': meta_data})
         return {'ModelInformation': igm_metas}
+
+    def get_loadflow_results_for_qas(self):
+        """
+        Returns pypowsybl loadflow result as is
+        # TODO add additional filtering if needed
+        """
+        loadflow_results = {}
+        if self.merged_model:
+            loadflow_results = self.merge_report
+        return loadflow_results
 
     def get_data_for_qas(self):
         """
