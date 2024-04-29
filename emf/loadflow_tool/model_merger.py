@@ -959,7 +959,7 @@ class CgmModelComposer:
                      'mergingEntity': self.opdm_object_meta.get('pmd:mergingEntity', default_value),
                      'mergingArea': self.opdm_object_meta.get('pmd:mergingArea', default_value)
                      }
-        return {'MergeInformation': meta_data}
+        return {'MergeInformation': {'MetaData': meta_data}}
 
     def get_igm_metas_for_qas(self, default_value: str = ''):
         """
@@ -977,7 +977,7 @@ class CgmModelComposer:
             components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get('pmd:modelid', default_value)}
                           for profile in igm.get(OPDE_COMPONENT_KEYWORD, [])]
             meta_data['Component'] = components
-            igm_metas.append(meta_data)
+            igm_metas.append({'MetaData': meta_data})
         return {'ModelInformation': igm_metas}
 
     def get_data_for_qas(self):
