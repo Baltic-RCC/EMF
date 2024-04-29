@@ -883,6 +883,9 @@ class CgmModelComposer:
         Gets merged model
         """
         if self._merged_model is None and self.igm_models and self.boundary_data:
+            # Dependencies, timeframes needed from somewhere
+            # Extract dependencies from the metadata from the igms
+            # IGM created, processType some additional field
             self._merged_model = load_model(self.igm_models + [self.boundary_data])
             # Run LF
             self.merge_report = {}
@@ -947,10 +950,6 @@ class CgmModelComposer:
         return self._version
 
     def get_cgm_meta_for_qas(self, default_value: str = ''):
-        """
-        Gets data for the qas from cgm
-        :param default_value: specify default value if the field does not exist
-        """
         meta_data = {'creationDate': self.opdm_object_meta.get('pmd:creationDate', default_value),
                      'modelid': self.opdm_object_meta.get('pmd:modelid', default_value),
                      'scenarioDate': self.opdm_object_meta.get('pmd:scenarioDate', default_value),
@@ -962,10 +961,6 @@ class CgmModelComposer:
         return {'MergeInformation': {'MetaData': meta_data}}
 
     def get_igm_metas_for_qas(self, default_value: str = ''):
-        """
-        Gets data for the qas from igms
-        :param default_value: specify default value if the field does not exist
-        """
         igm_metas = []
         for igm in self.igm_models:
             meta_data = {'creationDate': igm.get('pmd:creationDate', default_value),
@@ -982,20 +977,26 @@ class CgmModelComposer:
         return {'ModelInformation': igm_metas}
 
     def get_loadflow_results_for_qas(self):
-        """
-        Returns pypowsybl loadflow result as is
-        # TODO add additional filtering if needed
-        """
-        loadflow_results = {}
-        if self.merged_model:
-            loadflow_results = self.merge_report
-        return loadflow_results
+        load_flow_results = {}
+        if self.merge_report:
+            load_flow_results = {'LoadflowResults': self.merge_report.get('LOADFLOW_RESULTS', [])}
+            for island in load_flow_results.get('LoadflowResults'):
+                # Convert ComponentStatus.CONVERGED to CONVERGED
+                try:
+                    island['status'] = str(island['status'].name)
+                except Exception:
+                    pass
+        return load_flow_results
 
     def get_data_for_qas(self):
         """
-        Return data for the qas containing CGM and IGM information
+        Gets data for qas report
+        Note that the content is currently preliminary and might change according to the need of the report
         """
-        return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas()
+        # Get cgm meta and igm metas
+        # return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas()
+        # Get cgm meta, igm metas and loadflow results
+        return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas() | self.get_loadflow_results_for_qas()
 
     def set_sv_file(self,
                     merged_model=None,
@@ -1349,7 +1350,7 @@ if __name__ == '__main__':
     testing_time_horizon = '1D'
     testing_scenario_date = "2024-04-12T14:30:00+00:00"
     testing_area = 'EU'
-    take_data_from_local = True
+    take_data_from_local = False
     testing_merging_entity = MERGING_ENTITY
 
     wanted_tsos = []
