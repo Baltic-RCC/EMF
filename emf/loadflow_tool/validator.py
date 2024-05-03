@@ -1,10 +1,12 @@
 import os.path
 import shutil
 import zipfile
+from datetime import datetime
 from enum import Enum
 from io import BytesIO
 from os import listdir
 from os.path import join
+from xml.etree.ElementTree import fromstring, ElementTree
 from zipfile import ZipFile
 import ntpath
 
@@ -13,24 +15,30 @@ import time
 import math
 
 import requests
+from aniso8601 import parse_datetime
 
 import config
+from dict2xml import dict2xml
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, check_the_folder_path
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, metadata_from_filename
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic
+from emf.common.integrations import elastic, rabbit
+from pathlib import Path
+
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
+parse_app_properties(caller_globals=globals(), path=config.paths.xslt_service.xslt)
 
 # TODO - record AC NP and DC Flows to metadata storage (and more), this is useful for replacement logic and scaling
 # note - multiple islands wo load or generation can be an issue
 
 ENTSOE_FOLDER = './path_to_ENTSOE_zip/TestConfigurations_packageCASv2.0'
+CGM_XSL_PATH = "config/xslt_service/CGM_entsoeQAReport_Level_8.xsl"
 
 OPDE_COMPONENT_KEYWORD = 'opde:Component'
 OPDE_DEPENDENCIES_KEYWORD = 'opde:Dependencies'
@@ -48,6 +56,9 @@ PMD_SCENARIO_DATE_KEYWORD = 'pmd:scenarioDate'
 PMD_VERSION_NUMBER_KEYWORD = "pmd:versionNumber"
 PMD_TIME_HORIZON_KEYWORD = 'pmd:timeHorizon'
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
+PMD_CREATION_DATE_KEYWORD = 'pmd:creationDate'
+PMD_MODEL_ID_KEYWORD = 'pmd:modelid'
+PMD_MODELING_AUTHORITY_SET_KEYWORD = 'pmd:modelingAuthoritySet'
 
 DATA_KEYWORD = 'DATA'
 
@@ -94,7 +105,7 @@ BOUNDARY_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
 UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
 RECURSION_LIMIT = 2
-USE_ROOT = False  # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
+USE_ROOT = False        # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
 
 
 class LocalInputType(Enum):
@@ -113,7 +124,13 @@ class LocalFileLoaderError(FileNotFoundError):
     pass
 
 
-def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
+def validate_model(opdm_objects,
+                   loadflow_parameters=CGM_RELAXED_2,
+                   run_element_validations=True,
+                   send_qas_report=True,
+                   report_type="IGM",
+                   debugging: bool = False,
+                   report_data: dict = None):
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
@@ -166,7 +183,7 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
     # Pop out pypowsybl network object
-    # model_data.pop('network')
+    model_data.pop('network')
 
     # Send validation data to Elastic
     try:
@@ -174,7 +191,73 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
     except Exception as exception_error:
         logger.error(f"Validation report sending to Elastic failed: {exception_error}")
 
+    #for QAS report preparation take model_data and modify to xml for transformation
+    if send_qas_report:
+        #get correct XLT
+        if report_type == "IGM":
+            xsl_path = "config/xslt_service/IGM_entsoeQAReport_Level_8.xsl"
+        elif report_type == "CGM":
+            xsl_path = "config/xslt_service/CGM_entsoeQAReport_Level_8.xsl"
+        else:
+            logger.error(f"Unknown report type, not able to generate report")
+
+        with open(Path(__file__).parent.parent.parent.joinpath(xsl_path), 'rb') as file:
+            xsl_bytes = file.read()
+
+        if not report_data:
+            report_data = {'validation': {}, 'metadata': {'profile': {}}}
+            report_data['validation'] = model_data
+            report_data['metadata']['profile'] = [profile['opdm:Profile'] for profile in opdm_objects[0]['opde:Component']]
+            data = [var.pop('DATA') for var in report_data['metadata']['profile']]
+        message_data = {"XML": dict2xml(report_data, wrap='report'), "XSL": xsl_bytes}
+
+        try:#publish message to Rabbit to wait for conversion
+            # debugging
+            if "PYCHARM_HOSTED" in os.environ and debugging:
+                logger.info(str(message_data))
+            else:
+                rabbit_service = rabbit.BlockingClient()
+                rabbit_service.publish(str(message_data), RMQ_EXCHANGE)
+                logger.info(f"Validation report sending to Rabbit for ..")
+        except Exception as error:
+            logger.error(f"Validation report sending to Rabbit for {error}")
+
     return model_data
+
+
+def send_cgm_qas_report(qas_meta_data: dict, xsl_path: str = CGM_XSL_PATH, exchange_name: str = RMQ_EXCHANGE):
+    """
+    Reduced version from previous, load flow is run by CgmCompose after merge and necessary fields are also
+    gathered by it (CgmCompose.get_data_for_qas()). Therefore compose the report
+    :param qas_meta_data: dictionary matching the fields
+    :param xsl_path: path to template
+    :param exchange_name: name of the exchange where to send the report
+    """
+    with open(Path(__file__).parent.parent.parent.joinpath(xsl_path), 'rb') as file:
+        xsl_bytes = file.read()
+    message_data = {"XML": dict2xml(qas_meta_data, wrap='report'), "XSL": xsl_bytes}
+    # TODO send where it is needed
+    debugging = True
+    try:
+        # debugging
+        if "PYCHARM_HOSTED" in os.environ and debugging:
+            fields = qas_meta_data.get('MergeInformation', {}).get('MetaData', {})
+            time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+            scenario_date = parse_datetime(fields.get('scenarioDate')).strftime('%Y%m%dT%H%M%S')
+            file_name = (f"./example_reports/qas_{scenario_date}"
+                         f"_{fields.get('timeHorizon', '')}"
+                         f"_{fields.get('mergingArea', '')}"
+                         f"_from_{time_moment_now}.xml")
+            # file_name = Path(__file__).parent.joinpath(file_name)
+            check_and_create_the_folder_path(os.path.dirname(file_name))
+            xml_example = fromstring(message_data["XML"])
+            ElementTree(xml_example).write(file_name)
+        else:
+            rabbit_service = rabbit.BlockingClient()
+            rabbit_service.publish(str(message_data), exchange_name)
+            logger.info(f"Validation report sending to Rabbit for ..")
+    except Exception as error:
+        logger.error(f"Validation report sending to Rabbit for {error}")
 
 
 def validate_models(igm_models: list = None, boundary_data: list = None):
@@ -368,6 +451,38 @@ def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, 
             #                                              key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             igm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
+    return set_igm_values_from_profiles(igm_value)
+
+
+def set_igm_values_from_profiles(igm_value: dict):
+    """
+    Purely for cosmetic purposes only: parse values from file name to opde:Component fields
+    :param igm_value: opde component dict created from reading local files
+    :return updated igm_value
+    """
+    scenario_date = None
+    time_horizon = None
+    model_part_reference = None
+    version_number = None
+    for component in igm_value.get(OPDE_COMPONENT_KEYWORD):
+        try:
+            profile = component.get(OPDM_PROFILE_KEYWORD, {})
+            scenario_date = profile.get(PMD_VALID_FROM_KEYWORD) \
+                if not scenario_date else profile.get(PMD_VALID_FROM_KEYWORD) \
+                if parse_datetime(profile.get(PMD_VALID_FROM_KEYWORD)) > parse_datetime(scenario_date) \
+                else scenario_date
+            time_horizon = profile.get(PMD_TIME_HORIZON_KEYWORD) if not time_horizon else time_horizon
+            model_part_reference = profile.get(PMD_MODEL_PART_REFERENCE_KEYWORD) \
+                if not model_part_reference else model_part_reference
+            version_number = profile.get(PMD_VERSION_NUMBER_KEYWORD) \
+                if not version_number else profile.get(PMD_VERSION_NUMBER_KEYWORD) \
+                if int(profile.get(PMD_VERSION_NUMBER_KEYWORD)) > int(version_number) else version_number
+        except Exception:
+            continue
+    igm_value[PMD_SCENARIO_DATE_KEYWORD] = scenario_date if scenario_date else ''
+    igm_value[PMD_TIME_HORIZON_KEYWORD] = time_horizon if time_horizon else ''
+    igm_value[PMD_MODEL_PART_REFERENCE_KEYWORD] = model_part_reference if model_part_reference else ''
+    igm_value[PMD_VERSION_NUMBER_KEYWORD] = version_number if version_number else ''
     return igm_value
 
 

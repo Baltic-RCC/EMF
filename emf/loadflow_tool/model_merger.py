@@ -1,3 +1,4 @@
+import copy
 from datetime import timedelta
 from enum import Enum
 from io import BytesIO
@@ -25,7 +26,10 @@ from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoader
                                          OPDM_OPDM_OBJECT_KEYWORD, PMD_TIME_HORIZON_KEYWORD, PMD_VERSION_NUMBER_KEYWORD,
                                          MODEL_MODELING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD,
                                          MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, MODEL_DOMAIN_KEYWORD,
-                                         MODEL_MERGING_ENTITY_KEYWORD)
+                                         MODEL_MERGING_ENTITY_KEYWORD, PMD_MODEL_PART_REFERENCE_KEYWORD,
+                                         get_meta_from_filename, PMD_MERGING_AREA_KEYWORD, PMD_MERGING_ENTITY_KEYWORD,
+                                         PMD_MODEL_ID_KEYWORD, PMD_CREATION_DATE_KEYWORD,
+                                         PMD_MODELING_AUTHORITY_SET_KEYWORD)
 import logging
 import json
 from emf.loadflow_tool import loadflow_settings
@@ -248,10 +252,10 @@ def get_latest_boundary(opdm_client: OPDM = None, download_policy: DownloadModel
     :return boundary data
     """
     boundary_data = None
-    if download_policy == DownloadModels.MINIO:
-        # Not the quickest way to get it
-        # boundary_data = get_boundary_data_from_minio()
-        return boundary_data
+    # if download_policy == DownloadModels.MINIO:
+    #    # Not the quickest way to get it
+    #    # boundary_data = get_boundary_data_from_minio()
+    #    return boundary_data
     try:
         opdm_client = opdm_client or OPDM()
         boundary_data = opdm_client.get_latest_boundary()
@@ -950,27 +954,27 @@ class CgmModelComposer:
         return self._version
 
     def get_cgm_meta_for_qas(self, default_value: str = ''):
-        meta_data = {'creationDate': self.opdm_object_meta.get('pmd:creationDate', default_value),
-                     'modelid': self.opdm_object_meta.get('pmd:modelid', default_value),
-                     'scenarioDate': self.opdm_object_meta.get('pmd:scenarioDate', default_value),
-                     'versionNumber': self.opdm_object_meta.get('pmd:versionNumber', default_value),
-                     'timeHorizon': self.opdm_object_meta.get('pmd:timeHorizon', default_value),
-                     'mergingEntity': self.opdm_object_meta.get('pmd:mergingEntity', default_value),
-                     'mergingArea': self.opdm_object_meta.get('pmd:mergingArea', default_value)
+        meta_data = {'creationDate': self.opdm_object_meta.get(PMD_CREATION_DATE_KEYWORD, default_value),
+                     'modelid': self.opdm_object_meta.get(PMD_MODEL_ID_KEYWORD, default_value),
+                     'scenarioDate': self.opdm_object_meta.get(PMD_SCENARIO_DATE_KEYWORD, default_value),
+                     'versionNumber': self.opdm_object_meta.get(PMD_VERSION_NUMBER_KEYWORD, default_value),
+                     'timeHorizon': self.opdm_object_meta.get(PMD_TIME_HORIZON_KEYWORD, default_value),
+                     'mergingEntity': self.opdm_object_meta.get(PMD_MERGING_ENTITY_KEYWORD, default_value),
+                     'mergingArea': self.opdm_object_meta.get(PMD_MERGING_AREA_KEYWORD, default_value)
                      }
         return {'MergeInformation': {'MetaData': meta_data}}
 
     def get_igm_metas_for_qas(self, default_value: str = ''):
         igm_metas = []
         for igm in self.igm_models:
-            meta_data = {'creationDate': igm.get('pmd:creationDate', default_value),
-                         'timeHorizon': igm.get('pmd:timeHorizon', default_value),
-                         'scenarioDate': igm.get('pmd:scenarioDate', default_value),
-                         'modelingAuthoritySet': igm.get('pmd:modelingAuthoritySet', default_value),
-                         'modelPartReference': igm.get('pmd:modelPartReference', default_value),
-                         'versionNumber': igm.get('pmd:versionNumber', default_value),
+            meta_data = {'creationDate': igm.get(PMD_CREATION_DATE_KEYWORD, default_value),
+                         'timeHorizon': igm.get(PMD_TIME_HORIZON_KEYWORD, default_value),
+                         'scenarioDate': igm.get(PMD_SCENARIO_DATE_KEYWORD, default_value),
+                         'modelingAuthoritySet': igm.get(PMD_MODELING_AUTHORITY_SET_KEYWORD, default_value),
+                         'modelPartReference': igm.get(PMD_MODEL_PART_REFERENCE_KEYWORD, default_value),
+                         'versionNumber': igm.get(PMD_VERSION_NUMBER_KEYWORD, default_value),
                          'valid': igm.get('valid', default_value)}
-            components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get('pmd:modelid', default_value)}
+            components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_MODEL_ID_KEYWORD, default_value)}
                           for profile in igm.get(OPDE_COMPONENT_KEYWORD, [])]
             meta_data['Component'] = components
             igm_metas.append({'MetaData': meta_data})
@@ -997,6 +1001,41 @@ class CgmModelComposer:
         # return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas()
         # Get cgm meta, igm metas and loadflow results
         return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas() | self.get_loadflow_results_for_qas()
+
+    def get_cgm_as_opde_object(self):
+        """
+        Returns cgm as opde object
+        """
+        cgm_value = {OPDE_COMPONENT_KEYWORD: []}
+        if not self.cgm:
+            self.compose_cgm()
+        if not self.cgm:
+            raise Exception("Unable to get composed model")
+        for file_instance in self.cgm:
+            file_name = file_instance.name
+            meta_for_data = get_meta_from_filename(file_name)
+            if PMD_TSO_KEYWORD not in cgm_value:
+                if MODEL_MODELING_ENTITY_KEYWORD in meta_for_data:
+                    cgm_value[PMD_TSO_KEYWORD] = meta_for_data[MODEL_MODELING_ENTITY_KEYWORD]
+                elif PMD_MODEL_PART_REFERENCE_KEYWORD in meta_for_data:
+                    cgm_value[PMD_TSO_KEYWORD] = meta_for_data[PMD_MODEL_PART_REFERENCE_KEYWORD]
+            opdm_profile_content = meta_for_data
+            opdm_profile_content[DATA_KEYWORD] = file_instance.getvalue()
+            cgm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
+        return cgm_value
+
+    def get_cgm_igms_boundary_as_opde_object(self):
+        """
+        Packages igms, boundary and cgm to be ready to be imported to pypowsybl
+        """
+        opdm_objects = [self.get_cgm_as_opde_object()]
+        for old_model in self.igm_models:
+            model = copy.deepcopy(old_model)
+            model['opde:Component'] = [profile for profile in model['opde:Component']
+                                       if profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') in ['EQ', 'TP']]
+            opdm_objects.append(model)
+        opdm_objects.append(self.boundary_data)
+        return opdm_objects
 
     def set_sv_file(self,
                     merged_model=None,
@@ -1348,14 +1387,15 @@ if __name__ == '__main__':
         handlers=[logging.StreamHandler(sys.stdout)]
     )
     testing_time_horizon = '1D'
-    testing_scenario_date = "2024-04-12T14:30:00+00:00"
+    testing_scenario_date = "2024-04-23T21:30:00+00:00"
     testing_area = 'EU'
     take_data_from_local = False
     testing_merging_entity = MERGING_ENTITY
+    default_version_number = '001'
 
-    wanted_tsos = []
-    unwanted_tsos = []
-
+    wanted_tsos = ['ELERING', 'AST', 'ELERING', 'PSE']
+    unwanted_tsos = ['APG']
+    test_version_number = None
     if take_data_from_local:
         folder_to_study = 'TC3_T1_Conform'
         igm_model_data, latest_boundary_data = get_local_entsoe_files(path_to_directory=folder_to_study,
@@ -1364,16 +1404,17 @@ if __name__ == '__main__':
         igm_model_data = filter_models_by_tsos(igm_models=igm_model_data,
                                                included_tsos=wanted_tsos,
                                                excluded_tsos=unwanted_tsos)
+        test_version_number = default_version_number
     else:
-
         igm_model_data, latest_boundary_data = get_models(time_horizon=testing_time_horizon,
                                                           scenario_date=testing_scenario_date,
                                                           included_tsos=wanted_tsos,
                                                           excluded_tsos=unwanted_tsos,
-                                                          download_policy=DownloadModels.MINIO)
-    test_version_number = get_version_number(scenario_date=testing_scenario_date,
-                                             time_horizon=testing_time_horizon,
-                                             modeling_entity=f"{testing_merging_entity}-{testing_area}")
+                                                          download_policy=DownloadModels.OPDM_AND_MINIO)
+    test_version_number = test_version_number or get_version_number(scenario_date=testing_scenario_date,
+                                                                    time_horizon=testing_time_horizon,
+                                                                    modeling_entity=f"{testing_merging_entity}-"
+                                                                                    f"{testing_area}")
 
     if not igm_model_data or not latest_boundary_data:
         logger.error(f"Terminating")
@@ -1384,10 +1425,15 @@ if __name__ == '__main__':
                                  scenario_date=testing_scenario_date,
                                  area=testing_area,
                                  merging_entity=testing_merging_entity,
-                                 version=test_version_number)
+                                 version=test_version_number,
+                                 debugging=True)
     cgm = cgm_input.compose_cgm()
     data_for_qas = cgm_input.get_data_for_qas()
     logger.info(f"For qas: {data_for_qas}")
+    import pprint
+    pretty_data_for_qas = pprint.pformat(data_for_qas, compact=True).replace("'", '"')
+    with open('qas_input.json', 'w') as output:
+        output.write(pretty_data_for_qas)
     test_folder_name = cgm_input.get_folder_name()
     save_merged_model_to_local_storage(cgm_files=cgm, cgm_folder_name=test_folder_name)
     # save_merged_model_to_minio(cgm_files=cgm)

@@ -12,11 +12,13 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from aniso8601 import parse_datetime
 from emf.common.logging.custom_logger import ElkLoggingHandler
+from emf.loadflow_tool.loadflow_settings import CGM_RELAXED_2
 from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, get_local_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
                                             publish_merged_model_to_opdm, save_merged_model_to_minio,
                                             publish_metadata_to_elastic, DEFAULT_AREA,
                                             DownloadModels, get_version_number)
+from emf.loadflow_tool.validator import validate_model, send_cgm_qas_report
 from emf.task_generator.time_helper import parse_duration
 
 logger = logging.getLogger(__name__)
@@ -272,6 +274,65 @@ class HandlerGetModels:
 
 
 class HandlerMergeModels:
+
+    def __init__(self,
+                 validate_cgm_model: bool = False):
+        """
+        Initializes the handler which merges and validates the model
+        :param validate_cgm_model: publish cgm to opdm
+        """
+        self.validate_cgm_model = validate_cgm_model
+
+    def handle(self, *args, **kwargs):
+        """
+        Calls the merge and posts the results
+        """
+        # check if CgmModelComposerCgmModelComposer is in args
+        args = flatten_tuple(args)
+
+        cgm_compose = None
+        # Check if CgmModelComposer is in args
+        for item in args:
+            if isinstance(item, CgmModelComposer):
+                cgm_compose = item
+                break
+        # check if CgmModelComposer is in kwargs
+        if cgm_compose is None:
+            for key in kwargs:
+                if isinstance(kwargs[key], CgmModelComposer):
+                    cgm_compose = kwargs[key]
+                    break
+        # If there was nothing, report and return
+        if cgm_compose is None:
+            handle_not_received_case("Merger: no inputs received")
+            logger.error(f"Pipeline failed, no dataclass present with igms")
+            return args, kwargs
+        # else merge the model and start sending it out
+        try:
+            cgm_compose.compose_cgm()
+            qas_meta_data = cgm_compose.get_data_for_qas()
+            # TODO Decide the faith of the CGM and its validation
+            if self.validate_cgm_model:
+                # Either validate it if needed
+                opdm_objects = cgm_compose.get_cgm_igms_boundary_as_opde_object()
+                validation_result = validate_model(opdm_objects,
+                                                   loadflow_parameters=CGM_RELAXED_2,
+                                                   run_element_validations=False,
+                                                   report_data=qas_meta_data,
+                                                   send_qas_report=True,
+                                                   report_type="CGM",
+                                                   debugging=True)
+                logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
+            else:
+                # Or send it as is
+                send_cgm_qas_report(qas_meta_data=qas_meta_data)
+        except Exception as ex_msg:
+            handle_not_received_case(f"Merger: {cgm_compose.get_log_message()} exception: {ex_msg}")
+        return cgm_compose, args, kwargs
+
+
+class HandlerPostMergedModel:
+
     def __init__(self,
                  publish_to_opdm: bool = PUBLISH_MERGED_MODEL_TO_OPDM,
                  publish_to_minio: bool = PUBLISH_MERGED_MODEL_TO_MINIO,
@@ -328,8 +389,6 @@ class HandlerMergeModels:
             return args, kwargs
         # else merge the model and start sending it out
         try:
-            cgm_compose.compose_cgm()
-            # Get the files
             cgm_files = cgm_compose.cgm
             folder_name = cgm_compose.get_folder_name()
             # And send them out
@@ -369,8 +428,8 @@ if __name__ == "__main__":
     testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
     testing_excluded_tsos = ['APG', '50Hertz']
     testing_local_import = ['LITGRID']
-    start_date = parse_datetime("2024-04-23T00:30:00+00:00")
-    end_date = parse_datetime("2024-04-24T00:00:00+00:00")
+    start_date = parse_datetime("2024-05-01T00:30:00+00:00")
+    end_date = parse_datetime("2024-05-02T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds
@@ -419,9 +478,10 @@ if __name__ == "__main__":
         }
 
         message_handlers = [HandlerGetModels(),
-                            HandlerMergeModels(publish_to_opdm=False,
-                                               publish_to_minio=False,
-                                               save_to_local_storage=True)]
+                            HandlerMergeModels(),
+                            HandlerPostMergedModel(publish_to_opdm=False,
+                                                   publish_to_minio=False,
+                                                   save_to_local_storage=True)]
         body = (example_input_from_rabbit,)
         properties = {}
         for message_handler in message_handlers:
