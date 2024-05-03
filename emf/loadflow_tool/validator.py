@@ -6,7 +6,6 @@ from enum import Enum
 from io import BytesIO
 from os import listdir
 from os.path import join
-from xml.etree.ElementTree import fromstring, ElementTree
 from zipfile import ZipFile
 import ntpath
 
@@ -20,6 +19,7 @@ from aniso8601 import parse_datetime
 import config
 from dict2xml import dict2xml
 from emf.common.logging.custom_logger import PyPowsyblLogGatherer, PyPowsyblLogReportingPolicy, check_the_folder_path
+from emf.common.xslt_engine.saxonpy_api import xslt30_convert
 from emf.loadflow_tool.loadflow_settings import *
 from emf.loadflow_tool.helper import attr_to_dict, load_model, metadata_from_filename
 from emf.common.config_parser import parse_app_properties
@@ -235,12 +235,13 @@ def send_cgm_qas_report(qas_meta_data: dict, xsl_path: str = CGM_XSL_PATH, excha
     """
     with open(Path(__file__).parent.parent.parent.joinpath(xsl_path), 'rb') as file:
         xsl_bytes = file.read()
-    message_data = {"XML": dict2xml(qas_meta_data, wrap='report'), "XSL": xsl_bytes}
+    message_data = {"XML": dict2xml(qas_meta_data, wrap='Result'), "XSL": xsl_bytes}
     # TODO send where it is needed
-    debugging = True
+    debugging = False
     try:
         # debugging
         if "PYCHARM_HOSTED" in os.environ and debugging:
+            body = xslt30_convert(message_data.get('XML'), message_data.get('XSL'))
             fields = qas_meta_data.get('MergeInformation', {}).get('MetaData', {})
             time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             scenario_date = parse_datetime(fields.get('scenarioDate')).strftime('%Y%m%dT%H%M%S')
@@ -248,16 +249,14 @@ def send_cgm_qas_report(qas_meta_data: dict, xsl_path: str = CGM_XSL_PATH, excha
                          f"_{fields.get('timeHorizon', '')}"
                          f"_{fields.get('mergingArea', '')}"
                          f"_from_{time_moment_now}.xml")
-            # file_name = Path(__file__).parent.joinpath(file_name)
             check_and_create_the_folder_path(os.path.dirname(file_name))
-            xml_example = fromstring(message_data["XML"])
-            ElementTree(xml_example).write(file_name)
-        else:
-            rabbit_service = rabbit.BlockingClient()
-            rabbit_service.publish(str(message_data), exchange_name)
-            logger.info(f"Validation report sending to Rabbit for ..")
+            with open(file_name, 'wb') as output_file:
+                output_file.write(body)
+        rabbit_service = rabbit.BlockingClient()
+        rabbit_service.publish(str(message_data), exchange_name)
+        logger.info(f"CGM QAS report sending to Rabbit for ..")
     except Exception as error:
-        logger.error(f"Validation report sending to Rabbit for {error}")
+        logger.error(f"CGM QAS report sending to Rabbit for {error}")
 
 
 def validate_models(igm_models: list = None, boundary_data: list = None):
@@ -467,22 +466,21 @@ def set_igm_values_from_profiles(igm_value: dict):
     for component in igm_value.get(OPDE_COMPONENT_KEYWORD):
         try:
             profile = component.get(OPDM_PROFILE_KEYWORD, {})
-            scenario_date = profile.get(PMD_VALID_FROM_KEYWORD) \
-                if not scenario_date else profile.get(PMD_VALID_FROM_KEYWORD) \
-                if parse_datetime(profile.get(PMD_VALID_FROM_KEYWORD)) > parse_datetime(scenario_date) \
-                else scenario_date
-            time_horizon = profile.get(PMD_TIME_HORIZON_KEYWORD) if not time_horizon else time_horizon
-            model_part_reference = profile.get(PMD_MODEL_PART_REFERENCE_KEYWORD) \
-                if not model_part_reference else model_part_reference
+            new_scenario_date = parse_datetime(profile.get(PMD_VALID_FROM_KEYWORD))
+            new_scenario_date_str = new_scenario_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            scenario_date = new_scenario_date_str \
+                if not scenario_date or new_scenario_date > parse_datetime(scenario_date) else scenario_date
+            time_horizon = time_horizon or profile.get(PMD_TIME_HORIZON_KEYWORD)
+            model_part_reference = model_part_reference or profile.get(PMD_MODEL_PART_REFERENCE_KEYWORD)
             version_number = profile.get(PMD_VERSION_NUMBER_KEYWORD) \
-                if not version_number else profile.get(PMD_VERSION_NUMBER_KEYWORD) \
-                if int(profile.get(PMD_VERSION_NUMBER_KEYWORD)) > int(version_number) else version_number
+                if not version_number or int(profile.get(PMD_VERSION_NUMBER_KEYWORD)) > int(version_number) \
+                else version_number
         except Exception:
             continue
-    igm_value[PMD_SCENARIO_DATE_KEYWORD] = scenario_date if scenario_date else ''
-    igm_value[PMD_TIME_HORIZON_KEYWORD] = time_horizon if time_horizon else ''
-    igm_value[PMD_MODEL_PART_REFERENCE_KEYWORD] = model_part_reference if model_part_reference else ''
-    igm_value[PMD_VERSION_NUMBER_KEYWORD] = version_number if version_number else ''
+    igm_value[PMD_SCENARIO_DATE_KEYWORD] = scenario_date or ''
+    igm_value[PMD_TIME_HORIZON_KEYWORD] = time_horizon or ''
+    igm_value[PMD_MODEL_PART_REFERENCE_KEYWORD] = model_part_reference or ''
+    igm_value[PMD_VERSION_NUMBER_KEYWORD] = version_number or ''
     return igm_value
 
 
@@ -1127,7 +1125,7 @@ if __name__ == "__main__":
         pypowsybl_log_gatherer.set_tso(tso)
         try:
             if isinstance(latest_boundary, dict):
-                response = validate_model([model, latest_boundary])
+                response = validate_model([model, latest_boundary], debugging=True)
             else:
                 response = validate_model([model])
             model[VALIDATION_STATUS_KEYWORD] = response

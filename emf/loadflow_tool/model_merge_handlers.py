@@ -12,13 +12,12 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from aniso8601 import parse_datetime
 from emf.common.logging.custom_logger import ElkLoggingHandler
-from emf.loadflow_tool.loadflow_settings import CGM_RELAXED_2
 from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, get_local_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
                                             publish_merged_model_to_opdm, save_merged_model_to_minio,
                                             publish_metadata_to_elastic, DEFAULT_AREA,
                                             DownloadModels, get_version_number)
-from emf.loadflow_tool.validator import validate_model, send_cgm_qas_report
+from emf.loadflow_tool.validator import send_cgm_qas_report
 from emf.task_generator.time_helper import parse_duration
 
 logger = logging.getLogger(__name__)
@@ -311,21 +310,21 @@ class HandlerMergeModels:
         try:
             cgm_compose.compose_cgm()
             qas_meta_data = cgm_compose.get_data_for_qas()
-            # TODO Decide the faith of the CGM and its validation
-            if self.validate_cgm_model:
-                # Either validate it if needed
-                opdm_objects = cgm_compose.get_cgm_igms_boundary_as_opde_object()
-                validation_result = validate_model(opdm_objects,
-                                                   loadflow_parameters=CGM_RELAXED_2,
-                                                   run_element_validations=False,
-                                                   report_data=qas_meta_data,
-                                                   send_qas_report=True,
-                                                   report_type="CGM",
-                                                   debugging=True)
-                logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
-            else:
-                # Or send it as is
-                send_cgm_qas_report(qas_meta_data=qas_meta_data)
+            send_cgm_qas_report(qas_meta_data=qas_meta_data)
+            # if self.validate_cgm_model:
+            #     # Either validate it if needed
+            #     opdm_objects = cgm_compose.get_cgm_igms_boundary_as_opde_object()
+            #     validation_result = validate_model(opdm_objects,
+            #                                        loadflow_parameters=CGM_RELAXED_2,
+            #                                        run_element_validations=False,
+            #                                        report_data=qas_meta_data,
+            #                                        send_qas_report=True,
+            #                                        report_type="CGM",
+            #                                        debugging=True)
+            #     logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
+            # else:
+            #     # Or send it as is
+            #    send_cgm_qas_report(qas_meta_data=qas_meta_data)
         except Exception as ex_msg:
             handle_not_received_case(f"Merger: {cgm_compose.get_log_message()} exception: {ex_msg}")
         return cgm_compose, args, kwargs
@@ -480,7 +479,7 @@ if __name__ == "__main__":
         message_handlers = [HandlerGetModels(),
                             HandlerMergeModels(),
                             HandlerPostMergedModel(publish_to_opdm=False,
-                                                   publish_to_minio=False,
+                                                   publish_to_minio=True,
                                                    save_to_local_storage=True)]
         body = (example_input_from_rabbit,)
         properties = {}
