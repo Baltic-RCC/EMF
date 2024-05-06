@@ -19,7 +19,6 @@ requests = "*"
 pika = "*"
 saxonche = "*"
 croniter = "*"
-dict2xml = "*"
 
 [dev-packages]
 tabulate = "*"
