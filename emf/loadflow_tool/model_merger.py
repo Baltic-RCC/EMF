@@ -165,6 +165,7 @@ class CgmExportType(Enum):
     """
     # Get everything
     FULL = {IGM_TYPE: IGM_FILES, CGM_TYPE: CGM_FILES, BOUNDARY_TYPE: BOUNDARY_FILES, OPDM_FORMAT: True}
+    ALL_FILES_ONLY = {IGM_TYPE: IGM_FILES, CGM_TYPE: CGM_FILES, BOUNDARY_TYPE: BOUNDARY_FILES, OPDM_FORMAT: False}
     # Get cgm as is
     BARE = {}
 
@@ -1107,8 +1108,8 @@ class CgmModelComposer:
                                                                           cgmes_types=boundary_file_list)
             opdm_objects.append(boundary)
         if opdm_format:
-            return get_files_from_opdm_objects(opdm_objects=opdm_objects)
-        return opdm_objects
+            return opdm_objects
+        return get_files_from_opdm_objects(opdm_objects=opdm_objects)
 
     def get_cgm(self, export_type: CgmExportType = CgmExportType.BARE):
         """
