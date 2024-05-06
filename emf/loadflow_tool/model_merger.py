@@ -12,7 +12,7 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
-from emf.common.integrations.object_storage.object_storage import query_data, get_content, query_data_as_is
+from emf.common.integrations.object_storage.object_storage import query_data, get_content
 from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogGatherer, \
     PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
@@ -29,7 +29,7 @@ from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoader
                                          MODEL_MERGING_ENTITY_KEYWORD, PMD_MODEL_PART_REFERENCE_KEYWORD,
                                          get_meta_from_filename, PMD_MERGING_AREA_KEYWORD, PMD_MERGING_ENTITY_KEYWORD,
                                          PMD_MODEL_ID_KEYWORD, PMD_CREATION_DATE_KEYWORD,
-                                         PMD_MODELING_AUTHORITY_SET_KEYWORD)
+                                         PMD_MODELING_AUTHORITY_SET_KEYWORD, PMD_CGMES_PROFILE_KEYWORD)
 import logging
 import json
 from emf.loadflow_tool import loadflow_settings
@@ -127,6 +127,13 @@ JOB_ID_KEYWORD = 'job_id'
 FULL_PATH_KEYWORD = 'full_path'
 
 LOCAL_STORAGE_LOCATION = './merged_examples/'
+IGM_TYPE = 'IGM'
+CGM_TYPE = 'CGM'
+BOUNDARY_TYPE = 'BOUNDARY'
+OPDM_FORMAT = 'OPDM_FORMAT'
+IGM_FILES = ['EQ', 'TP']
+CGM_FILES = ['SSH', 'SV']
+BOUNDARY_FILES = ['EQ_BD', 'TP_BD']
 
 
 class DownloadModels(Enum):
@@ -141,6 +148,29 @@ class DownloadModels(Enum):
 class CgmModelType(Enum):
     BOUNDARY = 1
     IGM = 2
+
+
+class CgmExportType(Enum):
+    """
+    Define the set of files for export
+    Note that Pypowsybl requires a full set ('EQ', 'TP', 'SSH', 'SV') and boundary ('EQBD' mad 'TPBD') files. At the
+    same time there should not be present two same process files per tso (meaning that in merged model SSH files from
+    tso's must be overwritten by merged SSH files)
+    So, to have a custom format:
+    a) define which files from igms are needed (EQ, TP, SSH, SV)
+    b) define which files from the cgm are needed (SSH, SV)
+    c) define which files from boundary are needed (EQ_BD, TP_BD)
+    d) choose either dictionary representation (OPDM_FORMAT= True, is used to import to pypowsybl), or not (get files
+    as BytesIO objects)
+    """
+    # Get everything
+    FULL = {IGM_TYPE: IGM_FILES, CGM_TYPE: CGM_FILES, BOUNDARY_TYPE: BOUNDARY_FILES, OPDM_FORMAT: True}
+    # Get cgm as is
+    BARE = {}
+
+    @classmethod
+    def _missing_(cls, value: object):
+        return cls.BARE
 
 
 class IntraDayPastScenarioDateException(Exception):
@@ -804,6 +834,35 @@ def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_p
     return time_horizon
 
 
+def get_profiles_by_cgmes_type(profiles: [], cgmes_types: []):
+    """
+    Filters profiles by given types
+    :param profiles: list of dictionaries containing pmd:cgmesProfile dictionaries
+    :param cgmes_types: list of CGMES types (['SSH', 'SV'] for example)
+    :return updated profiles list
+    """
+    if isinstance(cgmes_types, list):
+        return [profile for profile in profiles
+                if profile.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_CGMES_PROFILE_KEYWORD) in cgmes_types]
+    return profiles
+
+
+def get_files_from_opdm_objects(opdm_objects: list):
+    """
+    From the input gets data field and filename as list of BytesIO objects
+    :param opdm_objects: list of opdm objects
+    """
+    file_data = []
+    for component in opdm_objects:
+        for profile in component.get(OPDE_COMPONENT_KEYWORD, []):
+            profile = profile.get(OPDM_PROFILE_KEYWORD, {})
+            if DATA_KEYWORD in profile:
+                file_datum = BytesIO(profile.get(DATA_KEYWORD))
+                file_datum.name = profile.get('pmd:fileName')
+                file_data.append(file_datum)
+    return file_data
+
+
 class CgmModelComposer:
     """
     Class for gathering the data and running the merge function (copy from merge.py)
@@ -856,7 +915,7 @@ class CgmModelComposer:
         self._opdm_data = None
         self._opdm_object_meta = None
         self.namespace_map = namespace_map
-        self.cgm = None
+        self._cgm = None
         self.rdf_map = load_rdf_map(rdf_map_loc)
         self.rabbit_data = rabbit_data
         self.pypowsybl_gatherer = None
@@ -1007,35 +1066,59 @@ class CgmModelComposer:
         Returns cgm as opde object
         """
         cgm_value = {OPDE_COMPONENT_KEYWORD: []}
-        if not self.cgm:
+        if not self._cgm:
             self.compose_cgm()
-        if not self.cgm:
+        if not self._cgm:
             raise Exception("Unable to get composed model")
-        for file_instance in self.cgm:
+        for file_instance in self._cgm:
             file_name = file_instance.name
             meta_for_data = get_meta_from_filename(file_name)
-            if PMD_TSO_KEYWORD not in cgm_value:
-                if MODEL_MODELING_ENTITY_KEYWORD in meta_for_data:
-                    cgm_value[PMD_TSO_KEYWORD] = meta_for_data[MODEL_MODELING_ENTITY_KEYWORD]
-                elif PMD_MODEL_PART_REFERENCE_KEYWORD in meta_for_data:
-                    cgm_value[PMD_TSO_KEYWORD] = meta_for_data[PMD_MODEL_PART_REFERENCE_KEYWORD]
             opdm_profile_content = meta_for_data
             opdm_profile_content[DATA_KEYWORD] = file_instance.getvalue()
             cgm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
         return cgm_value
 
-    def get_cgm_igms_boundary_as_opde_object(self):
+    def get_cgm_igms_boundary_as_opde_object(self, export_type: CgmExportType = CgmExportType.FULL):
         """
         Packages igms, boundary and cgm to be ready to be imported to pypowsybl
+        :param export_type: specify which files from where are exported. Note that export works 'exists' mode
+        :return list of requested instances either dicts or file objects
         """
-        opdm_objects = [self.get_cgm_as_opde_object()]
-        for old_model in self.igm_models:
-            model = copy.deepcopy(old_model)
-            model['opde:Component'] = [profile for profile in model['opde:Component']
-                                       if profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') in ['EQ', 'TP']]
-            opdm_objects.append(model)
-        opdm_objects.append(self.boundary_data)
+        type_values = export_type.value
+        cgm_file_list = type_values.get(CGM_TYPE)
+        igm_file_list = type_values.get(IGM_TYPE)
+        boundary_file_list = type_values.get(BOUNDARY_TYPE)
+        opdm_format = type_values.get(OPDM_FORMAT)
+        opdm_objects = self.get_cgm_as_opde_object()
+        if cgm_file_list:
+            opdm_objects[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(
+                profiles=opdm_objects[OPDE_COMPONENT_KEYWORD],
+                cgmes_types=cgm_file_list)
+        opdm_objects = [opdm_objects]
+        if igm_file_list:
+            for old_model in self.igm_models:
+                model = copy.deepcopy(old_model)
+                model[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(profiles=model[OPDE_COMPONENT_KEYWORD],
+                                                                           cgmes_types=igm_file_list)
+                opdm_objects.append(model)
+        if boundary_file_list:
+            boundary = copy.deepcopy(self.boundary_data)
+            boundary[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(profiles=boundary[OPDE_COMPONENT_KEYWORD],
+                                                                          cgmes_types=boundary_file_list)
+            opdm_objects.append(boundary)
+        if opdm_format:
+            return get_files_from_opdm_objects(opdm_objects=opdm_objects)
         return opdm_objects
+
+    def get_cgm(self, export_type: CgmExportType = CgmExportType.BARE):
+        """
+        Gets cgm model
+        :param export_type: specify export type (enum consisting dicts with file types)
+        :return requested cgm model
+        """
+        if export_type == CgmExportType.BARE:
+            return self._cgm
+        return self.get_cgm_igms_boundary_as_opde_object()
 
     def set_sv_file(self,
                     merged_model=None,
@@ -1200,7 +1283,7 @@ class CgmModelComposer:
                                    export_type="xml_per_instance_zip_per_xml",
                                    debug=False,
                                    export_to_memory=True))
-        self.cgm = export
+        self._cgm = export
         return export
 
     def compose_cgm(self):
@@ -1223,7 +1306,7 @@ class CgmModelComposer:
         self.set_cgm()
         if self.debugging:
             self.pypowsybl_gatherer.stop_working()
-        return self.cgm
+        return self.get_cgm()
 
     def get_consolidated_metadata(self, rabbit_data: dict = None, additional_fields: dict = None):
         """

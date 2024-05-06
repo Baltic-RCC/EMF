@@ -237,11 +237,12 @@ def send_cgm_qas_report(qas_meta_data: dict, xsl_path: str = CGM_XSL_PATH, excha
         xsl_bytes = file.read()
     message_data = {"XML": dict2xml(qas_meta_data, wrap='Result'), "XSL": xsl_bytes}
     # TODO send where it is needed
-    debugging = False
+    debugging = True
     try:
         # debugging
         if "PYCHARM_HOSTED" in os.environ and debugging:
             body = xslt30_convert(message_data.get('XML'), message_data.get('XSL'))
+
             fields = qas_meta_data.get('MergeInformation', {}).get('MetaData', {})
             time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             scenario_date = parse_datetime(fields.get('scenarioDate')).strftime('%Y%m%dT%H%M%S')
@@ -254,9 +255,9 @@ def send_cgm_qas_report(qas_meta_data: dict, xsl_path: str = CGM_XSL_PATH, excha
                 output_file.write(body)
         rabbit_service = rabbit.BlockingClient()
         rabbit_service.publish(str(message_data), exchange_name)
-        logger.info(f"CGM QAS report sending to Rabbit for ..")
+        logger.info(f"Validation report sending to Rabbit for ..")
     except Exception as error:
-        logger.error(f"CGM QAS report sending to Rabbit for {error}")
+        logger.error(f"Validation report sending to Rabbit for {error}")
 
 
 def validate_models(igm_models: list = None, boundary_data: list = None):

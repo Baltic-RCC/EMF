@@ -12,12 +12,13 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from aniso8601 import parse_datetime
 from emf.common.logging.custom_logger import ElkLoggingHandler
+from emf.loadflow_tool.loadflow_settings import CGM_RELAXED_2
 from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, get_local_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
                                             publish_merged_model_to_opdm, save_merged_model_to_minio,
                                             publish_metadata_to_elastic, DEFAULT_AREA,
-                                            DownloadModels, get_version_number)
-from emf.loadflow_tool.validator import send_cgm_qas_report
+                                            DownloadModels, get_version_number, CgmExportType)
+from emf.loadflow_tool.validator import send_cgm_qas_report, validate_model
 from emf.task_generator.time_helper import parse_duration
 
 logger = logging.getLogger(__name__)
@@ -310,21 +311,22 @@ class HandlerMergeModels:
         try:
             cgm_compose.compose_cgm()
             qas_meta_data = cgm_compose.get_data_for_qas()
-            send_cgm_qas_report(qas_meta_data=qas_meta_data)
-            # if self.validate_cgm_model:
-            #     # Either validate it if needed
-            #     opdm_objects = cgm_compose.get_cgm_igms_boundary_as_opde_object()
-            #     validation_result = validate_model(opdm_objects,
-            #                                        loadflow_parameters=CGM_RELAXED_2,
-            #                                        run_element_validations=False,
-            #                                        report_data=qas_meta_data,
-            #                                        send_qas_report=True,
-            #                                        report_type="CGM",
-            #                                        debugging=True)
-            #     logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
-            # else:
-            #     # Or send it as is
-            #    send_cgm_qas_report(qas_meta_data=qas_meta_data)
+            # send_cgm_qas_report(qas_meta_data=qas_meta_data)
+            # Turn this part on if there is need to go through validate_model
+            if self.validate_cgm_model:
+                # Either validate it if needed
+                opdm_objects = cgm_compose.get_cgm(export_type=CgmExportType.FULL)
+                validation_result = validate_model(opdm_objects,
+                                                   loadflow_parameters=CGM_RELAXED_2,
+                                                   run_element_validations=False,
+                                                   report_data=qas_meta_data,
+                                                   send_qas_report=True,
+                                                   report_type="CGM",
+                                                   debugging=True)
+                logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
+            else:
+                # Or send it as is
+                send_cgm_qas_report(qas_meta_data=qas_meta_data)
         except Exception as ex_msg:
             handle_not_received_case(f"Merger: {cgm_compose.get_log_message()} exception: {ex_msg}")
         return cgm_compose, args, kwargs
@@ -340,7 +342,8 @@ class HandlerPostMergedModel:
                  save_to_local_storage: bool = SAVE_MERGED_MODEL_TO_LOCAL_STORAGE,
                  publish_to_elastic: bool = PUBLISH_METADATA_TO_ELASTIC,
                  elk_server: str = elastic.ELK_SERVER,
-                 cgm_index: str = ELASTIC_LOGS_INDEX):
+                 cgm_index: str = ELASTIC_LOGS_INDEX,
+                 full_export_needed: bool = MINIO_EXPORT_FULL_MODEL):
         """
         Initializes the handler which starts to send out merged models
         :param publish_to_opdm: publish cgm to opdm
@@ -351,6 +354,7 @@ class HandlerPostMergedModel:
         :param publish_to_elastic: save metadata to elastic
         :param elk_server: name of the elastic server
         :param cgm_index: index in the elastic where to send the metadata
+        :param full_export_needed: specify if full model (igms+cgm+boundary is needed)
         """
         self.minio_bucket = minio_bucket
         self.folder_in_bucket = folder_in_bucket
@@ -361,6 +365,7 @@ class HandlerPostMergedModel:
         self.send_to_minio = publish_to_minio
         self.send_to_opdm = publish_to_opdm
         self.send_to_elastic = publish_to_elastic
+        self.export_type = CgmExportType.FULL if full_export_needed else CgmExportType.BARE
 
     def handle(self, *args, **kwargs):
         """
@@ -388,7 +393,7 @@ class HandlerPostMergedModel:
             return args, kwargs
         # else merge the model and start sending it out
         try:
-            cgm_files = cgm_compose.cgm
+            cgm_files = cgm_compose.get_cgm(export_type=self.export_type)
             folder_name = cgm_compose.get_folder_name()
             # And send them out
             if self.send_to_opdm:
