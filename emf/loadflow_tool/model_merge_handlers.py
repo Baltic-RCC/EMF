@@ -365,7 +365,7 @@ class HandlerPostMergedModel:
         self.send_to_minio = publish_to_minio
         self.send_to_opdm = publish_to_opdm
         self.send_to_elastic = publish_to_elastic
-        self.export_type = CgmExportType.FULL if full_export_needed else CgmExportType.BARE
+        self.export_type = CgmExportType.ALL_FILES if full_export_needed else CgmExportType.BARE
 
     def handle(self, *args, **kwargs):
         """
