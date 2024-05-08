@@ -449,6 +449,9 @@ def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, 
             # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
             #                                              meta_dict=meta_for_data[datum],
             #                                              key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
+            # Update the file name
+            if original_file_name := opdm_profile_content.get(PMD_FILENAME_KEYWORD):
+                opdm_profile_content[PMD_FILENAME_KEYWORD] = Path(original_file_name).stem + '.zip'
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             igm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return set_igm_values_from_profiles(igm_value)
@@ -508,6 +511,13 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
             # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
             #                                              meta_dict=meta_for_data[datum],
             #                                              key_dict=BOUNDARY_FILENAME_MAPPING_TO_OPDM)
+            # Fix profile name
+            if cgmes_profile := opdm_profile_content.get(PMD_CGMES_PROFILE_KEYWORD):
+                if len(cgmes_profile) == 4:
+                    opdm_profile_content[PMD_CGMES_PROFILE_KEYWORD] = cgmes_profile[:2] + '_' + cgmes_profile[2:]
+            # Update the file name
+            if original_file_name := opdm_profile_content.get(PMD_FILENAME_KEYWORD):
+                opdm_profile_content[PMD_FILENAME_KEYWORD] = Path(original_file_name).stem + '.zip'
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return boundary_value
