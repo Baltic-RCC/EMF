@@ -1,22 +1,28 @@
-import datetime
+import base64
 import logging
 import time
 import os
+import uuid
+from enum import Enum
 
 import config
 import json
-import sys
 from json import JSONDecodeError
 
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from aniso8601 import parse_datetime
-from emf.common.logging.custom_logger import ElkLoggingHandler
-from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, get_local_models, PROCESS_ID_KEYWORD,
+from emf.common.logging.custom_logger import ElkLoggingHandler, initialize_custom_logger
+from emf.loadflow_tool.loadflow_settings import CGM_RELAXED_2
+from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
                                             publish_merged_model_to_opdm, save_merged_model_to_minio,
-                                            publish_metadata_to_elastic, DEFAULT_AREA,
-                                            DownloadModels, get_version_number)
+                                            publish_metadata_to_elastic,
+                                            DownloadModels, get_version_number, CgmExportType, TASK_PROPERTIES_KEYWORD,
+                                            MERGE_TYPE_KEYWORD, INCLUDED_TSO_KEYWORD, EXCLUDED_TSO_KEYWORD,
+                                            IMPORT_TSO_LOCALLY_KEYWORD, get_local_models, MODELS_KEYWORD, TASK_KEYWORD)
+from emf.loadflow_tool.validator import send_cgm_qas_report, validate_cgm_model, OPDM_PROFILE_KEYWORD, DATA_KEYWORD, \
+    OPDE_COMPONENT_KEYWORD
 from emf.task_generator.time_helper import parse_duration
 
 logger = logging.getLogger(__name__)
@@ -28,14 +34,6 @@ NUMBER_OF_CGM_TRIES = 3
 SLEEP_BETWEEN_TRIES = 'PT5S'
 
 # Rabbit context keywords
-TASK_PROPERTIES_KEYWORD = 'task_properties'
-TIMESTAMP_KEYWORD = 'timestamp_utc'
-MERGE_TYPE_KEYWORD = 'merge_type'
-TIME_HORIZON_KEYWORD = 'time_horizon'
-AREA_KEYWORD = 'area'
-INCLUDED_TSO_KEYWORD = 'included'
-EXCLUDED_TSO_KEYWORD = 'excluded'
-IMPORT_TSO_LOCALLY_KEYWORD = 'local_import'
 
 # Use default merge type values
 USE_FALLBACK_MERGE = False
@@ -46,9 +44,19 @@ PUBLISH_MERGED_MODEL_TO_MINIO = True
 PUBLISH_MERGED_MODEL_TO_OPDM = True
 PUBLISH_METADATA_TO_ELASTIC = False
 
+WORKER_KEYWORD = 'worker'
+WORKER_UUID_KEYWORD = 'worker_uuid'
+
 # Testing purposes only
 failed_cases_collector = []
 succeeded_cases_collector = []
+
+
+class ContentExportType(Enum):
+    DEFAULT = None
+    JSON = 'json'
+
+merging_type = ContentExportType[EXCHANGE_FORMAT]
 
 
 def running_in_local_machine():
@@ -91,31 +99,28 @@ def find_key(input_dictionary: dict, key):
     return None
 
 
-def get_payload(args, keyword: str = MERGE_TYPE_KEYWORD):
+def get_payload(argument):
     """
     Searches keyword from args. Tries to parse the arg to dict and checks if keyword is present. if it
     is returns the arg
-    :param args: tuple of args
-    :param keyword: keyword to be searched
+    :param argument: tuple of args
     :return argument which is dictionary and has the keyword or None
     """
-    args = flatten_tuple(args)
-    if args and len(args) > 0:
-        for argument in args:
-            try:
-                if isinstance(argument, dict):
-                    dict_value = argument
-                else:
-                    dict_value = json.loads(argument.decode('utf-8'))
-                if not find_key(dict_value, keyword):
-                    raise UnknownArgumentException
-                return dict_value
-            except JSONDecodeError:
-                continue
-    return None
+    try:
+        if isinstance(argument, dict):
+            content = argument
+        else:
+            content = convert_from_format(argument, content_format=ContentExportType.JSON)
+        task_data = find_key(content, TASK_KEYWORD) or content if find_key(content, MERGE_TYPE_KEYWORD) else None
+        model_data = find_key(content, MODELS_KEYWORD)
+        return task_data, model_data
+    except JSONDecodeError:
+        return None, None
+    except Exception as ex:
+        logger.warning(f"Unable to parse {argument}: {ex}")
 
 
-class UnknownArgumentException(JSONDecodeError):
+class UnknownInputException(JSONDecodeError):
     pass
 
 
@@ -132,6 +137,181 @@ def handle_not_received_case(message):
         # raise SystemExit
 
 
+def add_field_to_dict_if_exists(input_dict: dict, output_dict: dict, input_dict_keyword, output_dict_keyword=None):
+    """
+    Adds a field to output_dict from input_dict if field exists in input_dict (for escaping None fields in the
+    output logs)
+    :param input_dict: dictionary from where to get the field
+    :param output_dict: dictionary to where to put the field
+    :param input_dict_keyword: key in input_dict
+    :param output_dict_keyword: key in output_dict, if not given input_dict_keyword is used instead
+    """
+    output_dict_keyword = output_dict_keyword or input_dict_keyword
+    if field_value := input_dict.get(input_dict_keyword):
+        output_dict[output_dict_keyword] = field_value
+    return output_dict
+
+
+def get_first_elk_logging_handler(log_handler: ElkLoggingHandler = None):
+    """
+    Gets first ElkLoggingHandler instance from root logger handlers
+    :param log_handler: input log_handler (if it defined)
+    """
+    if not isinstance(log_handler, ElkLoggingHandler):
+        handlers = logging.getLogger().handlers
+        for handler in handlers:
+            if isinstance(handler, ElkLoggingHandler):
+                log_handler = handler
+                break
+    return log_handler
+
+
+def set_logger_to_report_rabbit_params(rabbit_data: dict,
+                                       log_handler: ElkLoggingHandler = None,
+                                       worker_name: str = 'model-merger',
+                                       overwrite_existing_extra: bool = False):
+    """
+    Adds extra fields to logger based on the rabbit data
+    :param log_handler: instance of logger, must contain the field "extra"
+    :param rabbit_data: rabbit message data
+    :param worker_name: name of the worker
+    :param overwrite_existing_extra: reset the fields if necessary
+    """
+    # if handler is not given iterate over the existing ones and find the first that has Elk connection capability
+    # attach the parameters to it and carry on
+    log_handler = get_first_elk_logging_handler(log_handler=log_handler)
+    if isinstance(log_handler, ElkLoggingHandler):
+        extra_data = log_handler.extra
+        if not extra_data or overwrite_existing_extra:
+            extra_data = {}
+        extra_data[WORKER_KEYWORD] = extra_data.get(WORKER_KEYWORD, worker_name)
+        extra_data[WORKER_UUID_KEYWORD] = extra_data.get(WORKER_UUID_KEYWORD, str(uuid.uuid4()))
+        extra_data = add_field_to_dict_if_exists(rabbit_data, extra_data, PROCESS_ID_KEYWORD)
+        extra_data = add_field_to_dict_if_exists(rabbit_data, extra_data, RUN_ID_KEYWORD)
+        extra_data = add_field_to_dict_if_exists(rabbit_data, extra_data, JOB_ID_KEYWORD)
+        log_handler.extra = extra_data
+    return log_handler
+
+
+def unset_logger_to_report_rabbit_params(log_handler: ElkLoggingHandler):
+    """
+    Removes extra fields from the logger
+    For example if running multiple jobs in same pipeline
+    :param log_handler: instance of Elk log handler which contains extra field
+    """
+    log_handler = get_first_elk_logging_handler(log_handler=log_handler)
+    if isinstance(log_handler, ElkLoggingHandler):
+        extra_data = log_handler.extra
+        # extra_data.pop(WORKER_KEYWORD, None)
+        # extra_data.pop(WORKER_UUID_KEYWORD, None)
+        extra_data.pop(PROCESS_ID_KEYWORD, None)
+        extra_data.pop(RUN_ID_KEYWORD, None)
+        extra_data.pop(JOB_ID_KEYWORD, None)
+        log_handler.extra = extra_data
+
+
+def set_cgm_composer_from_input(*args, **kwargs):
+    """
+    Searches the dedicated fields from the input and tries to parse them to CgmComposer object
+    """
+    args = flatten_tuple(args)
+    cgm_composer = CgmModelComposer()
+    # Check if CgmModelComposer is in args
+    task_data = None
+    models_data = None
+    # Check args
+    for item in args:
+        task_data, models_data = get_payload(argument=item)
+        if task_data or models_data:
+            break
+    # if nothing was found
+    if not task_data and not models_data:
+        # Check kwargs
+        for key in kwargs:
+            task_data, models_data = get_payload(argument=kwargs[key])
+            if task_data or models_data:
+                break
+    if not task_data and not models_data:
+        handle_not_received_case("No inputs received")
+    cgm_composer.set_task_data(task_data=task_data)
+    cgm_composer.set_models(models_data=models_data)
+    return cgm_composer
+
+
+def file_bytes_to_json_string(data_file: bytes):
+    """
+    Converts input file to string
+    :param data_file: byte array representing a file
+    :return: char array as a string
+    """
+    encoded_data = base64.b64encode(data_file)
+    data_json = encoded_data.decode('utf-8')
+    return data_json
+
+
+def file_string_to_bytes(data_json: str):
+    """
+    Tries to convert a string to bytes
+    :param data_json: file represented as a string
+    :returns: converted file
+    :throws JSONDecodeError if not able to convert
+    """
+    try:
+        encoded_data = data_json.encode('utf-8')
+        data_file = base64.b64decode(encoded_data)
+        return data_file
+    except Exception:
+        raise UnknownInputException
+
+
+def convert_to_format(content: dict, content_format: ContentExportType = merging_type):
+    """
+    Gets data in specified format, currently, dict or json
+    :param content: input content as string
+    :param content_format: specifies content export format, currently default: dict, and json: dict-> json
+    :return content of the CgmComposer
+    """
+    # Expand this to add additional formats if needed
+    if content_format == content_format.JSON:
+        parsed_model_data = []
+        model_data = content.get(MODELS_KEYWORD)
+        for model in model_data:
+            component = model.get(OPDE_COMPONENT_KEYWORD, [])
+            for profile in component:
+                data_json = file_bytes_to_json_string(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD))
+                profile[OPDM_PROFILE_KEYWORD][DATA_KEYWORD] = data_json
+            model[OPDE_COMPONENT_KEYWORD] = component
+            parsed_model_data.append(model)
+        model_data = parsed_model_data
+        content[MODELS_KEYWORD] = model_data
+        content = json.dumps(content)
+    return content
+
+
+def convert_from_format(input_data, content_format: ContentExportType = merging_type):
+    """
+    Gets data in specified format, currently, dict or json
+    :param input_data: input content as string
+    :param content_format: specifies content export format, currently default: dict, and json: dict-> json
+    :return content of the CgmComposer
+    """
+    content = None
+    if content_format == content_format.JSON:
+        content = json.loads(input_data)
+        fixed_model_data = []
+        model_data = content.get(MODELS_KEYWORD)
+        for model in model_data:
+            component = model.get(OPDE_COMPONENT_KEYWORD, [])
+            for profile in component:
+                data_bytes = file_string_to_bytes(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD))
+                profile[OPDM_PROFILE_KEYWORD][DATA_KEYWORD] = data_bytes
+            model[OPDE_COMPONENT_KEYWORD] = component
+            fixed_model_data.append(model)
+        model_data = fixed_model_data
+        content[MODELS_KEYWORD] = model_data
+    return content
+
+
 class HandlerGetModels:
     """
     This one gathers the necessary data
@@ -140,41 +320,38 @@ class HandlerGetModels:
     def __init__(self,
                  logger_handler: ElkLoggingHandler = None,
                  number_of_igm_tries: int = NUMBER_OF_CGM_TRIES,
-                 default_area: str = DEFAULT_AREA,
                  cgm_minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
                  cgm_minio_prefix: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
                  merge_types: str | dict = MERGE_TYPES,
                  use_fallback_merge: bool = USE_FALLBACK_MERGE,
-                 merging_entity: str = MERGING_ENTITY,
                  sleep_between_tries: str = SLEEP_BETWEEN_TRIES,
-                 elk_index_version_number: str = ELASTIC_LOGS_INDEX):
+                 elk_index_version_number: str = ELASTIC_LOGS_INDEX,
+                 debugging: bool = False):
         """
         :param logger_handler: attach rabbit context to it
         :param number_of_igm_tries: max allowed tries before quitting
-        :param default_area: default merging area
         :param cgm_minio_bucket: bucket where combined models are stored
         :param cgm_minio_prefix: prefix of models
         :param merge_types: the default dict consisting areas, included tsos and excluded tsos
         :param use_fallback_merge: use merge types specified in properties section
-        :param merging_entity: the name of the merging entity
         :param sleep_between_tries: sleep between igm requests if failed
         :param elk_index_version_number: elastic index from where look version number
+        :param debugging: whether the debugging is allowed
         """
         self.number_of_igm_tries = number_of_igm_tries
-        self.logger_handler = logger_handler
+        self.logger_handler = logger_handler or logger
         self.opdm_service = None
         if isinstance(merge_types, str):
             merge_types = merge_types.replace("'", "\"")
             merge_types = json.loads(merge_types)
         self.merge_types = merge_types
         self.use_fallback_merge = use_fallback_merge
-        self.merging_entity = merging_entity
         self.cgm_minio_bucket = cgm_minio_bucket
         self.cgm_minio_prefix = cgm_minio_prefix
         self.sleep_between_tries = 0
         self.set_sleep_between_tries(input_value=sleep_between_tries)
         self.elk_index_for_version_number = elk_index_version_number
-        self.default_area = default_area
+        self.debugging = debugging
 
     def set_sleep_between_tries(self, input_value: str | int):
         """
@@ -189,89 +366,108 @@ class HandlerGetModels:
         """
         Checks and parses the json, gathers necessary data and stores it to CGM_Composer and passes it on
         """
-        # Check the args: if there is a dict, json that can be converted to dict and consists a keyword
-        unnamed_args = args
-        input_data = get_payload(unnamed_args, keyword=MERGE_TYPE_KEYWORD)
-        # For debugging
-        manual_testing = False
-        if input_data is not None:
-            if self.logger_handler is not None:
-                # Pack rabbit context to elastic log handler
-                self.logger_handler.extra.update({PROCESS_ID_KEYWORD: input_data.get(PROCESS_ID_KEYWORD),
-                                                  RUN_ID_KEYWORD: input_data.get(RUN_ID_KEYWORD),
-                                                  JOB_ID_KEYWORD: input_data.get(JOB_ID_KEYWORD)})
-                logger.info(f"Logger was updated with process_id, run_id and job_id (under extra fields)")
+        get_igms_try = 1
+        cgm_input = set_cgm_composer_from_input(args, kwargs)
+        if input_data := cgm_input.task_data:
+            self.logger_handler = set_logger_to_report_rabbit_params(log_handler=self.logger_handler,
+                                                                     rabbit_data=input_data)
+            task_properties_data = input_data.get(TASK_PROPERTIES_KEYWORD, {})
+            included_tsos = task_properties_data.get(INCLUDED_TSO_KEYWORD, [])
+            excluded_tsos = task_properties_data.get(EXCLUDED_TSO_KEYWORD, [])
+            local_import_tsos = task_properties_data.get(IMPORT_TSO_LOCALLY_KEYWORD, [])
+            # fallback to values in properties section if needed
+            if self.use_fallback_merge:
+                included_tsos = included_tsos or self.merge_types.get(cgm_input.area, {}).get(INCLUDED_TSO_KEYWORD, [])
+                excluded_tsos = excluded_tsos or self.merge_types.get(cgm_input.area, {}).get(EXCLUDED_TSO_KEYWORD, [])
+                local_import_tsos = (local_import_tsos or
+                                     self.merge_types.get(cgm_input.area, {}).get(IMPORT_TSO_LOCALLY_KEYWORD, []))
+            # One possible field to get from rabbit, currently keep it as is
             number_of_tries = self.number_of_igm_tries
-
-            if TASK_PROPERTIES_KEYWORD in input_data and isinstance(input_data[TASK_PROPERTIES_KEYWORD], dict):
-                # Unpack the properties section
-                task_properties_data = input_data[TASK_PROPERTIES_KEYWORD]
-                if not isinstance(task_properties_data, dict):
-                    handle_not_received_case("Cannot parse the payload in the context")
-                scenario_date = task_properties_data.get(TIMESTAMP_KEYWORD)
-                time_horizon = task_properties_data.get(TIME_HORIZON_KEYWORD)
-                # Get area
-                area = task_properties_data.get(MERGE_TYPE_KEYWORD)
-                if not area:
-                    handle_not_received_case(f"Merging area not defined")
-                # Extract tso data
-                included_tsos = task_properties_data.get(INCLUDED_TSO_KEYWORD, [])
-                excluded_tsos = task_properties_data.get(EXCLUDED_TSO_KEYWORD, [])
-                local_import_tsos = task_properties_data.get(IMPORT_TSO_LOCALLY_KEYWORD, [])
-                if self.use_fallback_merge:
-                    included_tsos = included_tsos or self.merge_types.get(area, {}).get(INCLUDED_TSO_KEYWORD, [])
-                    excluded_tsos = excluded_tsos or self.merge_types.get(area, {}).get(EXCLUDED_TSO_KEYWORD, [])
-                    local_import_tsos = (local_import_tsos or
-                                         self.merge_types.get(area, {}).get(IMPORT_TSO_LOCALLY_KEYWORD, []))
-                get_igms_try = 1
-                available_models, latest_boundary = None, None
-                while get_igms_try <= number_of_tries:
-                    if running_in_local_machine() and manual_testing:
-                        available_models, latest_boundary = get_local_models(time_horizon=time_horizon,
-                                                                             scenario_date=scenario_date,
-                                                                             download_policy=DownloadModels.MINIO,
-                                                                             use_local_files=True)
-                    else:
-                        available_models, latest_boundary = get_models(time_horizon=time_horizon,
-                                                                       scenario_date=scenario_date,
-                                                                       download_policy=DownloadModels.MINIO,
-                                                                       included_tsos=included_tsos,
-                                                                       excluded_tsos=excluded_tsos,
-                                                                       locally_imported_tsos=local_import_tsos)
-                    available_models = [model for model in available_models
-                                        if model.get('pmd:TSO') not in ['APG', 'SEPS', '50Hertz']]
-                    if available_models and latest_boundary:
-                        break
-                    message = []
-                    if not available_models:
-                        message.append('models')
-                    if not latest_boundary:
-                        message.append('latest_boundary')
-                    sleepy_message = f"Going to sleep {self.sleep_between_tries}"
-                    logger.warning(f"Failed get {' and '.join(message)}. {sleepy_message}")
-                    time.sleep(self.sleep_between_tries)
-                    get_igms_try += 1
-                # If no luck report to elastic and call it a day
-                if not available_models and not latest_boundary:
-                    handle_not_received_case(f"Get Models: nothing found")
-                # Get the version number
-                version_number = get_version_number(scenario_date=scenario_date,
-                                                    time_horizon=time_horizon,
-                                                    modeling_entity=f"{self.merging_entity}-{area}")
-                # Pack everything and pass it on
-                cgm_input = CgmModelComposer(igm_models=available_models,
-                                             boundary_data=latest_boundary,
-                                             time_horizon=time_horizon,
-                                             scenario_date=scenario_date,
-                                             area=area,
-                                             merging_entity=self.merging_entity,
-                                             rabbit_data=input_data,
-                                             version=version_number)
-                return cgm_input, args, kwargs
+            available_models, latest_boundary = None, None
+            while get_igms_try <= number_of_tries:
+                if running_in_local_machine() and self.debugging:
+                    available_models, latest_boundary = get_local_models(time_horizon=cgm_input.time_horizon,
+                                                                         scenario_date=cgm_input.scenario_date,
+                                                                         download_policy=DownloadModels.MINIO,
+                                                                         use_local_files=True)
+                else:
+                    available_models, latest_boundary = get_models(time_horizon=cgm_input.time_horizon,
+                                                                   scenario_date=cgm_input.scenario_date,
+                                                                   download_policy=DownloadModels.MINIO,
+                                                                   included_tsos=included_tsos,
+                                                                   excluded_tsos=excluded_tsos,
+                                                                   locally_imported_tsos=local_import_tsos)
+                if available_models and latest_boundary:
+                    break
+                logger.warning(f"Failed get models. Going to sleep {self.sleep_between_tries}")
+                time.sleep(self.sleep_between_tries)
+                get_igms_try += 1
+            # If no luck report to elastic and call it a day
+            if not available_models and not latest_boundary:
+                handle_not_received_case(f"Get Models: nothing found")
+            cgm_input.igm_models = available_models
+            cgm_input.boundary_data = latest_boundary
+            # Get the version number
+            cgm_input.version = get_version_number(scenario_date=cgm_input.scenario_date,
+                                                   time_horizon=cgm_input.time_horizon,
+                                                   modeling_entity=f"{cgm_input.merging_entity}-{cgm_input.area}")
+            content = convert_to_format(cgm_input.get_content())
+            unset_logger_to_report_rabbit_params(self.logger_handler)
+            return content, args, kwargs
         return args, kwargs
 
 
 class HandlerMergeModels:
+
+    def __init__(self,
+                 validate_cgm_model: bool = False):
+        """
+        Initializes the handler which merges and validates the model
+        :param validate_cgm_model: publish cgm to opdm
+        """
+        self.validate_cgm_model = validate_cgm_model
+
+    def handle(self, *args, **kwargs):
+        """
+        Calls the merge and posts the results
+        """
+        # check if CgmModelComposerCgmModelComposer is in args
+        cgm_input = set_cgm_composer_from_input(args, kwargs)
+
+        # If there was nothing, report and return
+        if (cgm_input.igm_models is None) or (cgm_input.boundary_data is None):
+            handle_not_received_case("Merger: missing models")
+            return args, kwargs
+        # This is an example, set fields to logger in each step separately
+        logger_handler = set_logger_to_report_rabbit_params(rabbit_data=cgm_input.task_data)
+        try:
+            cgm_input.compose_cgm()
+            qas_meta_data = cgm_input.get_data_for_qas()
+            # Turn this part on if there is need to go through validate_model
+            if self.validate_cgm_model:
+                # Either validate it if needed
+                opdm_objects = cgm_input.get_cgm(export_type=CgmExportType.FULL)
+                validation_result = validate_cgm_model(opdm_objects,
+                                                       loadflow_parameters=CGM_RELAXED_2,
+                                                       run_element_validations=False,
+                                                       report_data=qas_meta_data,
+                                                       send_qas_report=True,
+                                                       report_type="CGM",
+                                                       debugging=True)
+                logger.info(f"CGM validation: {validation_result.get('VALIDATION_STATUS', {}).get('valid')}")
+            else:
+                # Or send it as is
+                send_cgm_qas_report(qas_meta_data=qas_meta_data)
+        except Exception as ex_msg:
+            handle_not_received_case(f"Merger: {cgm_input.get_log_message()} exception: {ex_msg}")
+        # This is an example, after finishing the step release the fields
+        unset_logger_to_report_rabbit_params(log_handler=logger_handler)
+        content = convert_to_format(cgm_input.get_content())
+        return content, args, kwargs
+
+
+class HandlerPostMergedModel:
+
     def __init__(self,
                  publish_to_opdm: bool = PUBLISH_MERGED_MODEL_TO_OPDM,
                  publish_to_minio: bool = PUBLISH_MERGED_MODEL_TO_MINIO,
@@ -280,7 +476,8 @@ class HandlerMergeModels:
                  save_to_local_storage: bool = SAVE_MERGED_MODEL_TO_LOCAL_STORAGE,
                  publish_to_elastic: bool = PUBLISH_METADATA_TO_ELASTIC,
                  elk_server: str = elastic.ELK_SERVER,
-                 cgm_index: str = ELASTIC_LOGS_INDEX):
+                 cgm_index: str = ELASTIC_LOGS_INDEX,
+                 full_export_needed: bool = MINIO_EXPORT_FULL_MODEL):
         """
         Initializes the handler which starts to send out merged models
         :param publish_to_opdm: publish cgm to opdm
@@ -291,6 +488,7 @@ class HandlerMergeModels:
         :param publish_to_elastic: save metadata to elastic
         :param elk_server: name of the elastic server
         :param cgm_index: index in the elastic where to send the metadata
+        :param full_export_needed: specify if full model (igms+cgm+boundary is needed)
         """
         self.minio_bucket = minio_bucket
         self.folder_in_bucket = folder_in_bucket
@@ -301,47 +499,34 @@ class HandlerMergeModels:
         self.send_to_minio = publish_to_minio
         self.send_to_opdm = publish_to_opdm
         self.send_to_elastic = publish_to_elastic
+        self.export_type = CgmExportType.FULL_FILES_ONLY if full_export_needed else CgmExportType.BARE
 
     def handle(self, *args, **kwargs):
         """
         Calls the merge and posts the results
         """
         # check if CgmModelComposerCgmModelComposer is in args
-        args = flatten_tuple(args)
-
-        cgm_compose = None
-        # Check if CgmModelComposer is in args
-        for item in args:
-            if isinstance(item, CgmModelComposer):
-                cgm_compose = item
-                break
-        # check if CgmModelComposer is in kwargs
-        if cgm_compose is None:
-            for key in kwargs:
-                if isinstance(kwargs[key], CgmModelComposer):
-                    cgm_compose = kwargs[key]
-                    break
+        cgm_input = set_cgm_composer_from_input(args, kwargs)
         # If there was nothing, report and return
-        if cgm_compose is None:
-            handle_not_received_case("Merger: no inputs received")
-            logger.error(f"Pipeline failed, no dataclass present with igms")
+        if not cgm_input.get_cgm():
+            handle_not_received_case("Post merged model: missing CGM")
             return args, kwargs
-        # else merge the model and start sending it out
+        # This is an example, set fields to logger in each step separately
+        logger_handler = set_logger_to_report_rabbit_params(rabbit_data=cgm_input.task_data)
         try:
-            cgm_compose.compose_cgm()
-            # Get the files
-            cgm_files = cgm_compose.cgm
-            folder_name = cgm_compose.get_folder_name()
+            cgm_files_bare = cgm_input.get_cgm(export_type=CgmExportType.BARE)
+            cgm_files = cgm_input.get_cgm(export_type=self.export_type)
+            folder_name = cgm_input.get_folder_name()
             # And send them out
             if self.send_to_opdm:
-                publish_merged_model_to_opdm(cgm_files=cgm_files)
+                publish_merged_model_to_opdm(cgm_files=cgm_files_bare)
             if self.send_to_minio:
                 save_merged_model_to_minio(cgm_files=cgm_files,
                                            minio_bucket=self.minio_bucket,
                                            folder_in_bucket=self.folder_in_bucket)
             # For the future reference, store merge data to elastic
             if self.send_to_elastic:
-                consolidated_metadata = cgm_compose.get_consolidated_metadata()
+                consolidated_metadata = cgm_input.get_consolidated_metadata()
                 publish_metadata_to_elastic(metadata=consolidated_metadata,
                                             cgm_index=self.cgm_index,
                                             elastic_server=self.elastic_server)
@@ -349,19 +534,22 @@ class HandlerMergeModels:
                 save_merged_model_to_local_storage(cgm_files=cgm_files,
                                                    cgm_folder_name=folder_name)
             if running_in_local_machine():
-                succeeded_cases_collector.append(cgm_compose.get_log_message())
+                succeeded_cases_collector.append(cgm_input.get_log_message())
         except Exception as ex_msg:
-            handle_not_received_case(f"Merger: {cgm_compose.get_log_message()} exception: {ex_msg}")
-        return args, kwargs
+            handle_not_received_case(f"Merger: {cgm_input.get_log_message()} exception: {ex_msg}")
+        # This is an example, after finishing the step release the fields
+        content = convert_to_format(cgm_input.get_content())
+        unset_logger_to_report_rabbit_params(log_handler=logger_handler)
+        return content, args, kwargs
 
 
 if __name__ == "__main__":
-
+    elk_handler = initialize_custom_logger()
     logging.basicConfig(
         format='%(levelname) -10s %(asctime) -20s %(name) -45s %(funcName) -35s %(lineno) -5d: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         level=logging.INFO,
-        handlers=[logging.StreamHandler(sys.stdout)]
+        # handlers=[logging.StreamHandler(sys.stdout)]
     )
 
     testing_time_horizon = '1D'
@@ -418,10 +606,11 @@ if __name__ == "__main__":
                 }
         }
 
-        message_handlers = [HandlerGetModels(),
-                            HandlerMergeModels(publish_to_opdm=False,
-                                               publish_to_minio=False,
-                                               save_to_local_storage=True)]
+        message_handlers = [HandlerGetModels(debugging=False),
+                            HandlerMergeModels(validate_cgm_model=True),
+                            HandlerPostMergedModel(publish_to_opdm=False,
+                                                   publish_to_minio=False,
+                                                   save_to_local_storage=True)]
         body = (example_input_from_rabbit,)
         properties = {}
         for message_handler in message_handlers:

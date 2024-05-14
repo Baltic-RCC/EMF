@@ -1,3 +1,4 @@
+import copy
 from datetime import timedelta
 from enum import Enum
 from io import BytesIO
@@ -11,20 +12,25 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
-from emf.common.integrations.object_storage.object_storage import query_data, get_content, query_data_as_is
-from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path
+from emf.common.integrations.object_storage.object_storage import query_data, query_data_as_is
+from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogGatherer, \
+    PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
                                       NETWORK_KEYWORD, NETWORK_META_KEYWORD, get_metadata_from_filename, attr_to_dict)
-from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError,
-                                         parse_boundary_message_type_profile, OPDE_COMPONENT_KEYWORD,
+from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError, OPDE_COMPONENT_KEYWORD,
                                          MODEL_MESSAGE_TYPE_KEYWORD,
                                          OPDM_PROFILE_KEYWORD, DATA_KEYWORD, validate_models,
                                          get_one_set_of_igms_from_local_storage, PMD_TSO_KEYWORD,
-                                         PMD_SCENARIO_DATE_KEYWORD, OPDE_DEPENDENCIES_KEYWORD, OPDE_DEPENDS_ON_KEYWORD,
-                                         OPDM_OPDM_OBJECT_KEYWORD, PMD_TIME_HORIZON_KEYWORD, PMD_VERSION_NUMBER_KEYWORD,
+                                         PMD_SCENARIO_DATE_KEYWORD, PMD_TIME_HORIZON_KEYWORD,
+                                         PMD_VERSION_NUMBER_KEYWORD,
                                          MODEL_MODELING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD,
                                          MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, MODEL_DOMAIN_KEYWORD,
-                                         MODEL_MERGING_ENTITY_KEYWORD)
+                                         MODEL_MERGING_ENTITY_KEYWORD, PMD_MODEL_PART_REFERENCE_KEYWORD,
+                                         get_meta_from_filename, PMD_MERGING_AREA_KEYWORD, PMD_MERGING_ENTITY_KEYWORD,
+                                         PMD_MODEL_ID_KEYWORD, PMD_CREATION_DATE_KEYWORD,
+                                         PMD_MODELING_AUTHORITY_SET_KEYWORD, PMD_CGMES_PROFILE_KEYWORD,
+                                         OPDE_OBJECT_TYPE_KEYWORD, IGM_OBJECT_TYPE, BOUNDARY_OBJECT_TYPE,
+                                         CGM_OBJECT_TYPE, PMD_FILENAME_KEYWORD)
 import logging
 import json
 from emf.loadflow_tool import loadflow_settings
@@ -122,6 +128,27 @@ JOB_ID_KEYWORD = 'job_id'
 FULL_PATH_KEYWORD = 'full_path'
 
 LOCAL_STORAGE_LOCATION = './merged_examples/'
+IGM_TYPE = 'IGM'
+CGM_TYPE = 'CGM'
+BOUNDARY_TYPE = 'BOUNDARY'
+OPDM_FORMAT = 'OPDM_FORMAT'
+IGM_FILES = ['EQ', 'TP']
+CGM_FILES = ['SSH', 'SV']
+BOUNDARY_FILES = ['EQ_BD', 'TP_BD']
+
+MODELS_KEYWORD = 'Models'
+TASK_KEYWORD = 'Task'
+
+TASK_PROPERTIES_KEYWORD = 'task_properties'
+TIMESTAMP_KEYWORD = 'timestamp_utc'
+MERGE_TYPE_KEYWORD = 'merge_type'
+TIME_HORIZON_KEYWORD = 'time_horizon'
+AREA_KEYWORD = 'area'
+INCLUDED_TSO_KEYWORD = 'included'
+EXCLUDED_TSO_KEYWORD = 'excluded'
+IMPORT_TSO_LOCALLY_KEYWORD = 'local_import'
+VERSION_NUMBER_KEYWORD = 'version_no'
+MERGING_ENTITY_KEYWORD = 'merging_entity'
 
 
 class DownloadModels(Enum):
@@ -136,6 +163,38 @@ class DownloadModels(Enum):
 class CgmModelType(Enum):
     BOUNDARY = 1
     IGM = 2
+
+
+class CgmExportType(Enum):
+    """
+    Define the set of files for export
+    Note that Pypowsybl requires a full set ('EQ', 'TP', 'SSH', 'SV') and boundary ('EQBD' mad 'TPBD') files. At the
+    same time there should not be present two same process files per tso (meaning that in merged model SSH files from
+    tso's must be overwritten by merged SSH files)
+    So, to have a custom format:
+    a) define which files from igms are needed (EQ, TP, SSH, SV)
+    b) define which files from the cgm are needed (SSH, SV)
+    c) define which files from boundary are needed (EQ_BD, TP_BD)
+    d) choose either dictionary representation (OPDM_FORMAT= True, is used to import to pypowsybl), or not (get files
+    as BytesIO objects)
+    """
+    # Get everything
+    FULL = {IGM_OBJECT_TYPE: IGM_FILES,
+            CGM_OBJECT_TYPE: CGM_FILES,
+            BOUNDARY_OBJECT_TYPE: BOUNDARY_FILES,
+            OPDM_FORMAT: True}
+    FULL_FILES_ONLY = {IGM_OBJECT_TYPE: IGM_FILES,
+                       CGM_OBJECT_TYPE: CGM_FILES,
+                       BOUNDARY_OBJECT_TYPE: BOUNDARY_FILES,
+                       OPDM_FORMAT: False}
+    ALL = {}
+    ALL_FILES_ONLY = {OPDM_FORMAT: False}
+    # Get cgm as is
+    BARE = {}
+
+    @classmethod
+    def _missing_(cls, value: object):
+        return cls.BARE
 
 
 class IntraDayPastScenarioDateException(Exception):
@@ -250,20 +309,23 @@ def get_latest_boundary(opdm_client: OPDM = None, download_policy: DownloadModel
     if download_policy == DownloadModels.MINIO:
         # Not the quickest way to get it
         # boundary_data = get_boundary_data_from_minio()
+        # Little bit quicker way
+        boundary_data = get_boundary_from_elastic_minio()
         return boundary_data
     try:
         opdm_client = opdm_client or OPDM()
         boundary_data = opdm_client.get_latest_boundary()
         # if model_retriever_pipeline:
         #     boundary_data = run_model_retriever_pipeline(opdm_models=boundary_data, model_type=CgmModelType.BOUNDARY)
-        # raise zeep.exceptions.Fault
     except zeep.exceptions.Fault as fault:
         logger.error(f"Could not get boundary data from OPDM: {fault}")
-        # boundary_data = get_boundary_data_from_minio()
         # should be query_data, but for now ask it minio
+        # boundary_data = get_boundary_data_from_minio()
+        boundary_data = get_boundary_from_elastic_minio()
     except Exception as ex:
         logger.error(f"Undefined exception when getting boundary data: {ex}")
         # boundary_data = get_boundary_data_from_minio()
+        boundary_data = get_boundary_from_elastic_minio()
     finally:
         return boundary_data
 
@@ -325,9 +387,6 @@ def get_models(time_horizon: str = TIME_HORIZON,
                                                      scenario_date=scenario_date,
                                                      included_tsos=included_tsos,
                                                      excluded_tsos=excluded_tsos)
-        # If getting boundary failed try to get it from the dependencies
-        if not boundary_data:
-            boundary_data = get_boundary_from_dependencies(igm_models=minio_models)
     # If something was got from opdm, run through it model_retriever pipeline
     if download_policy == DownloadModels.OPDM:
         if model_retriever_pipeline and opdm_models:
@@ -399,33 +458,23 @@ def get_models_from_opdm(time_horizon: str,
         return available_models
 
 
-def get_boundary_from_dependencies(igm_models: list):
+def get_boundary_from_elastic_minio():
     """
-    Gets boundary data from dependencies
-    Lists all dependencies from models, filters those which are BDS, takes the latest, unpacks it, downloads files to it
-    and if everything went well then returns the result
-    :param igm_models: list of igm models
-    :return: boundary data if everything went successfully, None otherwise
+    Asks latest boundary entry from elastic and fetches the corresponding files from minio.
+    1) gets by opde:Object-Type: "BDS
+    2) Sorts the results by pmd:scenarioDate (TODO check if this approach is valid)
+    3) takes the latest entry
+    4) fetches minio models
     """
-    # Get all dependencies
-    try:
-        dependencies = [model.get(OPDE_DEPENDENCIES_KEYWORD, {}).get(OPDE_DEPENDS_ON_KEYWORD) for model in igm_models]
-        boundaries = [dependency for dependency in dependencies
-                      if dependency.get(OPDM_OPDM_OBJECT_KEYWORD, {}).get('opde:Object-Type') == 'BDS']
-        latest_date = max([parse_datetime(entry.get(OPDM_OPDM_OBJECT_KEYWORD, {}).get(PMD_SCENARIO_DATE_KEYWORD))
-                           for entry in boundaries])
-        latest_boundaries = [boundary for boundary in boundaries
-                             if
-                             parse_datetime(boundary.get(OPDM_OPDM_OBJECT_KEYWORD, {}).
-                                            get(PMD_SCENARIO_DATE_KEYWORD)) == latest_date]
-        if (len(latest_boundaries) > 0 and
-                (latest_boundary_value := (latest_boundaries[0]).get(OPDM_OPDM_OBJECT_KEYWORD))):
-            latest_boundary_value = get_content(metadata=latest_boundary_value)
-            if all(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD)
-                   for profile in dict(latest_boundary_value).get(OPDE_COMPONENT_KEYWORD, [])):
-                return latest_boundary_value
-    except ValueError:
-        logger.warning(f"Dependencies do not contain any boundary data")
+    bds_query = {"term": {"opde:Object-Type.keyword": "BDS"}}
+    sort_by_date = {"pmd:scenarioDate": {"order": "desc"}}
+    full_query = {"bool": {"must": [bds_query]}}
+    query_response = query_data_as_is(query=full_query, sort=sort_by_date, return_payload=True, match_size='1')
+    if latest_boundary := (query_response[0]):
+        # Check if all files are present, if are then return if not then return None and catch it later
+        if all(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD)
+               for profile in dict(latest_boundary).get(OPDE_COMPONENT_KEYWORD, [])):
+            return latest_boundary
     return None
 
 
@@ -531,38 +580,6 @@ def get_filename_dataframe_from_minio(minio_bucket: str,
             continue
     exploded_results = pandas.DataFrame(file_name_list)
     return exploded_results
-
-
-def get_boundary_data_from_minio(minio_bucket: str = EMF_OS_MINIO_OPDM_DATA_BUCKET,
-                                 sub_folder: str = EMF_OS_MINIO_OPDM_DATA_FOLDER,
-                                 minio_client: minio.ObjectStorage = None):
-    """
-    Searches given bucket for boundary data (ENTSOE files) takes the last entries by message types
-    :param minio_bucket: bucket where to search from
-    :param sub_folder: ease the search by giving prefix
-    :param minio_client: instance on minio ObjectStorage if given
-    :return boundary data
-    """
-    minio_client = minio_client or minio.ObjectStorage()
-    boundary_value = {OPDE_COMPONENT_KEYWORD: []}
-    file_list = get_filename_dataframe_from_minio(minio_bucket=minio_bucket,
-                                                  sub_folder=sub_folder,
-                                                  minio_client=minio_client)
-    boundaries = file_list[file_list[MODEL_MODELING_ENTITY_KEYWORD] == 'ENTSOE']
-    filtered = boundaries.loc[boundaries.groupby(MODEL_MESSAGE_TYPE_KEYWORD)[MODEL_SCENARIO_TIME_KEYWORD].idxmax()]
-    # Check if input is valid
-    if len(filtered.index) != 2 or sorted(filtered[MODEL_MESSAGE_TYPE_KEYWORD]) != ['EQBD', 'TPBD']:
-        return None
-    filtered_elements = filtered.to_dict('records')
-    for opdm_profile_content in filtered_elements:
-        object_name = opdm_profile_content[FULL_PATH_KEYWORD]
-        downloaded_file = minio_client.download_object(bucket_name=minio_bucket, object_name=object_name)
-        opdm_profile_content[MODEL_MESSAGE_TYPE_KEYWORD] = parse_boundary_message_type_profile(
-            opdm_profile_content[MODEL_MESSAGE_TYPE_KEYWORD])
-        opdm_profile_content[DATA_KEYWORD] = downloaded_file
-        opdm_profile_content.pop(FULL_PATH_KEYWORD)
-        boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
-    return boundary_value
 
 
 def get_igm_models_from_minio_by_metadata(tsos: list | str,
@@ -744,7 +761,7 @@ def get_version_number(scenario_date: str,
                        start_looking: str | datetime.date = None,
                        use_elastic: bool = True,
                        use_minio: bool = True,
-                       default_version_number='104'):
+                       default_version_value='104'):
     """
     Gets a version number from elastic and or minio.
     :param scenario_date: the date by which to look the version number
@@ -753,10 +770,10 @@ def get_version_number(scenario_date: str,
     :param start_looking: can be used to cut down the elastic logs
     :param use_elastic: search version number from elastic
     :param use_minio: search version number from minio
-    :param default_version_number: return value if not found
+    :param default_version_value: return value if not found
     :return largest version number from minio, elastic or default one
     """
-    version_number = default_version_number
+    version_number = default_version_value
     version_number_minio = None
     version_number_elastic = None
     if use_minio:
@@ -784,7 +801,7 @@ def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_p
     Taken as is from previous code
     :param time_horizon: time_horizon of the merged model
     :param scenario_date: scenario date of the merged model
-    :param skip_past_scenario_dates: either to skip past intra day scenarios
+    :param skip_past_scenario_dates: either to skip past intraday scenarios
     :return updated time horizon value
     """
     if time_horizon == "ID":
@@ -797,6 +814,35 @@ def get_time_horizon_for_intra_day(time_horizon: str, scenario_date: str, skip_p
             raise IntraDayPastScenarioDateException(f"Skipping merge, past timestamp for intra day")
         time_horizon = f"{int(time_delta.seconds / 3600) + 1 :02d}"
     return time_horizon
+
+
+def get_profiles_by_cgmes_type(profiles: [], cgmes_types: []):
+    """
+    Filters profiles by given types
+    :param profiles: list of dictionaries containing pmd:cgmesProfile dictionaries
+    :param cgmes_types: list of CGMES types (['SSH', 'SV'] for example)
+    :return updated profiles list
+    """
+    if isinstance(cgmes_types, list):
+        return [profile for profile in profiles
+                if profile.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_CGMES_PROFILE_KEYWORD) in cgmes_types]
+    return profiles
+
+
+def get_files_from_opdm_objects(opdm_objects: list):
+    """
+    From the input gets data field and filename as list of BytesIO objects
+    :param opdm_objects: list of opdm objects
+    """
+    file_data = []
+    for component in opdm_objects:
+        for profile in component.get(OPDE_COMPONENT_KEYWORD, []):
+            profile = profile.get(OPDM_PROFILE_KEYWORD, {})
+            if DATA_KEYWORD in profile:
+                file_datum = BytesIO(profile.get(DATA_KEYWORD))
+                file_datum.name = profile.get(PMD_FILENAME_KEYWORD)
+                file_data.append(file_datum)
+    return file_data
 
 
 class CgmModelComposer:
@@ -814,7 +860,8 @@ class CgmModelComposer:
                  merging_entity: str = MERGING_ENTITY,
                  namespace_map=None,
                  rdf_map_loc: str = RDF_MAP_JSON,
-                 rabbit_data: dict = None):
+                 task_data: dict = None,
+                 debugging: bool = False):
         """
         Constructor, note that data gathering and filtering must be done beforehand
         This just stores and merges
@@ -828,14 +875,14 @@ class CgmModelComposer:
         :param merging_entity: the author of the merged model
         :param namespace_map:
         :param rdf_map_loc:
-        :param rabbit_data:
+        :param task_data:
         """
+        if igm_models is None:
+            igm_models = []
+        self.igm_models = igm_models
+        self.boundary_data = boundary_data
         if namespace_map is None:
             namespace_map = NAMESPACE_MAP
-        self.igm_models = igm_models
-        if self.igm_models is None:
-            self.igm_models = []
-        self.boundary_data = boundary_data
         self.sv_data = None
         self.ssh_data = None
 
@@ -843,16 +890,28 @@ class CgmModelComposer:
         self.area = area
         self.scenario_date = scenario_date
 
-        self._version = version
+        self.version = version
         self.merging_entity = merging_entity
         self._merged_model = None
         self.merge_report = {}
         self._opdm_data = None
         self._opdm_object_meta = None
         self.namespace_map = namespace_map
-        self.cgm = None
+        self._cgm = None
         self.rdf_map = load_rdf_map(rdf_map_loc)
-        self.rabbit_data = rabbit_data
+        self.task_data = task_data
+        self.pypowsybl_gatherer = None
+        self.debugging = debugging
+        if self.debugging:
+            self.pypowsybl_gatherer = PyPowsyblLogGatherer(topic_name='IGM_merge',
+                                                           send_to_elastic=False,
+                                                           upload_to_minio=False,
+                                                           report_on_command=False,
+                                                           tso='_'.join([model.get(PMD_TSO_KEYWORD, '') for model in
+                                                                         self.igm_models]),
+                                                           logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
+                                                           print_to_console=False,
+                                                           reporting_level=logging.ERROR)
 
     def get_tso_list(self):
         return ', '.join([model.get(PMD_TSO_KEYWORD, '') for model in self.igm_models])
@@ -863,12 +922,74 @@ class CgmModelComposer:
                 f"area {self.area}, "
                 f"tsos: {self.get_tso_list()}")
 
+    def get_task_data(self):
+        """
+        Packages necessary fields to rabbit task for passing on
+        """
+        task_content = self.task_data.get(TASK_PROPERTIES_KEYWORD, {})
+        task_content[TIMESTAMP_KEYWORD] = self.scenario_date
+        task_content[TIME_HORIZON_KEYWORD] = self.time_horizon
+        task_content[MERGE_TYPE_KEYWORD] = self.area
+        task_content[VERSION_NUMBER_KEYWORD] = self.version
+        task_content[MERGING_ENTITY_KEYWORD] = self.merging_entity
+        self.task_data[TASK_PROPERTIES_KEYWORD] = task_content
+        return self.task_data
+
+    def set_task_data(self, task_data: dict = None):
+        if task_data:
+            task_content = task_data.get(TASK_PROPERTIES_KEYWORD, {})
+            self.scenario_date = task_content.get(TIMESTAMP_KEYWORD, self.scenario_date)
+            self.time_horizon = task_content.get(TIME_HORIZON, self.time_horizon)
+            self.area = task_content.get(MERGE_TYPE_KEYWORD, self.area)
+            self.version = task_content.get(VERSION_NUMBER_KEYWORD, self.version)
+            self.merging_entity = task_content.get(MERGING_ENTITY_KEYWORD, self.merging_entity)
+            self.task_data = task_data
+
+    def get_content(self):
+        """
+        Gets data in specified format, currently, dict or json
+        :return content of the CgmComposer
+        """
+        return {TASK_KEYWORD: self.get_task_data(),
+                MODELS_KEYWORD: self.get_cgm_igms_boundary_as_opde_object(export_type=CgmExportType.ALL)}
+
+    def set_models(self, models_data: dict | list = None):
+        """
+        Divides the input to igms, cgm and boundary
+        :param models_data:
+        """
+        # If it is dictionary take the values
+        if not models_data:
+            return False
+        if isinstance(models_data, dict):
+            if IGM_OBJECT_TYPE in models_data:
+                self.igm_models = models_data.get(IGM_OBJECT_TYPE, self.igm_models)
+            if BOUNDARY_OBJECT_TYPE in models_data:
+                self.boundary_data = models_data.get(BOUNDARY_OBJECT_TYPE, self.boundary_data)
+            if CGM_OBJECT_TYPE in models_data:
+                self._cgm = models_data.get(CGM_OBJECT_TYPE, self._cgm)
+        elif isinstance(models_data, list):
+            self.igm_models = [model for model in models_data
+                               if model.get(OPDE_OBJECT_TYPE_KEYWORD) == IGM_OBJECT_TYPE]
+            self.boundary_data = next((model for model in models_data
+                                       if model.get(OPDE_OBJECT_TYPE_KEYWORD) == BOUNDARY_OBJECT_TYPE), None)
+            self._cgm = next((model for model in models_data
+                              if model.get(OPDE_OBJECT_TYPE_KEYWORD) == CGM_OBJECT_TYPE), None)
+            if self._cgm:
+                cgm_data = [self._cgm] if not isinstance(self._cgm, list) else self._cgm
+                file_data = get_files_from_opdm_objects(cgm_data)
+                self._cgm = file_data
+        return (self.igm_models is not None) or (self.boundary_data is not None) or (self._cgm is not None)
+
     @property
     def merged_model(self):
         """
         Gets merged model
         """
         if self._merged_model is None and self.igm_models and self.boundary_data:
+            # Dependencies, timeframes needed from somewhere
+            # Extract dependencies from the metadata from the igms
+            # IGM created, processType some additional field
             self._merged_model = load_model(self.igm_models + [self.boundary_data])
             # Run LF
             self.merge_report = {}
@@ -925,22 +1046,134 @@ class CgmModelComposer:
                                       'file_type': "xml"}
         return self._opdm_object_meta
 
-    @property
-    def version(self):
+    def get_cgm_meta_for_qas(self, default_value: str = ''):
+        meta_data = {'creationDate': self.opdm_object_meta.get(PMD_CREATION_DATE_KEYWORD, default_value),
+                     'modelid': self.opdm_object_meta.get(PMD_MODEL_ID_KEYWORD, default_value),
+                     'scenarioDate': self.opdm_object_meta.get(PMD_SCENARIO_DATE_KEYWORD, default_value),
+                     'versionNumber': self.opdm_object_meta.get(PMD_VERSION_NUMBER_KEYWORD, default_value),
+                     'timeHorizon': self.opdm_object_meta.get(PMD_TIME_HORIZON_KEYWORD, default_value),
+                     'mergingEntity': self.opdm_object_meta.get(PMD_MERGING_ENTITY_KEYWORD, default_value),
+                     'mergingArea': self.opdm_object_meta.get(PMD_MERGING_AREA_KEYWORD, default_value)
+                     }
+        return {'MergeInformation': {'MetaData': meta_data}}
+
+    def get_igm_metas_for_qas(self, default_value: str = ''):
+        igm_metas = []
+        for igm in self.igm_models:
+            meta_data = {'creationDate': igm.get(PMD_CREATION_DATE_KEYWORD, default_value),
+                         'timeHorizon': igm.get(PMD_TIME_HORIZON_KEYWORD, default_value),
+                         'scenarioDate': igm.get(PMD_SCENARIO_DATE_KEYWORD, default_value),
+                         'modelingAuthoritySet': igm.get(PMD_MODELING_AUTHORITY_SET_KEYWORD, default_value),
+                         'modelPartReference': igm.get(PMD_MODEL_PART_REFERENCE_KEYWORD, default_value),
+                         'versionNumber': igm.get(PMD_VERSION_NUMBER_KEYWORD, default_value),
+                         'valid': igm.get('valid', default_value)}
+            components = [{'modelid': profile.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_MODEL_ID_KEYWORD, default_value)}
+                          for profile in igm.get(OPDE_COMPONENT_KEYWORD, [])]
+            meta_data['Component'] = components
+            igm_metas.append({'MetaData': meta_data})
+        return {'ModelInformation': igm_metas}
+
+    def get_loadflow_results_for_qas(self):
+        load_flow_results = {}
+        if self.merge_report:
+            load_flow_results = {'LoadflowResults': self.merge_report.get('LOADFLOW_RESULTS', [])}
+            for island in load_flow_results.get('LoadflowResults'):
+                # Convert ComponentStatus.CONVERGED to CONVERGED
+                try:
+                    island['status'] = str(island['status'].name)
+                except Exception:
+                    pass
+        return load_flow_results
+
+    def get_data_for_qas(self):
         """
-        Gets version
+        Gets data for qas report
+        Note that the content is currently preliminary and might change according to the need of the report
         """
-        return self._version
+        # Get cgm meta and igm metas
+        # return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas()
+        # Get cgm meta, igm metas and loadflow results
+        return self.get_cgm_meta_for_qas() | self.get_igm_metas_for_qas() | self.get_loadflow_results_for_qas()
+
+    def get_cgm_as_opde_object(self):
+        """
+        Returns cgm as opde object
+        # TODO what is object type for the CGM, is it 'CGM' or area abbreviation ('BA', 'EU')
+        """
+        cgm_value = {OPDE_OBJECT_TYPE_KEYWORD: CGM_OBJECT_TYPE, OPDE_COMPONENT_KEYWORD: []}
+        if not self._cgm:
+            # self.compose_cgm()
+            return None
+        for file_instance in self._cgm:
+            file_name = file_instance.name
+            meta_for_data = get_meta_from_filename(file_name)
+            opdm_profile_content = meta_for_data
+            opdm_profile_content[DATA_KEYWORD] = file_instance.getvalue()
+            cgm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
+        return cgm_value
+
+    def get_cgm_igms_boundary_as_opde_object(self, export_type: CgmExportType = CgmExportType.ALL):
+        """
+        Packages igms, boundary and cgm to be ready to be imported to pypowsybl
+        :param export_type: specify which files from where are exported. Note that export works 'exists' mode
+        :return list of requested instances either dicts or file objects
+        """
+        type_values = export_type.value
+        cgm_file_list = type_values.get(CGM_OBJECT_TYPE)
+        igm_file_list = type_values.get(IGM_OBJECT_TYPE)
+        boundary_file_list = type_values.get(BOUNDARY_OBJECT_TYPE)
+        opdm_format = type_values.get(OPDM_FORMAT, True)
+        cgm_set = self.get_cgm_as_opde_object()
+        opdm_objects = []
+        if cgm_set:
+            if cgm_file_list:
+                cgm_set[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(
+                    profiles=cgm_set[OPDE_COMPONENT_KEYWORD],
+                    cgmes_types=cgm_file_list)
+            opdm_objects = [cgm_set]
+        if igm_file_list:
+            for old_model in self.igm_models:
+                model = copy.deepcopy(old_model)
+                model[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(profiles=model[OPDE_COMPONENT_KEYWORD],
+                                                                           cgmes_types=igm_file_list)
+                opdm_objects.append(model)
+        else:
+            opdm_objects.extend(self.igm_models)
+        if boundary_file_list:
+            boundary = copy.deepcopy(self.boundary_data)
+            boundary[OPDE_COMPONENT_KEYWORD] = get_profiles_by_cgmes_type(profiles=boundary[OPDE_COMPONENT_KEYWORD],
+                                                                          cgmes_types=boundary_file_list)
+            opdm_objects.append(boundary)
+        else:
+            opdm_objects.append(self.boundary_data)
+        if not opdm_format:
+            return get_files_from_opdm_objects(opdm_objects=opdm_objects)
+        return opdm_objects
+
+    def get_cgm(self, export_type: CgmExportType = CgmExportType.BARE):
+        """
+        Gets cgm model
+        :param export_type: specify export type (enum consisting dicts with file types)
+        :return requested cgm model
+        """
+        if export_type == CgmExportType.BARE:
+            return self._cgm
+        return self.get_cgm_igms_boundary_as_opde_object(export_type=export_type)
 
     def set_sv_file(self,
                     merged_model=None,
                     opdm_object_meta=None):
         merged_model = merged_model or self.merged_model
         opdm_object_meta = opdm_object_meta or self.opdm_object_meta
-        export_report = pypowsybl.report.Reporter()
+        # export_report = pypowsybl.report.Reporter()
         exported_model = export_model(network=merged_model[NETWORK_KEYWORD],
                                       opdm_object_meta=opdm_object_meta,
-                                      profiles=["SV"])
+                                      profiles=["SV"],
+                                      debugging=self.debugging)
+        if self.debugging and not exported_model:
+            self.pypowsybl_gatherer.stop_working()
+            raise Exception(f"Failed to export model")
+
         logger.info(f"Exporting merged model to {exported_model.name}")
         # Load SV data
         sv_data = pandas.read_RDF([exported_model])
@@ -1090,7 +1323,7 @@ class CgmModelComposer:
                                    export_type="xml_per_instance_zip_per_xml",
                                    debug=False,
                                    export_to_memory=True))
-        self.cgm = export
+        self._cgm = export
         return export
 
     def compose_cgm(self):
@@ -1106,10 +1339,14 @@ class CgmModelComposer:
                     f"version: {self.version}, "
                     f"area: {self.area}, "
                     f"tsos: {', '.join([model.get(PMD_TSO_KEYWORD) for model in self.igm_models])}")
+        if self.debugging:
+            self.pypowsybl_gatherer.start_working()
         self.set_sv_file()
         self.set_ssh_files()
         self.set_cgm()
-        return self.cgm
+        if self.debugging:
+            self.pypowsybl_gatherer.stop_working()
+        return self.get_cgm()
 
     def get_consolidated_metadata(self, rabbit_data: dict = None, additional_fields: dict = None):
         """
@@ -1117,7 +1354,7 @@ class CgmModelComposer:
         NOTE! Change this
         """
         if not rabbit_data:
-            rabbit_data = self.rabbit_data
+            rabbit_data = self.task_data
         consolidated_data = self.opdm_object_meta
         consolidated_data[PROCESS_ID_KEYWORD] = rabbit_data.get(PROCESS_ID_KEYWORD)
         consolidated_data[RUN_ID_KEYWORD] = rabbit_data.get(RUN_ID_KEYWORD)
@@ -1127,9 +1364,13 @@ class CgmModelComposer:
         return consolidated_data
 
     def get_folder_name(self):
+        """
+        Modify this to generate folder name/path where to save the models in local storage
+        NB! This is meant for testing purposes only
+        """
         model_date = f"{parse_datetime(self.scenario_date):%Y%m%dT%H%MZ}"
         operator_name = '-'.join([self.merging_entity, self.area])
-        folder_name = '_'.join([model_date, self.time_horizon, operator_name, self._version])
+        folder_name = '_'.join([model_date, self.time_horizon, operator_name, self.version])
         return folder_name
 
 
@@ -1273,32 +1514,43 @@ if __name__ == '__main__':
         handlers=[logging.StreamHandler(sys.stdout)]
     )
     testing_time_horizon = '1D'
-    testing_scenario_date = "2024-04-12T14:30:00+00:00"
+    testing_scenario_date = "2024-05-06T21:30:00+00:00"
     testing_area = 'EU'
     take_data_from_local = True
     testing_merging_entity = MERGING_ENTITY
-
-    wanted_tsos = []
+    default_version_number = '001'
+    wanted_tsos = ['LITGRID']
+    # wanted_tsos = []
+    # wanted_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
+    # unwanted_tsos = ['APG']
     unwanted_tsos = []
-
+    test_version_number = None
     if take_data_from_local:
-        folder_to_study = 'TC3_T1_Conform'
+        # folder_to_study = 'TC3_T1_Conform'
+        # folder_to_study = 'opdm_successful_case'
+        folder_to_study = 'test_case_1430_1204_2024'
+        # testing_time_horizon = '06'
+        testing_time_horizon = '1D'
+        # testing_scenario_date = "2024-01-24T11:30:00+00:00"
+        testing_scenario_date = '2024-04-12T14:30:00+00:00'
+        default_version_number = '003'
         igm_model_data, latest_boundary_data = get_local_entsoe_files(path_to_directory=folder_to_study,
                                                                       allow_merging_entities=False,
                                                                       igm_files_needed=['EQ'])
         igm_model_data = filter_models_by_tsos(igm_models=igm_model_data,
                                                included_tsos=wanted_tsos,
                                                excluded_tsos=unwanted_tsos)
+        test_version_number = default_version_number
     else:
-
         igm_model_data, latest_boundary_data = get_models(time_horizon=testing_time_horizon,
                                                           scenario_date=testing_scenario_date,
                                                           included_tsos=wanted_tsos,
                                                           excluded_tsos=unwanted_tsos,
                                                           download_policy=DownloadModels.MINIO)
-    test_version_number = get_version_number(scenario_date=testing_scenario_date,
-                                             time_horizon=testing_time_horizon,
-                                             modeling_entity=f"{testing_merging_entity}-{testing_area}")
+    test_version_number = test_version_number or get_version_number(scenario_date=testing_scenario_date,
+                                                                    time_horizon=testing_time_horizon,
+                                                                    modeling_entity=f"{testing_merging_entity}-"
+                                                                                    f"{testing_area}")
 
     if not igm_model_data or not latest_boundary_data:
         logger.error(f"Terminating")
@@ -1309,9 +1561,15 @@ if __name__ == '__main__':
                                  scenario_date=testing_scenario_date,
                                  area=testing_area,
                                  merging_entity=testing_merging_entity,
-                                 version=test_version_number)
-    cgm = cgm_input.compose_cgm()
+                                 version=test_version_number,
+                                 debugging=True)
+    bare_cgm = cgm_input.compose_cgm()
+    all_files = cgm_input.get_cgm(export_type=CgmExportType.ALL_FILES_ONLY)
+    full_cgm = cgm_input.get_cgm(export_type=CgmExportType.FULL)
+    # data_for_qas = cgm_input.get_data_for_qas()
+    # logger.info(f"For qas: {data_for_qas}")
     test_folder_name = cgm_input.get_folder_name()
-    save_merged_model_to_local_storage(cgm_files=cgm, cgm_folder_name=test_folder_name)
+    save_merged_model_to_local_storage(cgm_files=all_files, cgm_folder_name=test_folder_name)
+    logger.info("The end...")
     # save_merged_model_to_minio(cgm_files=cgm)
     # publish_merged_model_to_opdm(cgm_files=cgm)

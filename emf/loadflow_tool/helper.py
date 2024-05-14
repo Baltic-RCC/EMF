@@ -169,12 +169,6 @@ def opdmprofile_to_bytes(opdm_profile):
     # before proceeding further
     data = BytesIO(opdm_profile['opdm:Profile']['DATA'])
     file_name = opdm_profile['opdm:Profile']['pmd:fileName']
-    if zipfile.is_zipfile(data) and not file_name.endswith('.zip'):
-        xml_tree_file = get_xml_from_zip(data)
-        bytes_object = BytesIO()
-        xml_tree_file.write(bytes_object, encoding='utf-8')
-        bytes_object.seek(0)
-        data = bytes_object
     data.name = file_name
     return data
 
@@ -345,7 +339,7 @@ def get_metadata_from_filename(file_name):
     return file_metadata
 
 
-def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
+def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None, debugging: bool = False, reporter=None):
 
     if profiles:
         profiles = ",".join([str(profile) for profile in profiles])
@@ -353,17 +347,39 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
         profiles = "SV,SSH,TP,EQ"
 
     file_base_name = filename_from_metadata(opdm_object_meta).split(".xml")[0]
+    export_parameters = {"iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
+                         "iidm.export.cgmes.base-name": file_base_name, "iidm.export.cgmes.profiles": profiles,
+                         "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+    export_format = "CGMES"
+    # FOLLOWING IS A WORKAROUND TO BYPASS PYPOWSYBL NULLPOINTER EXCEPTION!
+    # PROCEED WITH CAUTION
     try:
-        bytes_object = network.save_to_binary_buffer(
-            format="CGMES",
-            parameters={
-                "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
-                "iidm.export.cgmes.base-name": file_base_name,
-                "iidm.export.cgmes.profiles": profiles,
-                "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
-            })
+        bytes_object = network.save_to_binary_buffer(format=export_format,
+                                                     parameters=export_parameters,
+                                                     reporter=reporter)
+        # bytes_object = network.save_to_binary_buffer(
+        #     format="CGMES",
+        #     parameters={
+        #         "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
+        #         "iidm.export.cgmes.base-name": file_base_name,
+        #         "iidm.export.cgmes.profiles": profiles,
+        #         "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",
+        #         # identity, cgmes, cgmes-fix-all-invalid-ids
+        #     })
         bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
         return bytes_object
     except pypowsybl._pypowsybl.PyPowsyblError as p_error:
-        logger.error(f"Pypowsybl error on export: {p_error}")
-        raise Exception(p_error)
+        try:
+            logger.error(f"Pypowsybl error on export: {p_error}, skipping residual loadflow results")
+            export_parameters["iidm.export.cgmes.export-sv-injections-for-slacks"] = "False"
+            bytes_object = network.save_to_binary_buffer(format=export_format,
+                                                         parameters=export_parameters,
+                                                         reporter=reporter)
+            bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
+            return bytes_object
+        except pypowsybl._pypowsybl.PyPowsyblError as p_error:
+            logger.error(f"Got second Pypowsybl error on export: {p_error}, giving up...")
+            if debugging:
+                return None
+            else:
+                raise Exception(p_error)
