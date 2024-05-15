@@ -1,4 +1,5 @@
 import base64
+import datetime
 import logging
 import time
 import os
@@ -55,6 +56,7 @@ succeeded_cases_collector = []
 class ContentExportType(Enum):
     DEFAULT = None
     JSON = 'json'
+
 
 merging_type = ContentExportType[EXCHANGE_FORMAT]
 
@@ -116,8 +118,8 @@ def get_payload(argument):
         return task_data, model_data
     except JSONDecodeError:
         return None, None
-    except Exception as ex:
-        logger.warning(f"Unable to parse {argument}: {ex}")
+    except Exception as ex_value:
+        logger.warning(f"Unable to parse {argument}: {ex_value}")
 
 
 class UnknownInputException(JSONDecodeError):
@@ -299,16 +301,16 @@ def convert_from_format(input_data, content_format: ContentExportType = merging_
     if content_format == content_format.JSON:
         content = json.loads(input_data)
         fixed_model_data = []
-        model_data = content.get(MODELS_KEYWORD)
-        for model in model_data:
-            component = model.get(OPDE_COMPONENT_KEYWORD, [])
-            for profile in component:
-                data_bytes = file_string_to_bytes(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD))
-                profile[OPDM_PROFILE_KEYWORD][DATA_KEYWORD] = data_bytes
-            model[OPDE_COMPONENT_KEYWORD] = component
-            fixed_model_data.append(model)
-        model_data = fixed_model_data
-        content[MODELS_KEYWORD] = model_data
+        if model_data := content.get(MODELS_KEYWORD):
+            for model in model_data:
+                component = model.get(OPDE_COMPONENT_KEYWORD, [])
+                for profile in component:
+                    data_bytes = file_string_to_bytes(profile.get(OPDM_PROFILE_KEYWORD, {}).get(DATA_KEYWORD))
+                    profile[OPDM_PROFILE_KEYWORD][DATA_KEYWORD] = data_bytes
+                model[OPDE_COMPONENT_KEYWORD] = component
+                fixed_model_data.append(model)
+            model_data = fixed_model_data
+            content[MODELS_KEYWORD] = model_data
     return content
 
 
@@ -420,12 +422,12 @@ class HandlerGetModels:
 class HandlerMergeModels:
 
     def __init__(self,
-                 validate_cgm_model: bool = False):
+                 check_cgm_validity: bool = False):
         """
         Initializes the handler which merges and validates the model
-        :param validate_cgm_model: publish cgm to opdm
+        :param check_cgm_validity: publish cgm to opdm
         """
-        self.validate_cgm_model = validate_cgm_model
+        self.validate_cgm_model = check_cgm_validity
 
     def handle(self, *args, **kwargs):
         """
@@ -523,7 +525,16 @@ class HandlerPostMergedModel:
             if self.send_to_minio:
                 save_merged_model_to_minio(cgm_files=cgm_files,
                                            minio_bucket=self.minio_bucket,
-                                           folder_in_bucket=self.folder_in_bucket)
+                                           folder_in_bucket=self.folder_in_bucket,
+                                           # comment next lines if following the path by file name is needed
+                                           # if uncommented, gathers files to <t.horizon>/<m.entity>/<area>/<date>/<ver>
+                                           merging_entity=cgm_input.merging_entity,
+                                           time_horizon=cgm_input.time_horizon,
+                                           scenario_datetime=cgm_input.scenario_date,
+                                           area=cgm_input.area,
+                                           version=cgm_input.version,
+                                           # file_type='CGM'
+                                           )
             # For the future reference, store merge data to elastic
             if self.send_to_elastic:
                 consolidated_metadata = cgm_input.get_consolidated_metadata()
@@ -552,13 +563,18 @@ if __name__ == "__main__":
         # handlers=[logging.StreamHandler(sys.stdout)]
     )
 
+    # testing_time_horizon = '1D'
+    # testing_merging_type = 'BA'
+    # testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
+    # testing_excluded_tsos = ['APG', '50Hertz']
+    # testing_local_import = ['LITGRID']
     testing_time_horizon = '1D'
-    testing_merging_type = 'BA'
-    testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']
-    testing_excluded_tsos = ['APG', '50Hertz']
+    testing_merging_type = 'EU'
+    testing_included_tsos = []
+    testing_excluded_tsos = []
     testing_local_import = ['LITGRID']
-    start_date = parse_datetime("2024-04-23T00:30:00+00:00")
-    end_date = parse_datetime("2024-04-24T00:00:00+00:00")
+    start_date = parse_datetime("2024-05-08T00:30:00+00:00")
+    end_date = parse_datetime("2024-05-09T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds
@@ -607,7 +623,7 @@ if __name__ == "__main__":
         }
 
         message_handlers = [HandlerGetModels(debugging=False),
-                            HandlerMergeModels(validate_cgm_model=True),
+                            HandlerMergeModels(check_cgm_validity=False),
                             HandlerPostMergedModel(publish_to_opdm=False,
                                                    publish_to_minio=False,
                                                    save_to_local_storage=True)]

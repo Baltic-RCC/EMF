@@ -777,7 +777,9 @@ def get_version_number(scenario_date: str,
     version_number_minio = None
     version_number_elastic = None
     if use_minio:
-        version_number_minio = get_version_number_from_minio(time_horizon=time_horizon, scenario_date=scenario_date)
+        version_number_minio = get_version_number_from_minio(time_horizon=time_horizon,
+                                                             scenario_date=scenario_date,
+                                                             modeling_entity=modeling_entity)
     if use_elastic:
         if start_looking:
             version_number_elastic = get_version_number_from_elastic(start_looking=start_looking,
@@ -1435,6 +1437,7 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCK
                                merging_entity: str = None,
                                area: str = None,
                                version: str = None,
+                               file_type: str = None,
                                cgm_files: [] = None):
     """
     Posts cgm files to minio
@@ -1447,6 +1450,7 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCK
     :param version: the version number
     :param area: the area where the merge was done
     :param cgm_files: list of individual cgm files
+    :param file_type: type of the file if specified
     :param folder_in_bucket: general folder (prefix) in bucket where
     :return: file name and link to file, the link to the file
     """
@@ -1460,22 +1464,23 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCK
         for cgm_file in cgm_files:
             file_name = cgm_file.name
             file_name_exploded = get_metadata_from_filename(file_name)
-            time_horizon = time_horizon or file_name_exploded.get(MODEL_PROCESS_TYPE_KEYWORD, '')
+            file_time_horizon = time_horizon or file_name_exploded.get(MODEL_PROCESS_TYPE_KEYWORD, '')
             # TODO Keep intra day merged model in one folder?
             file_scenario_datetime = scenario_datetime or file_name_exploded.get(MODEL_SCENARIO_TIME_KEYWORD, None)
             if file_scenario_datetime:
                 file_scenario_datetime = parse_datetime(file_scenario_datetime)
-            merging_entity = merging_entity or file_name_exploded.get(MODEL_MERGING_ENTITY_KEYWORD, '')
-            area = area or file_name_exploded.get(MODEL_DOMAIN_KEYWORD, '')
-            version = version or file_name_exploded.get(MODEL_VERSION_KEYWORD)
+            file_merging_entity = merging_entity or file_name_exploded.get(MODEL_MERGING_ENTITY_KEYWORD)
+            file_merging_entity = file_merging_entity or file_name_exploded.get(MODEL_MODELING_ENTITY_KEYWORD, '')
+            file_area = area or file_name_exploded.get(MODEL_DOMAIN_KEYWORD, '')
+            file_version = version or file_name_exploded.get(MODEL_VERSION_KEYWORD)
             scenario_date = ''
             scenario_time = ''
             if file_scenario_datetime:
                 scenario_date = f"{file_scenario_datetime:%Y%m%d}"
                 scenario_time = f"{file_scenario_datetime:%H%M00}"
-            file_type = file_name_exploded.get(MODEL_MESSAGE_TYPE_KEYWORD)
-            file_path_elements = [folder_in_bucket, time_horizon, merging_entity, area,
-                                  scenario_date, scenario_time, version, file_type, cgm_file.name]
+            file_file_type = file_type or file_name_exploded.get(MODEL_MESSAGE_TYPE_KEYWORD)
+            file_path_elements = [folder_in_bucket, file_time_horizon, file_merging_entity, file_area,
+                                  scenario_date, scenario_time, file_version, file_file_type, cgm_file.name]
             full_file_name = SEPARATOR_SYMBOL.join(file_path_elements)
             full_file_name = full_file_name.replace('//', '/')
             cgm_file.name = full_file_name
