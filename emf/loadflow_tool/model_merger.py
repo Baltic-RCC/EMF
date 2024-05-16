@@ -13,8 +13,8 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
 from emf.common.integrations.object_storage.object_storage import query_data, query_data_as_is
-from emf.common.logging.custom_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogGatherer, \
-    PyPowsyblLogReportingPolicy
+from emf.common.logging.pypowsybl_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogReportingPolicy, \
+    PyPowsyblLogGatherer
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
                                       NETWORK_KEYWORD, NETWORK_META_KEYWORD, get_metadata_from_filename, attr_to_dict)
 from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError, OPDE_COMPONENT_KEYWORD,
@@ -275,7 +275,7 @@ def get_local_models(time_horizon: str = TIME_HORIZON,
 
 
 def run_model_retriever_pipeline(opdm_models: dict | list,
-                                 latest_boundary: dict = None,
+                                 latest_boundary: dict,
                                  model_type: CgmModelType = CgmModelType.IGM):
     """
     Initializes model_retriever pipeline to download, validate and push the models to minio/elastic
@@ -297,37 +297,44 @@ def run_model_retriever_pipeline(opdm_models: dict | list,
     return opdm_models
 
 
-def get_latest_boundary(opdm_client: OPDM = None, download_policy: DownloadModels = DownloadModels.OPDM_AND_MINIO):
+def get_latest_boundary_data(opdm_client: OPDM = None):
     """
     Tries to get the boundary data from OPDM, if not successful, fallback to Minio and take the latest
     Alternative would be to check depends on
     :param opdm_client: OPDM client
-    :param download_policy: where to first download the boundary data
     :return boundary data
     """
-    boundary_data = None
-    if download_policy == DownloadModels.MINIO:
-        # Not the quickest way to get it
-        # boundary_data = get_boundary_data_from_minio()
-        # Little bit quicker way
-        boundary_data = get_boundary_from_elastic_minio()
-        return boundary_data
     try:
         opdm_client = opdm_client or OPDM()
         boundary_data = opdm_client.get_latest_boundary()
-        # if model_retriever_pipeline:
-        #     boundary_data = run_model_retriever_pipeline(opdm_models=boundary_data, model_type=CgmModelType.BOUNDARY)
     except zeep.exceptions.Fault as fault:
-        logger.error(f"Could not get boundary data from OPDM: {fault}")
-        # should be query_data, but for now ask it minio
-        # boundary_data = get_boundary_data_from_minio()
+        logger.error(f"OPDM connection error when getting boundaries: {fault}")
         boundary_data = get_boundary_from_elastic_minio()
     except Exception as ex:
         logger.error(f"Undefined exception when getting boundary data: {ex}")
-        # boundary_data = get_boundary_data_from_minio()
         boundary_data = get_boundary_from_elastic_minio()
-    finally:
-        return boundary_data
+    return boundary_data
+
+
+def handle_opdm_models(opdm_models=None,
+                       boundary_data=None,
+                       model_retriever_pipeline: bool = False,
+                       validate: bool = True):
+    """
+    Decides what to do with raw models received from opdm: either run them through model retriever pipeline, validate
+    them or do nothing
+    :param opdm_models: list of igm models got from opdm
+    :param boundary_data: dictionary of (latest) boundary data
+    :param model_retriever_pipeline: true-> run entire model retriever
+    :param validate: true-> validate igm models, take only those which are valid
+    :return updated (valid) opdm_models
+    """
+    if opdm_models and boundary_data:
+        if model_retriever_pipeline:
+            opdm_models = run_model_retriever_pipeline(opdm_models=opdm_models, latest_boundary=boundary_data)
+        elif validate:
+            opdm_models = validate_models(igm_models=opdm_models, boundary_data=boundary_data)
+    return opdm_models
 
 
 def get_models(time_horizon: str = TIME_HORIZON,
@@ -343,11 +350,11 @@ def get_models(time_horizon: str = TIME_HORIZON,
     NB! Priority is given to Minio!
     NB! Extend this according to the need and means available
     Workflow:
-    1) Get models from local storage (if given)
+    1) Get models from local storage (only present in minio, no trace in elastic)
     2) Get models from opdm if selected
     3) Get models from minio if selected or opdm failed
     4) If requested from both, take data from minio and extend it from opdm
-    5) Merge 4 with 1, that one model per one tso
+    5) Merge 4, 3, 2 with 1, give priority to models from local storage
     6) By default get boundary from opdm
     7) Fallback: get boundary from minio
     :param time_horizon: time horizon of the igms
@@ -363,14 +370,12 @@ def get_models(time_horizon: str = TIME_HORIZON,
     opdm_models = None
     minio_models = None
     # 1 Get boundary data
-    boundary_data = get_latest_boundary(opdm_client=opdm_client, download_policy=download_policy)
-    # 2 if there are some tsos specified to be locally imported, find them first
+    boundary_data = get_latest_boundary_data(opdm_client=opdm_client)
+    # 2 if there are some tsos specified to be locally imported, find them first (priority)
     if locally_imported_tsos:
-        local_models = get_igm_models_from_minio_by_metadata(tsos=locally_imported_tsos,
-                                                             scenario_date=scenario_date,
-                                                             time_horizon=time_horizon)
-        if local_models:
-            igm_models.extend(local_models)
+        igm_models.extend(get_igm_models_from_minio_by_metadata(tsos=locally_imported_tsos,
+                                                                scenario_date=scenario_date,
+                                                                time_horizon=time_horizon))
     # 3 if opdm is selected, try to download from there
     if download_policy == DownloadModels.OPDM or download_policy == DownloadModels.OPDM_AND_MINIO:
         opdm_models = get_models_from_opdm(time_horizon=time_horizon,
@@ -378,34 +383,33 @@ def get_models(time_horizon: str = TIME_HORIZON,
                                            included_tsos=included_tsos,
                                            excluded_tsos=excluded_tsos,
                                            opdm_client=opdm_client)
-        # Validate raw input models
-        if not model_retriever_pipeline:
-            opdm_models = validate_models(igm_models=opdm_models, boundary_data=boundary_data)
     # 4 if minio is selected or opdm failed, download data from there
     if download_policy == DownloadModels.MINIO or download_policy == DownloadModels.OPDM_AND_MINIO or not opdm_models:
         minio_models = get_models_from_elastic_minio(time_horizon=time_horizon,
                                                      scenario_date=scenario_date,
                                                      included_tsos=included_tsos,
                                                      excluded_tsos=excluded_tsos)
-    # If something was got from opdm, run through it model_retriever pipeline
-    if download_policy == DownloadModels.OPDM:
-        if model_retriever_pipeline and opdm_models:
-            opdm_models = run_model_retriever_pipeline(opdm_models=opdm_models)
-        found_models = opdm_models or minio_models
-    elif download_policy == DownloadModels.MINIO:
-        found_models = minio_models
-    else:
-        # 5. When merge is requested, give priority to minio, update it from opdm
-        found_models = minio_models
-        existing_tso_names = [model.get(PMD_TSO_KEYWORD) for model in minio_models]
+    # 5 Merge minio and opdm, giving minio priority and validating opdm results
+    if download_policy == DownloadModels.OPDM_AND_MINIO:
+        found_models = minio_models or []
+        if minio_models:
+            minio_tsos = [model.get(PMD_TSO_KEYWORD) for model in minio_models]
+            if opdm_models and minio_tsos:
+                opdm_models = [model for model in opdm_models if model.get(PMD_TSO_KEYWORD) not in minio_tsos]
+        opdm_models = handle_opdm_models(opdm_models=opdm_models,
+                                         boundary_data=boundary_data,
+                                         model_retriever_pipeline=model_retriever_pipeline)
         if opdm_models:
-            additional_tso_models = [model for model in opdm_models
-                                     if model.get(PMD_TSO_KEYWORD) not in existing_tso_names]
-            if model_retriever_pipeline and additional_tso_models:
-                additional_tso_models = run_model_retriever_pipeline(opdm_models=additional_tso_models)
-            found_models.extend(additional_tso_models)
-    found_tsos = [model.get(PMD_TSO_KEYWORD) for model in igm_models]
-    igm_models.extend([model for model in found_models if not model.get(PMD_TSO_KEYWORD) in found_tsos])
+            found_models.extend(opdm_models)
+    else:
+        if opdm_models:
+            opdm_models = handle_opdm_models(opdm_models=opdm_models,
+                                             boundary_data=boundary_data,
+                                             model_retriever_pipeline=model_retriever_pipeline)
+        found_models = minio_models or opdm_models
+    # 6 Merge local models with minio-opdm combination giving priority to first
+    tsos_local = [model.get(PMD_TSO_KEYWORD) for model in igm_models]
+    igm_models.extend([model for model in found_models if not model.get(PMD_TSO_KEYWORD) in tsos_local])
     return igm_models, boundary_data
 
 
@@ -461,8 +465,9 @@ def get_models_from_opdm(time_horizon: str,
 def get_boundary_from_elastic_minio():
     """
     Asks latest boundary entry from elastic and fetches the corresponding files from minio.
+    Returns something if all files are present (note the expiry date in minio)
     1) gets by opde:Object-Type: "BDS
-    2) Sorts the results by pmd:scenarioDate (TODO check if this approach is valid)
+    2) Sorts the results by pmd:scenarioDate
     3) takes the latest entry
     4) fetches minio models
     """
@@ -558,12 +563,9 @@ def get_filename_dataframe_from_minio(minio_bucket: str,
     :param sub_folder: prefix
     """
     minio_client = minio_client or minio.ObjectStorage()
-    if sub_folder:
-        list_of_files = minio_client.list_objects(bucket_name=minio_bucket,
-                                                  prefix=sub_folder,
-                                                  recursive=True)
-    else:
-        list_of_files = minio_client.list_objects(bucket_name=minio_bucket, recursive=True)
+    list_of_files = minio_client.list_objects(bucket_name=minio_bucket,
+                                              prefix=sub_folder,
+                                              recursive=True)
     file_name_list = []
     for file_name in list_of_files:
         try:
@@ -909,8 +911,9 @@ class CgmModelComposer:
                                                            send_to_elastic=False,
                                                            upload_to_minio=False,
                                                            report_on_command=False,
-                                                           tso='_'.join([model.get(PMD_TSO_KEYWORD, '') for model in
-                                                                         self.igm_models]),
+                                                           sub_topic_name='_'.join(
+                                                               [model.get(PMD_TSO_KEYWORD, '') for model in
+                                                                self.igm_models]),
                                                            logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
                                                            print_to_console=False,
                                                            reporting_level=logging.ERROR)
@@ -1465,7 +1468,6 @@ def save_merged_model_to_minio(minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCK
             file_name = cgm_file.name
             file_name_exploded = get_metadata_from_filename(file_name)
             file_time_horizon = time_horizon or file_name_exploded.get(MODEL_PROCESS_TYPE_KEYWORD, '')
-            # TODO Keep intra day merged model in one folder?
             file_scenario_datetime = scenario_datetime or file_name_exploded.get(MODEL_SCENARIO_TIME_KEYWORD, None)
             if file_scenario_datetime:
                 file_scenario_datetime = parse_datetime(file_scenario_datetime)

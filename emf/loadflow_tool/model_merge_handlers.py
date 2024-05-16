@@ -35,16 +35,6 @@ NUMBER_OF_CGM_TRIES = 3
 SLEEP_BETWEEN_TRIES = 'PT5S'
 
 # Rabbit context keywords
-
-# Use default merge type values
-USE_FALLBACK_MERGE = False
-
-# Where to save the results
-SAVE_MERGED_MODEL_TO_LOCAL_STORAGE = False
-PUBLISH_MERGED_MODEL_TO_MINIO = True
-PUBLISH_MERGED_MODEL_TO_OPDM = True
-PUBLISH_METADATA_TO_ELASTIC = False
-
 WORKER_KEYWORD = 'worker'
 WORKER_UUID_KEYWORD = 'worker_uuid'
 
@@ -325,7 +315,8 @@ class HandlerGetModels:
                  cgm_minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
                  cgm_minio_prefix: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
                  merge_types: str | dict = MERGE_TYPES,
-                 use_fallback_merge: bool = USE_FALLBACK_MERGE,
+                 get_model_policy: str = EMF_OS_CGM_GET_MODEL_FROM,
+                 use_fallback_task_properties: bool = False,
                  sleep_between_tries: str = SLEEP_BETWEEN_TRIES,
                  elk_index_version_number: str = ELASTIC_LOGS_INDEX,
                  debugging: bool = False):
@@ -335,7 +326,7 @@ class HandlerGetModels:
         :param cgm_minio_bucket: bucket where combined models are stored
         :param cgm_minio_prefix: prefix of models
         :param merge_types: the default dict consisting areas, included tsos and excluded tsos
-        :param use_fallback_merge: use merge types specified in properties section
+        :param use_fallback_task_properties: use merge types specified in properties section
         :param sleep_between_tries: sleep between igm requests if failed
         :param elk_index_version_number: elastic index from where look version number
         :param debugging: whether the debugging is allowed
@@ -347,9 +338,10 @@ class HandlerGetModels:
             merge_types = merge_types.replace("'", "\"")
             merge_types = json.loads(merge_types)
         self.merge_types = merge_types
-        self.use_fallback_merge = use_fallback_merge
+        self.use_fallback_task_properties = use_fallback_task_properties
         self.cgm_minio_bucket = cgm_minio_bucket
         self.cgm_minio_prefix = cgm_minio_prefix
+        self.download_policy = DownloadModels[get_model_policy]
         self.sleep_between_tries = 0
         self.set_sleep_between_tries(input_value=sleep_between_tries)
         self.elk_index_for_version_number = elk_index_version_number
@@ -378,7 +370,7 @@ class HandlerGetModels:
             excluded_tsos = task_properties_data.get(EXCLUDED_TSO_KEYWORD, [])
             local_import_tsos = task_properties_data.get(IMPORT_TSO_LOCALLY_KEYWORD, [])
             # fallback to values in properties section if needed
-            if self.use_fallback_merge:
+            if self.use_fallback_task_properties:
                 included_tsos = included_tsos or self.merge_types.get(cgm_input.area, {}).get(INCLUDED_TSO_KEYWORD, [])
                 excluded_tsos = excluded_tsos or self.merge_types.get(cgm_input.area, {}).get(EXCLUDED_TSO_KEYWORD, [])
                 local_import_tsos = (local_import_tsos or
@@ -390,12 +382,12 @@ class HandlerGetModels:
                 if running_in_local_machine() and self.debugging:
                     available_models, latest_boundary = get_local_models(time_horizon=cgm_input.time_horizon,
                                                                          scenario_date=cgm_input.scenario_date,
-                                                                         download_policy=DownloadModels.MINIO,
+                                                                         download_policy=self.download_policy,
                                                                          use_local_files=True)
                 else:
                     available_models, latest_boundary = get_models(time_horizon=cgm_input.time_horizon,
                                                                    scenario_date=cgm_input.scenario_date,
-                                                                   download_policy=DownloadModels.MINIO,
+                                                                   download_policy=self.download_policy,
                                                                    included_tsos=included_tsos,
                                                                    excluded_tsos=excluded_tsos,
                                                                    locally_imported_tsos=local_import_tsos)
@@ -471,12 +463,12 @@ class HandlerMergeModels:
 class HandlerPostMergedModel:
 
     def __init__(self,
-                 publish_to_opdm: bool = PUBLISH_MERGED_MODEL_TO_OPDM,
-                 publish_to_minio: bool = PUBLISH_MERGED_MODEL_TO_MINIO,
+                 publish_to_opdm: bool = EMF_OS_CGM_SAVE_OPDM,
+                 publish_to_minio: bool = EMF_OS_CGM_SAVE_MINIO,
                  minio_bucket: str = EMF_OS_MINIO_OPDE_MODELS_BUCKET,
                  folder_in_bucket: str = EMF_OS_MINIO_OPDE_MODELS_FOLDER,
-                 save_to_local_storage: bool = SAVE_MERGED_MODEL_TO_LOCAL_STORAGE,
-                 publish_to_elastic: bool = PUBLISH_METADATA_TO_ELASTIC,
+                 save_to_local_storage: bool = EMF_OS_CGM_SAVE_OPDM,
+                 publish_to_elastic: bool = False,
                  elk_server: str = elastic.ELK_SERVER,
                  cgm_index: str = ELASTIC_LOGS_INDEX,
                  full_export_needed: bool = MINIO_EXPORT_FULL_MODEL):
@@ -573,8 +565,8 @@ if __name__ == "__main__":
     testing_included_tsos = []
     testing_excluded_tsos = []
     testing_local_import = ['LITGRID']
-    start_date = parse_datetime("2024-05-08T00:30:00+00:00")
-    end_date = parse_datetime("2024-05-09T00:00:00+00:00")
+    start_date = parse_datetime("2024-05-09T00:30:00+00:00")
+    end_date = parse_datetime("2024-05-10T00:00:00+00:00")
 
     delta = end_date - start_date
     delta_sec = delta.days * 24 * 3600 + delta.seconds
