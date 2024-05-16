@@ -29,7 +29,7 @@ def do_conversion(channel, method, properties, body: str):
     if 'XSD' in message_dict.keys():
         is_valid = validate_xml(body, message_dict.get('XSD').encode("utf-8"))
     else:
-        # logger.info("XSD file not found in message, report was not validated")
+        logger.warning("XSD file not found in message, report was not validated")
         is_valid = None
 
     properties.headers = {"file-type": "XML",
@@ -92,6 +92,8 @@ def validate_xml(input_xml, schema_xml):
 
 if __name__ == '__main__':
     # Testing
+    from pathlib import Path
+
     logging.basicConfig(stream=sys.stdout,
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
@@ -100,10 +102,10 @@ if __name__ == '__main__':
         xml_bytes = file.read()
     with open('IGM_entsoeQAReport_Level_8.xsl', 'rb') as file:
         xsl_bytes = file.read()
-    with open('QAR_v2.6.1.xsd', 'rb') as file:
+    with open(Path(__file__).parent.parent.joinpath('schemas/QAR_v2.6.1.xsd'), 'rb') as file:
         xsd_bytes = file.read()
 
-    data = {"XML": xml_bytes.decode(), "XSL": xsl_bytes.decode(),}#"XSD": xsd_bytes.decode()}
+    data = {"XML": xml_bytes.decode(), "XSL": xsl_bytes.decode(), "XSD": xsd_bytes.decode()}
     message_json = json.dumps(data)
 
     rabbit_service.publish(message_json, 'emfos.xslt')

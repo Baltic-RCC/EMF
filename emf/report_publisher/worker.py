@@ -7,12 +7,10 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.xslt_engine.saxonpy_api import validate_xml
 
 logger = logging.getLogger(__name__)
-parse_app_properties(globals(), config.paths.xslt_service.xslt)
+parse_app_properties(caller_globals=globals(), path=config.paths.report_publisher.report_publisher)
 
 rabbit_service = rabbit.BlockingClient()
 edx_service = edx.EDX()
-
-schema_xml_path = Path(__file__).parent.joinpath('QAR_v2.6.1.xsd')
 
 
 def run_service(from_queue):
@@ -21,18 +19,15 @@ def run_service(from_queue):
     rabbit_service.consume_start(queue=from_queue, callback=send_qar)
 
 
-def send_qar(channel, method, properties, body: str):
+def send_qar(channel, method, properties, body: str, schema_xml_path=Path(__file__).parent.parent.joinpath(XSD_PATH)):
 
-    is_valid = properties.headers.get('is-valid')
-
-    if is_valid != 'True':
-        with open(schema_xml_path, 'rb') as file:
-            xsd_bytes = file.read()
-        is_valid = validate_xml(body, xsd_bytes)
+    with open(schema_xml_path, 'rb') as file:
+        xsd_bytes = file.read()
+    is_valid = validate_xml(body, xsd_bytes)
 
     # Upload external QAR report
     if is_valid:
-        ba_message_id = ""
+        ba_message_id = BA_MESSAGE_ID
         process_id = str(uuid.uuid4())
 
         message_id = edx_service.send_message('SERVICE-QAS',
