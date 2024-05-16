@@ -13,7 +13,7 @@ from json import JSONDecodeError
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from aniso8601 import parse_datetime
-from emf.common.logging.custom_logger import ElkLoggingHandler, initialize_custom_logger
+from emf.common.logging.custom_logger import ElkLoggingHandler
 from emf.loadflow_tool.loadflow_settings import CGM_RELAXED_2
 from emf.loadflow_tool.model_merger import (CgmModelComposer, get_models, PROCESS_ID_KEYWORD,
                                             RUN_ID_KEYWORD, JOB_ID_KEYWORD, save_merged_model_to_local_storage,
@@ -547,14 +547,14 @@ class HandlerPostMergedModel:
 
 
 if __name__ == "__main__":
-    elk_handler = initialize_custom_logger()
+    import sys
     logging.basicConfig(
         format='%(levelname) -10s %(asctime) -20s %(name) -45s %(funcName) -35s %(lineno) -5d: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
+        # Overwrite the conf from loaded files
+        force=True,
         level=logging.INFO,
-        # handlers=[logging.StreamHandler(sys.stdout)]
-    )
-
+        handlers=[logging.StreamHandler(sys.stdout), ElkLoggingHandler()])
     # testing_time_horizon = '1D'
     # testing_merging_type = 'BA'
     # testing_included_tsos = ['ELERING', 'AST', 'LITGRID', 'PSE']

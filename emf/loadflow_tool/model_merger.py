@@ -13,8 +13,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import minio, opdm, elastic
 from emf.common.integrations.elastic import Elastic
 from emf.common.integrations.object_storage.object_storage import query_data, query_data_as_is
-from emf.common.logging.pypowsybl_logger import SEPARATOR_SYMBOL, check_the_folder_path, PyPowsyblLogReportingPolicy, \
-    PyPowsyblLogGatherer
+from emf.common.logging.pypowsybl_logger import SEPARATOR_SYMBOL, check_the_folder_path
 from emf.loadflow_tool.helper import (load_model, load_opdm_data, filename_from_metadata, export_model,
                                       NETWORK_KEYWORD, NETWORK_META_KEYWORD, get_metadata_from_filename, attr_to_dict)
 from emf.loadflow_tool.validator import (get_local_entsoe_files, LocalFileLoaderError, OPDE_COMPONENT_KEYWORD,
@@ -904,19 +903,7 @@ class CgmModelComposer:
         self._cgm = None
         self.rdf_map = load_rdf_map(rdf_map_loc)
         self.task_data = task_data
-        self.pypowsybl_gatherer = None
         self.debugging = debugging
-        if self.debugging:
-            self.pypowsybl_gatherer = PyPowsyblLogGatherer(topic_name='IGM_merge',
-                                                           send_to_elastic=False,
-                                                           upload_to_minio=False,
-                                                           report_on_command=False,
-                                                           sub_topic_name='_'.join(
-                                                               [model.get(PMD_TSO_KEYWORD, '') for model in
-                                                                self.igm_models]),
-                                                           logging_policy=PyPowsyblLogReportingPolicy.ALL_ENTRIES,
-                                                           print_to_console=False,
-                                                           reporting_level=logging.ERROR)
 
     def get_tso_list(self):
         return ', '.join([model.get(PMD_TSO_KEYWORD, '') for model in self.igm_models])
@@ -1176,7 +1163,6 @@ class CgmModelComposer:
                                       profiles=["SV"],
                                       debugging=self.debugging)
         if self.debugging and not exported_model:
-            self.pypowsybl_gatherer.stop_working()
             raise Exception(f"Failed to export model")
 
         logger.info(f"Exporting merged model to {exported_model.name}")
@@ -1344,13 +1330,9 @@ class CgmModelComposer:
                     f"version: {self.version}, "
                     f"area: {self.area}, "
                     f"tsos: {', '.join([model.get(PMD_TSO_KEYWORD) for model in self.igm_models])}")
-        if self.debugging:
-            self.pypowsybl_gatherer.start_working()
         self.set_sv_file()
         self.set_ssh_files()
         self.set_cgm()
-        if self.debugging:
-            self.pypowsybl_gatherer.stop_working()
         return self.get_cgm()
 
     def get_consolidated_metadata(self, rabbit_data: dict = None, additional_fields: dict = None):
