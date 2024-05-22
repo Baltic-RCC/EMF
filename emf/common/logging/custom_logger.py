@@ -65,8 +65,7 @@ class ElkLoggingHandler(logging.StreamHandler):
                 logger.info(f"Connection to {self.server} successful")
                 return True
             else:
-                logger.warning(
-                    f"ELK server response: [{response.status_code}] {response.reason}. Disabling ELK logging.")
+                logger.warning(f"ELK server response: [{response.status_code}] {response.reason}. Disabling ELK logging.")
         except requests.exceptions.ConnectTimeout:
             logger.warning(f"ELK server {self.server} does not responding with ConnectTimeout error. Disabling ELK logging.")
         except Exception as e:
