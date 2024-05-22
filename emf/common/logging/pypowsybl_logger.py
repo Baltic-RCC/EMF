@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 from datetime import datetime, timedelta
@@ -10,6 +11,7 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from emf.common.integrations.minio import ObjectStorage
+from emf.loadflow_tool.load_files_general import SEPARATOR_SYMBOL, check_the_folder_path
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.pypowsybl_logger)
@@ -18,8 +20,6 @@ PYPOWSYBL_LOGGER = 'powsybl'
 PYPOWSYBL_LOGGER_DEFAULT_LEVEL = 1
 CUSTOM_LOG_BUFFER_LINE_BREAK = '\r\n'
 DAYS_TO_STORE_DATA_IN_MINIO = 7  # Max allowed by Minio
-SEPARATOR_SYMBOL = '/'
-WINDOWS_SEPARATOR = '\\'
 
 ELASTIC_FIELD_FOR_LOG_DATA = 'log_data'
 ELASTIC_FIELD_FOR_SUBTOPIC = 'tso'
@@ -38,54 +38,35 @@ PY_LOG_MINIO_BUCKET = MINIO_BUCKET_FOR_PYPOWSYBL_LOGS
 PY_LOG_MINIO_PATH = MINIO_FOLDER_FOR_PYPOWSYBL_LOGS
 
 
-def check_the_folder_path(folder_path: str):
-    """
-    Checks folder path for special characters
-    :param folder_path: input given
-    :return checked folder path
-    """
-    if not folder_path.endswith(SEPARATOR_SYMBOL):
-        folder_path = folder_path + SEPARATOR_SYMBOL
-    double_separator = SEPARATOR_SYMBOL + SEPARATOR_SYMBOL
-    # Escape '//'
-    folder_path = folder_path.replace(double_separator, SEPARATOR_SYMBOL)
-    # Escape '\'
-    folder_path = folder_path.replace(WINDOWS_SEPARATOR, SEPARATOR_SYMBOL)
-    return folder_path
-
-
-class LogStream(object):
+class LogStringStream(io.StringIO):
     """
     Some custom container for storing log related data
     """
-
     def __init__(self):
-        self.logs = []
+        super().__init__()
         self.single_entry = None
-
-    def write(self, message):
-        """
-        Writes the log message to the buffer
-        :param message: log message
-        """
-        self.logs.append(message)
-
-    def flush(self):
-        pass
 
     def reset(self):
         """
         Resets the internal buffers
         """
-        self.logs = []
         self.single_entry = None
+        self.truncate(0)
+        self.seek(0)
 
     def get_logs(self):
         """
         Gets the content
         :return: tuple of logs and entry that triggered reporting process
         """
-        return self.logs, self.single_entry
+        return self.getvalue(), self.single_entry
+
+    def write(self, message):
+        """
+        Writes the log message to the buffer
+        :param message: log message
+        """
+        super().write(message + CUSTOM_LOG_BUFFER_LINE_BREAK)
 
 
 class PyPowsyblLogReportingPolicy(Enum):
@@ -390,7 +371,7 @@ class PyPowsyblLogGatheringHandler(logging.StreamHandler):
         self.gathering = False
         self.level_reached = False
         self.formatter = formatter or logging.Formatter(PY_LOGGING_FORMAT)
-        self.gathering_buffer = LogStream()
+        self.gathering_buffer = LogStringStream()
         self.level_filters = []
         super().__init__(stream=self.gathering_buffer)
         self.report_level = report_level
@@ -523,6 +504,8 @@ class PyPowsyblLogGatheringHandler(logging.StreamHandler):
         :return: None
         """
         self.gathering_buffer.reset()
+        # When needed to speed up create new instance rather than emptying it
+        # self.gathering_buffer = LogStringStream()
 
     def get_buffer(self):
         """
