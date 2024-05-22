@@ -352,3 +352,46 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object
+
+
+def export_model_escaped(network: pypowsybl.network,
+                         opdm_object_meta,
+                         profiles=None,
+                         debugging: bool = False, reporter=None):
+    """
+    Exports models with powsybl null pointer escaped (valid for 1.2.1, will be fixed in future version)
+    """
+
+    if profiles:
+        profiles = ",".join([str(profile) for profile in profiles])
+    else:
+        profiles = "SV,SSH,TP,EQ"
+
+    file_base_name = filename_from_metadata(opdm_object_meta).split(".xml")[0]
+    export_parameters = {"iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
+                         "iidm.export.cgmes.base-name": file_base_name, "iidm.export.cgmes.profiles": profiles,
+                         "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+    export_format = "CGMES"
+    # FOLLOWING IS A WORKAROUND TO BYPASS PYPOWSYBL NULLPOINTER EXCEPTION, CAN BE DISCARDED FROM PYPOWSYBL VER. 1.4.0!
+    # PROCEED WITH CAUTION
+    try:
+        bytes_object = network.save_to_binary_buffer(format=export_format,
+                                                     parameters=export_parameters,
+                                                     reporter=reporter)
+        bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
+        return bytes_object
+    except pypowsybl._pypowsybl.PyPowsyblError as p_error:
+        try:
+            logger.error(f"Pypowsybl error on export: {p_error}, skipping residual loadflow results")
+            export_parameters["iidm.export.cgmes.export-sv-injections-for-slacks"] = "False"
+            bytes_object = network.save_to_binary_buffer(format=export_format,
+                                                         parameters=export_parameters,
+                                                         reporter=reporter)
+            bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
+            return bytes_object
+        except pypowsybl._pypowsybl.PyPowsyblError as p_error:
+            logger.error(f"Got second Pypowsybl error on export: {p_error}, giving up...")
+            if debugging:
+                return None
+            else:
+                raise Exception(p_error)

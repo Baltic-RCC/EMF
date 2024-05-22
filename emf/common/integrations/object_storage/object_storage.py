@@ -68,10 +68,38 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     logger.info(f"Getting data from MinIO")
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
+        # Minio considers // as /
+        content_reference = content_reference.replace('//', '/')
         logger.info(f"Downloading {content_reference}")
         component["opdm:Profile"]["DATA"] = minio_service.download_object(bucket_name, content_reference)
-
     return metadata
+
+
+def query_data_as_is(query: dict,
+                     sort: dict = None,
+                     index=ELASTIC_QUERY_INDEX,
+                     return_payload=False, match_size: str = '10000'):
+    """
+    Extension of the query_data. Enables to input query as is
+    For testing purposes only: to see whether the model acquisition can be made faster when only selected
+    tsos are queried
+    :param query: elastic query as is
+    :param index: elastic index
+    :param sort: sorting parameters if given
+    :param return_payload: return list with updated metadata
+    :param match_size: max number of matches to be returned
+    """
+    if sort:
+        response = elastic_service.client.search(index=index, query=query, sort=sort, size=match_size)
+    else:
+        response = elastic_service.client.search(index=index, query=query, size=match_size)
+    content_list = [content["_source"] for content in response["hits"]["hits"]]
+
+    if return_payload:
+        for num, item in enumerate(content_list):
+            content_list[num] = get_content(item)
+
+    return content_list
 
 
 if __name__ == '__main__':
