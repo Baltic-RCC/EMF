@@ -1,4 +1,9 @@
 [[source]]
+url = "https://artifactory.elering.sise/artifactory/api/pypi/pssepip/simple/"
+verify_ssl = false
+name = "local_pypi"
+
+[[source]]
 url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
