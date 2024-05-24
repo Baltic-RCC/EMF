@@ -5,6 +5,7 @@ from pathlib import Path
 from emf.common.integrations import rabbit, edx
 from emf.common.config_parser import parse_app_properties
 from emf.common.xslt_engine.saxonpy_api import validate_xml
+import xmltodict
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.report_publisher.report_publisher)
@@ -27,14 +28,15 @@ def send_qar(channel, method, properties, body: str, schema_xml_path=Path(__file
 
     # Upload external QAR report
     if is_valid:
+        data = xmltodict.parse(body)
         ba_message_id = BA_MESSAGE_ID
-        process_id = str(uuid.uuid4())
+        process_id = data['Result']['ModelInformation']['MetaData'].get('conversationId')
 
-        message_id = edx_service.send_message('SERVICE-QAS',
-                                               'ENTSOE-OPDM-ValidateResult',
-                                               content=body,
-                                               ba_message_id=ba_message_id,
-                                               conversation_id=process_id)
+        message_id = edx_service.send_message(receiver_EIC=MESSAGE_RECEIVER_EIC,
+                                              business_type=MESSAGE_BUSINESS_TYPE,
+                                              content=body,
+                                              ba_message_id=ba_message_id,
+                                              conversation_id=process_id)
         logger.info(f"Sent QAR via EDX with Message ID -> {message_id}")
 
     else:
@@ -43,8 +45,7 @@ def send_qar(channel, method, properties, body: str, schema_xml_path=Path(__file
     return channel, method, properties, body
 
 
-rabbit_queue = 'xslt-endpoint'
-run_service(rabbit_queue)
+run_service(RMQ_QUEUE)
 
 
 if __name__ == "__main__":
