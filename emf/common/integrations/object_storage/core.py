@@ -11,7 +11,7 @@ elastic_service = elastic.Elastic()
 minio_service = ObjectStorage()
 
 
-def query_data(metadata_query: dict, index=ELASTIC_QUERY_INDEX, return_payload=False):
+def query_data(metadata_query: dict, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None):
     """
     Queries Elasticsearch based on provided metadata queries.
 
@@ -38,7 +38,7 @@ def query_data(metadata_query: dict, index=ELASTIC_QUERY_INDEX, return_payload=F
     query_match_list = [{"match": {key: metadata_query.get(key)}} for key in metadata_query]
     query = {"bool": {"must": query_match_list}}
 
-    response = elastic_service.client.search(index=index, query=query, size='10000')
+    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort)
     content_list = [content["_source"] for content in response["hits"]["hits"]]
 
     if return_payload:
