@@ -1,6 +1,5 @@
 import json
 import config
-import atexit
 import logging
 from emf.task_generator.task_generator import generate_tasks
 from emf.common.integrations import rabbit
@@ -16,7 +15,7 @@ timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
 timetravel = None
-#timetravel = "2024-05-24T23:05+0200"
+timetravel = "2024-05-24T23:05+0200"
 
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, timetravel))
 

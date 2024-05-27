@@ -50,7 +50,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
         # Get the time zone for the run (use the process time zone if not specified).
         time_zone = run.get("time_zone", process["time_zone"])
 
-        now = datetime.now(tz=timezone(time_zone)).replace(second=0, microsecond=0)
+        now = datetime.now(tz=timezone(time_zone))
 
         if timetravel_now:
             now = aniso8601.parse_datetime(timetravel_now)
@@ -71,7 +71,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
         run_timestamp = runs.get_next(datetime)
         if (previous_timestamp := runs.get_prev(datetime)) == now:
             run_timestamp = previous_timestamp
+        else:
             _ = runs.get_next(datetime)
+
 
 
         logger.info(f"Next run of {run['@id']} at {run_timestamp}")
@@ -180,9 +182,13 @@ if __name__ == "__main__":
     tasks_table = pandas.json_normalize(tasks)
     print(tasks_table["run_id"].value_counts())
 
-    # Result should be like this
-    # https://example.com/runs/DayAheadCGM        24
-    # https://example.com/runs/TwoDaysAheadCGM    24
-    # https://example.com/runs/IntraDayCGM/1       8
-    # https://example.com/runs/IntraDayCGM/2       8
-    # https://example.com/runs/IntraDayCGM/3       8
+# https://example.com/runs/DayAheadCGM        24
+# https://example.com/runs/TwoDaysAheadCGM    24
+# https://example.com/runs/DayAheadRMM        24
+# https://example.com/runs/TwoDaysAheadRMM    24
+# https://example.com/runs/IntraDayCGM/1       8
+# https://example.com/runs/IntraDayCGM/2       8
+# https://example.com/runs/IntraDayCGM/3       8
+# https://example.com/runs/IntraDayRMM/1       8
+# https://example.com/runs/IntraDayRMM/2       8
+# https://example.com/runs/IntraDayRMM/3       8
