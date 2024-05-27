@@ -212,21 +212,23 @@ def parse_duration(iso8601_duration_string):
         return duration_parser(iso8601_duration_string)
 
 
-def convert_to_utc(date_time):
+def convert_to_utc(date_time, default_timezone='Europe/Brussels'):
     """
     Converts a datetime object to UTC timezone.
 
     If the input datetime object does not have a timezone specified, it is assumed to be in the
-    Europe/Brussels timezone.
+    Europe/Brussels timezone or the timezone specified by the default_timezone parameter.
 
     Args:
         date_time (datetime.datetime): The datetime object to convert to UTC.
+        default_timezone (str): The timezone to assume if the datetime object does not have one.
+                                Default is 'Europe/Brussels'.
 
     Returns:
         datetime.datetime: The datetime object converted to UTC timezone.
     """
     if date_time.tzinfo is None:
-        # Assume the datetime is in Europe/Brussels if not defined
-        date_time = timezone('Europe/Brussels').localize(date_time)
+        # Assume the datetime is in the default timezone if not defined
+        date_time = timezone(default_timezone).localize(date_time)
 
     return date_time.astimezone(timezone("UTC"))

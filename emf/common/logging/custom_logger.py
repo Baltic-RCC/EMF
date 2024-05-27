@@ -25,10 +25,7 @@ def initialize_custom_logger(
     root_logger.propagate = True
 
     # Configure stream logging handler
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_formatter = logging.Formatter(fmt=format, datefmt=datefmt)
-    stream_handler.setFormatter(stream_formatter)
-    root_logger.addHandler(stream_handler)
+    root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
 
     # Configure Elk logging handler
     elk_handler = ElkLoggingHandler(elk_server=elk_server, index=index, extra=extra, fields_filter=fields_filter)
@@ -41,6 +38,14 @@ def initialize_custom_logger(
     return elk_handler
 
 
+class StreamHandler(logging.StreamHandler):
+    def __init__(self, level=LOGGING_LEVEL, logging_format=LOGGING_FORMAT, datetime_format=LOGGING_DATEFMT):
+        super().__init__(sys.stdout)
+        self.setLevel(level)
+        formatter = logging.Formatter(fmt=logging_format, datefmt=datetime_format)
+        self.setFormatter(formatter)
+
+
 class ElkLoggingHandler(logging.StreamHandler):
 
     def __init__(self, elk_server=elastic.ELK_SERVER, index=LOGGING_INDEX, extra=None, fields_filter=None):
@@ -51,7 +56,7 @@ class ElkLoggingHandler(logging.StreamHandler):
         :param extra: additional log field in dict format
         :param fields_filter: fields to filter out in list format, default None - all record attributes will be used
         """
-        logging.StreamHandler.__init__(self)
+        super().__init__(self)
         self.server = elk_server
         self.index = index
         self.extra = extra
