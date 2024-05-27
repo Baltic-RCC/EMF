@@ -1,3 +1,5 @@
+import aniso8601
+
 from time_helper import datetime, parse_duration, convert_to_utc, timezone, reference_times
 from uuid import uuid4
 import croniter
@@ -9,7 +11,7 @@ from os import getlogin
 logger = logging.getLogger(__name__)
 
 
-def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str):
+def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
 
@@ -45,13 +47,15 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
     # Loop through each run in the process configuration.
     for run in process["runs"]:
 
-    # Check if configuration is valid for given period
-    #if int(run['run_at'].split()[1]) == datetime.utcnow().hour and int(run['run_at'].split()[0]) == datetime.utcnow().minute:
-
         # Get the time zone for the run (use the process time zone if not specified).
         time_zone = run.get("time_zone", process["time_zone"])
 
-        now = datetime.now(tz=timezone(time_zone))
+        now = datetime.now(tz=timezone(time_zone)).replace(second=0, microsecond=0)
+
+        if timetravel_now:
+            now = aniso8601.parse_datetime(timetravel_now)
+
+        logger.info(f"Now -> {now}")
 
         # Calculate the start and end of the task window for the run.
         run_window_start = reference_times[task_window_reference](now)
@@ -64,13 +68,20 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
         runs = croniter.croniter(run["run_at"], run_window_start)
 
         # Get the next run timestamp.
-        run_timestamp = runs.next(datetime)
+        run_timestamp = runs.get_next(datetime)
+        if (previous_timestamp := runs.get_prev(datetime)) == now:
+            run_timestamp = previous_timestamp
+            _ = runs.get_next(datetime)
 
-        if run_timestamp < run_window_start  or run_timestamp > run_window_end:
-            logger.debug(f"{now} not in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
+
+        logger.info(f"Next run of {run['@id']} at {run_timestamp}")
+
+        if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
+            logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
 
         # Loop through each timestamp in the current run.
-        while run_timestamp < run_window_end:
+        while run_timestamp <= run_window_end:
+            logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
 
             # Get the reference time for the current timestamp in the time frame.
             reference_time = reference_times[time_frame["reference_time"]](run_timestamp)
@@ -102,7 +113,8 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 task_id = str(uuid4())
                 task_timestamp = datetime.utcnow().isoformat()
 
-                logger.info(f"Generating task with ID: {task_id} for {run.get('@id', None)}")
+                logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
+
 
                 task = {
                     "@context": "https://example.com/task_context.jsonld",
@@ -144,9 +156,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 logger.debug(json.dumps(task, indent=4))
 
                 # Next Task
-                timestamp_utc = timestamps_utc.next(datetime)
+                timestamp_utc = timestamps_utc.get_next(datetime)
             # Next Run
-            run_timestamp = runs.next(datetime)
+            run_timestamp = runs.get_next(datetime)
 
 
 if __name__ == "__main__":
