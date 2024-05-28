@@ -15,7 +15,8 @@ timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
 timetravel = None
-timetravel = "2024-05-24T23:05+0200"
+#timetravel = "2024-05-24T23:05+0200"
+#TODO - add to config
 
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, timetravel))
 
