@@ -1,7 +1,7 @@
 import config
 import datetime
 from typing import Dict, List, Union
-from core import elastic_service
+from emf.common.integrations.object_storage import elastic_service
 
 
 def query_hvdc_schedules(process_type: str,

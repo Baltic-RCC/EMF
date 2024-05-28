@@ -109,11 +109,12 @@ class ObjectStorage:
 
     def download_object(self, bucket_name, object_name):
         try:
+            object_name = object_name.replace("//", "/")
             file_data = self.client.get_object(bucket_name, object_name)
             return file_data.read()
 
         except minio.error.S3Error as err:
-            print(err)
+            logger.error(err)
 
     def object_exists(self, object_name, bucket_name):
 
