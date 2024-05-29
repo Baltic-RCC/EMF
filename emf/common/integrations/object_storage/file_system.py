@@ -1,6 +1,6 @@
+import logging
 import os
 import shutil
-import logging
 import zipfile
 from enum import Enum
 from io import BytesIO
@@ -14,14 +14,15 @@ from aniso8601 import parse_datetime
 
 import config
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.helper import export_model
-from emf.loadflow_tool.load_files_general import OPDE_COMPONENT_KEYWORD, OPDM_PROFILE_KEYWORD, DATA_KEYWORD, \
-    check_and_create_the_folder_path, PMD_FILENAME_KEYWORD, PMD_CGMES_PROFILE_KEYWORD, \
-    PMD_MODEL_PART_REFERENCE_KEYWORD, PMD_MERGING_ENTITY_KEYWORD, PMD_SCENARIO_DATE_KEYWORD, \
-    OPDE_OBJECT_TYPE_KEYWORD, PMD_TSO_KEYWORD, PMD_VERSION_NUMBER_KEYWORD, PMD_TIME_HORIZON_KEYWORD, \
-    BOUNDARY_OBJECT_TYPE, IGM_OBJECT_TYPE, MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, \
-    MODEL_MERGING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD, MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, \
-    get_meta_from_filename, IGM_FILE_TYPES, SPECIAL_TSO_NAME, VALIDATION_STATUS_KEYWORD, check_the_folder_path
+from emf.common.logging.pypowsybl_logger import get_pypowsybl_log_handler, PyPowsyblLogGatheringHandler, \
+    PyPowsyblLogReportingPolicy
+from emf.common.integrations.object_storage.file_system_general import OPDE_COMPONENT_KEYWORD, OPDM_PROFILE_KEYWORD, \
+    DATA_KEYWORD, PMD_FILENAME_KEYWORD, PMD_CGMES_PROFILE_KEYWORD, PMD_MODEL_PART_REFERENCE_KEYWORD, \
+    PMD_MERGING_ENTITY_KEYWORD, PMD_SCENARIO_DATE_KEYWORD, OPDE_OBJECT_TYPE_KEYWORD, PMD_TSO_KEYWORD, \
+    PMD_VERSION_NUMBER_KEYWORD, PMD_TIME_HORIZON_KEYWORD, BOUNDARY_OBJECT_TYPE, IGM_OBJECT_TYPE, \
+    MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, MODEL_MERGING_ENTITY_KEYWORD, \
+    MODEL_VERSION_KEYWORD, IGM_FILE_TYPES, SPECIAL_TSO_NAME, \
+    VALIDATION_STATUS_KEYWORD, check_and_create_the_folder_path, get_meta_from_filename, check_the_folder_path
 from emf.loadflow_tool.validator import validate_model
 
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
@@ -34,22 +35,17 @@ VALIDATION_DURATION_KEYWORD = 'validation_duration_s'
 LOADFLOW_RESULTS_KEYWORD = 'loadflow_results'
 PREFERRED_FILE_TYPES = [XML_KEYWORD, ZIP_KEYWORD]
 BOUNDARY_FILE_TYPES = ['_EQBD_', '_TPBD_', '_EQ_BD_', '_TP_BD_']
-IGM_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
-                                MODEL_SCENARIO_TIME_KEYWORD: PMD_SCENARIO_DATE_KEYWORD,
-                                MODEL_PROCESS_TYPE_KEYWORD: PMD_TIME_HORIZON_KEYWORD,
-                                MODEL_MODELING_ENTITY_KEYWORD: PMD_MODEL_PART_REFERENCE_KEYWORD,
-                                MODEL_MESSAGE_TYPE_KEYWORD: PMD_CGMES_PROFILE_KEYWORD,
-                                MODEL_VERSION_KEYWORD: PMD_VERSION_NUMBER_KEYWORD}
-BOUNDARY_FILENAME_MAPPING_TO_OPDM = {PMD_FILENAME_KEYWORD: PMD_FILENAME_KEYWORD,
-                                     MODEL_SCENARIO_TIME_KEYWORD: PMD_SCENARIO_DATE_KEYWORD,
-                                     MODEL_MODELING_ENTITY_KEYWORD: PMD_MODEL_PART_REFERENCE_KEYWORD,
-                                     MODEL_MESSAGE_TYPE_KEYWORD: PMD_CGMES_PROFILE_KEYWORD,
-                                     MODEL_VERSION_KEYWORD: PMD_VERSION_NUMBER_KEYWORD}
 SYSTEM_SPECIFIC_FOLDERS = ['__MACOSX']
 UNWANTED_FILE_TYPES = ['.xlsx', '.docx', '.pptx']
+RECURSION_LIMIT = 2
+USE_ROOT = False  # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.local_file_import)
+
+PY_ENTSOE_EXAMPLES_LOCAL = ENTSOE_EXAMPLES_LOCAL
+PY_ENTSOE_EXAMPLES_EXTERNAL = ENTSOE_EXAMPLES_EXTERNAL
+PY_MODEL_FOLDER_PATH = MODEL_FOLDER_PATH
 
 
 class LocalFileLoaderError(FileNotFoundError):
@@ -118,22 +114,6 @@ def parse_boundary_message_type_profile(message_type_value: str) -> str:
     return message_type_value
 
 
-def map_meta_dict_to_dict(input_dict: {}, meta_dict: {}, key_dict: {}) -> {}:
-    """
-    Maps values from meta_dict to input dict based on key value pairs from key_dict
-    input_dict[key_dict[key]] = meta_dict[key]
-    :param input_dict: input and output dictionary (OPDM profile)
-    :param meta_dict: metadata (parameters from file name)
-    :param key_dict: mapper, values are keys for input dict, keys are keys for meta dict
-    :return: updated input_dict
-    """
-    if meta_dict != {} and key_dict != {}:
-        for key in meta_dict.keys():
-            if key in key_dict:
-                input_dict[key_dict[key]] = meta_dict[key]
-    return input_dict
-
-
 def load_data(file_name: str | BytesIO, file_types: list = None):
     """
     Loads data from given file.
@@ -172,9 +152,6 @@ def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, 
                     igm_value[PMD_TSO_KEYWORD] = meta_for_data[datum][PMD_MODEL_PART_REFERENCE_KEYWORD]
 
             opdm_profile_content = meta_for_data[datum]
-            # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
-            #                                              meta_dict=meta_for_data[datum],
-            #                                              key_dict=IGM_FILENAME_MAPPING_TO_OPDM)
             # Update the file name
             if original_file_name := opdm_profile_content.get(PMD_FILENAME_KEYWORD):
                 opdm_profile_content[PMD_FILENAME_KEYWORD] = Path(original_file_name).stem + '.zip'
@@ -235,9 +212,6 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
                 meta_for_data[PMD_CGMES_PROFILE_KEYWORD] = (
                     parse_boundary_message_type_profile(meta_for_data[PMD_CGMES_PROFILE_KEYWORD]))
             opdm_profile_content = meta_for_data[datum]
-            # opdm_profile_content = map_meta_dict_to_dict(input_dict={},
-            #                                              meta_dict=meta_for_data[datum],
-            #                                              key_dict=BOUNDARY_FILENAME_MAPPING_TO_OPDM)
             # Update the file name
             if cgmes_profile := opdm_profile_content.get(PMD_CGMES_PROFILE_KEYWORD):
                 if len(cgmes_profile) == 4:
@@ -340,65 +314,18 @@ def get_data_from_files(file_locations: list | str | dict,
                 igm_value = get_one_set_of_igms_from_local_storage(file_data=file_set,
                                                                    file_types=file_keywords)
                 if PMD_TSO_KEYWORD not in igm_value:
-                    tso_name = f"{MISSING_TSO_NAME}-{tso_counter}"
+                    default_tso_name = f"{MISSING_TSO_NAME}-{tso_counter}"
                     tso_counter += 1
-                    logger.warning(f"TSO name not found assigning default name as {tso_name}")
-                    igm_value[PMD_TSO_KEYWORD] = tso_name
+                    logger.warning(f"TSO name not found assigning default name as {default_tso_name}")
+                    igm_value[PMD_TSO_KEYWORD] = default_tso_name
                 all_models.append(igm_value)
     else:
         logger.error(f"Unsupported input")
         raise LocalFileLoaderError
-
-    return all_models
-
-
-def filter_file_list_by_file_keywords(file_list: list | str | dict, file_keywords: list = None):
-    """
-    Ables to filter the file list by file identifying keywords ('TP', 'SSH', 'EQ', 'SV')
-    :param file_list: list of file names
-    :param file_keywords: list of file identifiers
-    :return updated file list if file_keywords was provided, file_list otherwise
-    """
-    if file_keywords is None:
-        return file_list
-    new_file_list = []
-    for file_name in file_list:
-        if any([file_keyword in file_name for file_keyword in file_keywords]):
-            new_file_list.append(file_name)
-    return new_file_list
-
-
-def get_local_igm_data(file_locations: list | str | dict, file_keywords: list = None):
-    """
-    Call this with a list of files/directories to load igm data
-    :param file_locations: list of files or their locations, one element per subtopic_name
-    :param file_keywords: list of identifiers that are in file names that should be loaded
-    :return: dictionary wanting to be similar to opdm profile if something useful was found
-    """
-    output = get_data_from_files(file_locations=file_locations,
-                                 get_type=LocalInputType.IGM,
-                                 file_keywords=file_keywords)
-    if len(output) == 0:
+    if len(all_models) == 0:
         logger.error(f"Data for igms were not valid, no igms were extracted")
         raise LocalFileLoaderError
-    return output
-
-
-def get_local_boundary_data(file_locations: list | str, file_keywords: list = None):
-    """
-    Call this with a list of files/directories to load boundary data
-    :param file_locations: list of files or their locations, one element per subtopic_name
-    :param file_keywords: list of identifiers that are in file names that should be loaded
-    :return: dictionary wanting to be similar to opdm profile if something useful was found
-    """
-    boundaries = get_data_from_files(file_locations=file_locations,
-                                     get_type=LocalInputType.BOUNDARY,
-                                     file_keywords=file_keywords)
-    try:
-        return boundaries[0]
-    except IndexError:
-        logger.error(f"Data for boundaries were not valid, no boundaries were extracted")
-        raise LocalFileLoaderError
+    return all_models
 
 
 def download_zip_file(url_to_zip: str, path_to_download: str = None):
@@ -417,10 +344,6 @@ def download_zip_file(url_to_zip: str, path_to_download: str = None):
         with open(loaded_file_name, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
     return loaded_file_name
-
-
-RECURSION_LIMIT = 2
-USE_ROOT = False  # extracts to root, not to folder specified to zip. Note that some zip examples may not work!
 
 
 def check_and_extract_zip_files_in_folder(root_folder: str,
@@ -528,13 +451,13 @@ def search_directory(root_folder: str, search_path: str):
 
 def check_and_get_examples(path_to_search: str,
                            use_root: bool = USE_ROOT,
-                           local_folder_for_examples: str = ENTSOE_EXAMPLES_LOCAL,
-                           url_for_examples: str = ENTSOE_EXAMPLES_EXTERNAL,
+                           local_folder_for_examples: str = PY_ENTSOE_EXAMPLES_LOCAL,
+                           url_for_examples: str = PY_ENTSOE_EXAMPLES_EXTERNAL,
                            recursion_depth: int = RECURSION_LIMIT):
     """
     Checks if examples are present if no then downloads and extracts them
-    :param local_folder_for_examples: path to the examples
     :param use_root: use root folder for extraction
+    :param local_folder_for_examples: path to the examples
     :param url_for_examples: path to online storage
     :param recursion_depth: the max allowed iterations for the recursion
     :param path_to_search: folder to search
@@ -592,7 +515,7 @@ def check_if_filename_exists_in_list(existing_file_names: list, new_file_name: s
     return existing_file_names
 
 
-def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = True):
+def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = False):
     """
     When input is a directory containing the .xml and .zip files for all the TSOs and boundaries as well and
     if files follow the standard name convention, then this one sorts them by TSOs and by boundaries
@@ -630,7 +553,7 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
         modeling_entity = file_name_meta.get(MODEL_FOR_ENTITY_KEYWORD, '')
         modeling_entity = None if modeling_entity == '' else modeling_entity
         # if needed skip the cases when there is merging entity and part_reference present, didn't like to pypowsybl
-        if not allow_merging_entities and tso_name and merging_entity and tso_name not in SPECIAL_TSO_NAME:
+        if not allow_merging_entities and merging_entity and tso_name not in SPECIAL_TSO_NAME:
             continue
         if not tso_name:
             tso_name = modeling_entity or merging_entity
@@ -676,26 +599,77 @@ def check_model_completeness(model_data: list | dict, file_types: list | str):
     return checked_models
 
 
-def get_local_entsoe_files(path_to_directory: str | list,
-                           allow_merging_entities: bool = True,
-                           igm_files_needed: list = None,
-                           boundary_files_needed: list = None):
+def get_latest_boundary(path_to_directory: str | list = PY_MODEL_FOLDER_PATH,
+                        local_folder_for_examples: str = PY_ENTSOE_EXAMPLES_LOCAL,
+                        url_for_examples: str = PY_ENTSOE_EXAMPLES_EXTERNAL,
+                        boundary_files_needed: list = None):
     """
-    Gets list of files in directory and divides them to model and boundary data
-    :param path_to_directory: path to directory from where to search
-    :param allow_merging_entities: true allow cases like TECNET-CE-ELIA to list of models
-    :param igm_files_needed: specify explicitly the file types needed (escape pypowsybl "EQ" missing error)
-    :param boundary_files_needed: specify explicitly the file types needed for boundary data
-    :return dictionary of subtopic_name files and list of boundary data
+     Gets list of files in directory and returns those who categorize to boundary in opdm format
+     :param path_to_directory: path to directory from where to search
+     :param local_folder_for_examples: path to the examples
+     :param url_for_examples: path to online storage
+     :param boundary_files_needed: specify explicitly the file types needed (escape pypowsybl "EQ" missing error)
+     """
+    if isinstance(path_to_directory, str):
+        path_to_directory = [path_to_directory]
+    all_boundaries = []
+    for single_path in path_to_directory:
+        try:
+            full_path = check_and_get_examples(single_path,
+                                               local_folder_for_examples=local_folder_for_examples,
+                                               url_for_examples=url_for_examples)
+        except Exception as ex:
+            logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
+            sys.exit()
+        full_path = check_the_folder_path(full_path)
+        file_names = next(os.walk(full_path), (None, None, []))[2]
+        models_data, boundary_data = group_files_by_origin(list_of_files=file_names,
+                                                           root_folder=full_path)
+        if boundary_data:
+            boundaries_transformed = get_data_from_files(file_locations=boundary_data,
+                                                         get_type=LocalInputType.BOUNDARY,
+                                                         file_keywords=BOUNDARY_FILE_TYPES)
+            if boundaries_transformed:
+                all_boundaries.extend(boundaries_transformed)
+    if len(all_boundaries) == 0:
+        logger.warning(f"No boundaries found")
+        raise LocalFileLoaderError
+    else:
+        if len(all_boundaries) > 1:
+            all_boundaries.sort(key=lambda x: parse_datetime(x.get(PMD_SCENARIO_DATE_KEYWORD)), reverse=True)
+    boundary = all_boundaries[0]
+    if boundary_files_needed:
+        boundary = check_model_completeness(boundary, boundary_files_needed)
+    return boundary
+
+
+def get_latest_models_and_download(time_horizon: str = None,
+                                   scenario_date: str = None,
+                                   tso: str | list = None,
+                                   path_to_directory: str | list = PY_MODEL_FOLDER_PATH,
+                                   local_folder_for_examples: str = PY_ENTSOE_EXAMPLES_LOCAL,
+                                   url_for_examples: str = PY_ENTSOE_EXAMPLES_EXTERNAL,
+                                   allow_merging_entities: bool = False,
+                                   igm_files_needed: list = None):
     """
+     Gets list of files in directory and returns those who categorize to igm data in opdm format
+     :param time_horizon: time horizon if given will be used for filtering
+     :param scenario_date: scenario date if given will be used for filtering
+     :param tso: if given will be used for filtering
+     :param path_to_directory: path to directory from where to search
+     :param local_folder_for_examples: path to the examples
+     :param url_for_examples: path to online storage
+     :param allow_merging_entities: true allow cases like TECNET-CE-ELIA to list of models
+     :param igm_files_needed: specify explicitly the file types needed (escape pypowsybl "EQ" missing error)
+     """
     if isinstance(path_to_directory, str):
         path_to_directory = [path_to_directory]
     models = []
-    all_boundaries = []
-    boundary = None
     for single_path in path_to_directory:
         try:
-            full_path = check_and_get_examples(single_path)
+            full_path = check_and_get_examples(single_path,
+                                               local_folder_for_examples=local_folder_for_examples,
+                                               url_for_examples=url_for_examples)
         except Exception as ex:
             logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
             sys.exit()
@@ -705,26 +679,23 @@ def get_local_entsoe_files(path_to_directory: str | list,
                                                            root_folder=full_path,
                                                            allow_merging_entities=allow_merging_entities)
         if models_data:
-            models_transformed = get_local_igm_data(models_data, IGM_FILE_TYPES)
+            models_transformed = get_data_from_files(file_locations=models_data,
+                                                     get_type=LocalInputType.IGM,
+                                                     file_keywords=IGM_FILE_TYPES)
             models.extend(models_transformed)
-        if boundary_data:
-            try:
-                boundary_transformed = get_local_boundary_data(boundary_data, BOUNDARY_FILE_TYPES)
-            except NameError:
-                boundary_transformed = None
-            if boundary_transformed is not None:
-                all_boundaries.append(boundary_transformed)
-    if len(all_boundaries) == 0:
-        logger.warning(f"No boundaries found")
-    else:
-        if len(all_boundaries) > 1:
-            logger.warning(f"Multiple boundaries detected, taking first occurrence")
-        boundary = all_boundaries[0]
     if igm_files_needed is not None:
         models = check_model_completeness(models, igm_files_needed)
-    if boundary_files_needed is not None:
-        boundary = check_model_completeness(boundary, boundary_files_needed)
-    return models, boundary
+    # if parameters were given filter the results by it
+    if tso:
+        if isinstance(tso, str):
+            tso = [tso]
+        models = [igm_model for igm_model in models if igm_model.get(PMD_TSO_KEYWORD) in tso]
+    if time_horizon:
+        models = [igm_model for igm_model in models if igm_model.get(PMD_TIME_HORIZON_KEYWORD) == time_horizon]
+    if scenario_date:
+        models = [igm_model for igm_model in models
+                  if parse_datetime(igm_model.get(PMD_SCENARIO_DATE_KEYWORD)) == parse_datetime(scenario_date)]
+    return models
 
 
 if __name__ == "__main__":
@@ -736,7 +707,29 @@ if __name__ == "__main__":
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
         level=logging.INFO,
-        handlers=[logging.StreamHandler(sys.stdout)])
+        handlers=[logging.StreamHandler(sys.stdout),
+                  # Set up the log gatherer:
+                  # topic name: currently used as a start of a file name
+                  # send_it_to_elastic: send the triggered log entry to elastic
+                  # upload_to_minio: upload log file to minio (parameters are defined in custom_logger.properties)
+                  # report_on_command: trigger reporting explicitly
+                  # logging policy: choose according to the need. Currently:
+                  #   ALL_ENTRIES: gathers all log entries no matter of what
+                  #   ENTRIES_IF_LEVEL_REACHED: outputs all the log when at least one entry was over level
+                  #   ENTRIES_ON_LEVEL: gathers all entries that were at least on the level specified
+                  # print_to_console: propagate log to parent
+                  # reporting_level: level that triggers policy
+                  PyPowsyblLogGatheringHandler(topic_name='IGM_validation',
+                                               send_to_elastic=False,
+                                               upload_to_minio=False,
+                                               save_local_storage=True,
+                                               logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
+                                               print_to_console=False,
+                                               report_level=logging.WARNING)
+                  ]
+    )
+    # Get the pypowsybl log handler from root
+    log_handler = get_pypowsybl_log_handler()
 
     # Switch this to True if files from local storage are used
     load_data_from_local_storage = True
@@ -744,21 +737,19 @@ if __name__ == "__main__":
         if load_data_from_local_storage:
             # available_models, latest_boundary = get_local_files()
             # Change this according the test case to be used. Note that it must reference to the end folder that will
-            # be used. Also it must be unique enough do be distinguished from other folders (for example instead of
-            # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc)
+            # be used. Also, it must be unique enough do be distinguished from other folders (for example instead of
+            # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc.)
             # Some examples for
             #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/QoCDC_v3.2.1_test_models.zip
-            # folder_to_study = 'apg_case'
             folder_to_study = 'TC3_T1_Conform'
-            # folder_to_study = 'TC3_T3_Conform'
-            # folder_to_study = 'TC4_T1_Conform/Initial'
+            examples_path = '../../../loadflow_tool/example_models/'
             # Some examples for
             #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/TestConfigurations_packageCASv2.0.zip
             # folder_to_study = ['CGMES_v2.4.15_MicroGridTestConfiguration_T1_BE_Complete_v2',
             #                    'CGMES_v2.4.15_MicroGridTestConfiguration_T1_NL_Complete_v2',
             #                    'Type1_T1/CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2']
             # In general this function checks if the paths (path_to_directory) exist in ENTSOE_EXAMPLES_LOCAL,
-            # if not then it tries to download and extract zip from ENTSOE_EXAMPLES_EXTERNAL. If this fails or path
+            # if not then it tries to download and extract zip from ENTSOE_EXAMPLES_EXTERNAL. If it fails or path
             # is not still found it carries on as usual.
             # Note that zip can be downloaded and extracted but in this case it must be extracted to the path
             # path_to_directory: string or list, end of the path from where to load the files
@@ -767,9 +758,16 @@ if __name__ == "__main__":
             # allow_merging_entities: Whether to allow merging entities, pypowsybl validation was not happy about that
             # igm_files_needed: in order for pypowsybl validation to work, at least these files should be present in
             # igm
-            available_models, latest_boundary = get_local_entsoe_files(path_to_directory=folder_to_study,
-                                                                       allow_merging_entities=False,
-                                                                       igm_files_needed=['EQ'])
+            test_time_horizon = '1D'
+            test_tsos = ['mavir', 'seps']
+            test_scenario_date = '2021-09-21T09:30:00+00:00'
+            available_models = get_latest_models_and_download(time_horizon=test_time_horizon,
+                                                              scenario_date=test_scenario_date,
+                                                              path_to_directory=folder_to_study,
+                                                              local_folder_for_examples=examples_path,
+                                                              tso=test_tsos)
+            latest_boundary = get_latest_boundary(path_to_directory=folder_to_study,
+                                                  local_folder_for_examples=examples_path)
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
@@ -785,7 +783,10 @@ if __name__ == "__main__":
     validated_models = []
     # Validate models
     for model in available_models:
-        tso = model['pmd:TSO']
+        model_tso_name = model['pmd:TSO']
+        # pypowsybl_log_gatherer.set_subtopic_name(tso)
+        if log_handler:
+            log_handler.set_sub_topic_name(model_tso_name)
         try:
             if isinstance(latest_boundary, dict):
                 response = validate_model([model, latest_boundary])
