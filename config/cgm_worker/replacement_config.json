@@ -1,0 +1,46 @@
+{
+        "configuration": {
+            "validity_start": "2024-02-22T00:00:00Z",
+            "validity_end": "2024-02-22T23:59:59Z",
+            "timeZone": "CET"
+        },
+        "timeHorizon": {
+            "Request_list": ["ID", "1D", "2D", "WK"]
+        },
+        "hours": [
+            {
+                "hour": "00:30",
+                "priority": [
+                    {"1": "PT0H"},
+                    {"2": "PT1H"},
+                    {"3": "-PT1H"},
+                    {"4": "-PT2H"}
+                ]
+            },
+            {
+                "hour": "01:30",
+                "priority": [
+                    {"1": "PT0H"},
+                    {"2": "PT1H"},
+                    {"3": "-PT1H"},
+                    {"4": "-PT2H"}
+                ]
+            }
+        ],
+        "days": [
+            {
+                "day": 0,
+                "priority": [
+                    {"1": "P0D"},
+                    {"2": "P1D"}
+                ]
+            },
+            {
+                "day": 1,
+                "priority": [
+                    {"1": "P0D"},
+                    {"2": "P1D"}
+                ]
+            }
+        ]
+    }
