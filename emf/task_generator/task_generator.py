@@ -163,6 +163,50 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
             run_timestamp = runs.get_next(datetime)
 
 
+def flatten_dict(nested_dict: dict, parent_key: str = '', separator: str = '.'):
+    """
+    Flattens a nested dictionary.
+
+    Parameters:
+    - nested_dict (dict): The dictionary to flatten.
+    - parent_key (str): The base key string used for recursion.
+    - separator (str): The separator between parent and child keys.
+
+    Returns:
+    - dict: A flattened dictionary where nested keys are concatenated into a single string.
+    """
+    items = []
+    for k, v in nested_dict.items():
+        new_key = f"{parent_key}{separator}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, separator=separator).items())
+        elif isinstance(v, list):
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    items.extend(flatten_dict(item, f"{new_key}[{i}]", separator=separator).items())
+                else:
+                    items.append((f"{new_key}[{i}]", item))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
+def filter_and_flatten_dict(nested_dict: dict, keys: list):
+    """
+    Creates a new flat dictionary from specified keys.
+
+    Parameters:
+    - nested_dict (dict): The original nested dictionary.
+    - keys (list): The list of keys to include in the new flat dictionary.
+
+    Returns:
+    - dict: A new flat dictionary with only the specified keys.
+    """
+    flattened = flatten_dict(nested_dict)
+    return {key: flattened[key] for key in keys if key in flattened}
+
+
+
 if __name__ == "__main__":
     import sys
     import pandas
