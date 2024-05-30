@@ -1,4 +1,4 @@
-{
+[{
   "@context": "https://example.com/schemas/process.jsonld",
   "@id": "https://example.com/processes/CGM_CREATION",
   "@type": "Process",
@@ -111,8 +111,19 @@
         "excluded": [],
         "time_horizon": "2D"
       }
-    },
-    {
+    }
+  ]
+},
+  {
+    "@context": "https://example.com/schemas/process.jsonld",
+    "@id": "https://example.com/processes/RMM_CREATION",
+    "@type": "Process",
+    "description": "",
+    "time_zone": "Europe/Brussels",
+    "tags": [],
+    "properties": {},
+    "runs": [
+      {
       "@context": "https://example.com/schemas/run.jsonld",
       "@id": "https://example.com/runs/IntraDayRMM/1",
       "@type": "Run",
@@ -237,5 +248,6 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     }
-  ]
-}
+    ]
+  }
+]
