@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
 
+SCROLL_ID_FIELD = '_scroll_id'
+RESULT_FIELD = 'hits'
+DOCUMENT_COUNT = 10000
+DEFAULT_COLUMNS = ["value"]
+INITIAL_SCROLL_TIME = "15m"
+CONSECUTIVE_SCROLL_TIME = "12m"
+MAGIC_KEYWORD = '_source'
+
 
 class Elastic:
 
@@ -133,6 +141,55 @@ class Elastic:
             response.columns = response.columns.astype(str).map(lambda x: x.replace("_source.", ""))
 
         return response
+
+    def get_data_by_scrolling(self,
+                              query: dict,
+                              index: str,
+                              fields: []):
+        """
+        Gets a large bulk of data from elastic
+        :param query: dictionary with parameters by which to select data from elastic
+        :param index: table name in elastic
+        :param fields: fields or columns to return from query
+        :return: dataframe with results
+        """
+        result = self.client.search(index=index,
+                                    query=query,
+                                    source=fields,
+                                    size=DOCUMENT_COUNT,
+                                    scroll=INITIAL_SCROLL_TIME)
+
+        scroll_id = result[SCROLL_ID_FIELD]
+        # Extract and return the relevant data from the initial response
+        hits = result[RESULT_FIELD][RESULT_FIELD]
+        yield hits
+        # Continue scrolling through the results until there are no more
+        while hits:
+            result = self.client.scroll(scroll_id=scroll_id, scroll=CONSECUTIVE_SCROLL_TIME)
+            hits = result[RESULT_FIELD][RESULT_FIELD]
+            yield hits
+        # Clear the scroll context after processing all results
+        self.client.clear_scroll(scroll_id=scroll_id)
+
+    def get_data(self,
+                 query: dict,
+                 index: str,
+                 fields: [] = None):
+        """
+        Gets data from elastic
+        :param query: dictionary with parameters by which to select data from elastic
+        :param index: table name in elastic
+        :param fields: fields or columns to return from query
+        :return: dataframe with results
+        """
+        # Gather all the results to list (of dictionaries)
+        list_of_lines = []
+        for hits in self.get_data_by_scrolling(query=query, index=index, fields=fields):
+            for hit in hits:
+                list_of_lines.append({field: hit[MAGIC_KEYWORD][field] for field in fields})
+        # convert list (of dictionaries) to pandas dataframe
+        data_frame = pd.DataFrame(list_of_lines)
+        return data_frame
 
     def query_schedules_from_elk(self,
                                  index: str,
