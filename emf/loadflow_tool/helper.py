@@ -155,7 +155,7 @@ def load_model(opdm_objects: List[dict]):
 
     # Network model import reporter data
     # model_data["import_report"] = json.loads(import_report.to_json())
-    # model_data["import_report_str"] = str(import_report)
+    # model_data["import_report"] = str(import_report)
 
     return model_data
 
