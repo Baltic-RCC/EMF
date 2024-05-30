@@ -340,9 +340,22 @@ def download_zip_file(url_to_zip: str, path_to_download: str = None):
     if path_to_download is not None:
         path_to_download = check_the_folder_path(path_to_download)
         loaded_file_name = path_to_download + loaded_file_name
-    with requests.get(url_to_zip, stream=True) as r:
-        with open(loaded_file_name, 'wb') as f:
-            shutil.copyfileobj(r.raw, f)
+    r = requests.get(url_to_zip, stream=True)
+    if r.status_code != 200:
+        raise RuntimeError(f"{url_to_zip} returned status code {r.status_code}, terminating download")
+    file_size = int(r.headers.get('Content-Length', 0))
+    downloaded_size = 0
+    chunk_size = 1024
+    logger.info(f"Downloading examples from {url_to_zip} to {loaded_file_name}")
+    with open(loaded_file_name, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            f.write(chunk)
+            downloaded_size += chunk_size
+            sys.stdout.write(f"\rDownloaded {(100 *downloaded_size / file_size):.2f}%")
+            sys.stdout.flush()
+        # shutil.copyfileobj(r.raw, f)
+    sys.stdout.write("\n")
+    logger.info(f"Download completed")
     return loaded_file_name
 
 
@@ -476,7 +489,6 @@ def check_and_get_examples(path_to_search: str,
         # Check if directory contains necessary file and it is zip file
         if not os.path.isfile(full_file_name) or not zipfile.is_zipfile(full_file_name):
             # Download the file
-            logger.info(f"Downloading examples from {url_for_examples} to {local_folder_for_examples}")
             full_file_name = download_zip_file(url_for_examples, local_folder_for_examples)
         # Now, there should be a zip present, extract it
         extract_zip_file(current_zip_file=full_file_name,

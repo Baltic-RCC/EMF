@@ -11,7 +11,7 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from emf.common.integrations.minio import ObjectStorage
-from emf.loadflow_tool.load_files_general import SEPARATOR_SYMBOL, check_the_folder_path
+from emf.common.integrations.object_storage.file_system_general import check_the_folder_path, SEPARATOR_SYMBOL
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.pypowsybl_logger)
