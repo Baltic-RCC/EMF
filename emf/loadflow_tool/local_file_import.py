@@ -14,8 +14,6 @@ from aniso8601 import parse_datetime
 
 import config
 from emf.common.config_parser import parse_app_properties
-from emf.common.logging.pypowsybl_logger import get_pypowsybl_log_handler, \
-    PyPowsyblLogGatheringHandler, PyPowsyblLogReportingPolicy
 from emf.loadflow_tool.helper import export_model
 from emf.loadflow_tool.load_files_general import OPDE_COMPONENT_KEYWORD, OPDM_PROFILE_KEYWORD, DATA_KEYWORD, \
     check_and_create_the_folder_path, PMD_FILENAME_KEYWORD, PMD_CGMES_PROFILE_KEYWORD, \
@@ -738,29 +736,7 @@ if __name__ == "__main__":
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
         level=logging.INFO,
-        handlers=[logging.StreamHandler(sys.stdout),
-                  # Set up the log gatherer:
-                  # topic name: currently used as a start of a file name
-                  # send_it_to_elastic: send the triggered log entry to elastic
-                  # upload_to_minio: upload log file to minio (parameters are defined in custom_logger.properties)
-                  # report_on_command: trigger reporting explicitly
-                  # logging policy: choose according to the need. Currently:
-                  #   ALL_ENTRIES: gathers all log entries no matter of what
-                  #   ENTRIES_IF_LEVEL_REACHED: outputs all the log when at least one entry was over level
-                  #   ENTRIES_ON_LEVEL: gathers all entries that were at least on the level specified
-                  # print_to_console: propagate log to parent
-                  # reporting_level: level that triggers policy
-                  PyPowsyblLogGatheringHandler(topic_name='IGM_validation',
-                                               send_to_elastic=False,
-                                               upload_to_minio=False,
-                                               save_local_storage=True,
-                                               logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
-                                               print_to_console=False,
-                                               report_level=logging.WARNING)
-                  ]
-    )
-    # Get the pypowsybl log handler from root
-    log_handler = get_pypowsybl_log_handler()
+        handlers=[logging.StreamHandler(sys.stdout)])
 
     # Switch this to True if files from local storage are used
     load_data_from_local_storage = True
@@ -794,7 +770,6 @@ if __name__ == "__main__":
             available_models, latest_boundary = get_local_entsoe_files(path_to_directory=folder_to_study,
                                                                        allow_merging_entities=False,
                                                                        igm_files_needed=['EQ'])
-            # available_models = [model for model in available_models if model.get(PMD_TSO_KEYWORD) == 'APG']
         else:
             raise LocalFileLoaderError
     except FileNotFoundError:
@@ -811,9 +786,6 @@ if __name__ == "__main__":
     # Validate models
     for model in available_models:
         tso = model['pmd:TSO']
-        # pypowsybl_log_gatherer.set_subtopic_name(tso)
-        if log_handler:
-            log_handler.set_sub_topic_name(tso)
         try:
             if isinstance(latest_boundary, dict):
                 response = validate_model([model, latest_boundary])

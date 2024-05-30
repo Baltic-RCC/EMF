@@ -15,8 +15,6 @@ import pandas
 import datetime
 from uuid import uuid4
 
-# Update SSH
-
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -29,7 +27,7 @@ logging.basicConfig(
 opdm_client = OPDM()
 
 time_horizon = '1D'
-scenario_date = "2023-08-16T11:30"
+scenario_date = "2024-27-16T11:30"
 area = "EU"
 version = "104"
 

@@ -12,6 +12,7 @@ import os
 from lxml import etree
 import triplets
 import uuid
+from aniso8601 import parse_datetime
 
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,7 @@ def load_model(opdm_objects: List[dict]):
 
     # Network model import reporter data
     # model_data["import_report"] = json.loads(import_report.to_json())
-    # model_data["import_report_str"] = str(import_report)
+    # model_data["import_report"] = str(import_report)
 
     return model_data
 
@@ -331,6 +332,33 @@ def get_metadata_from_filename(file_name):
     return file_metadata
 
 
+def generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type="CGMES"):
+    """
+    Generates the file path based on the given parameters and metadata extracted from the filename.
+
+    Parameters:
+    file_name (str): The name of the file from which metadata will be extracted.
+    opdm_object_type (str): The type of OPDM object, defaults to "CGMES".
+
+    Returns:
+    str: Generated file path using the provided template and extracted metadata.
+
+    Example:
+    >>> file_name = "example_filename"
+    >>> opdm_object_type = "CGMES"
+    >>> generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type)
+    'CGMES/processType/modelingEntity/20240529/123000/messageType/example_filename'
+    """
+    template = "{opdm_object_type}/{processType}/{modelingEntity}/{scenarioTime:%Y%m%d}/{scenarioTime:%H%M00}/{messageType}/{file_name}"
+
+    meta = {key.split(".")[-1]: value for key, value in get_metadata_from_filename(file_name).items()}
+    meta["scenarioTime"] = parse_datetime(meta["scenarioTime"])
+    meta["file_name"] = file_name
+    meta["opdm_object_type"] = opdm_object_type
+
+    return template.format(**meta)
+
+
 def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
 
     if profiles:
@@ -347,6 +375,7 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
             "iidm.export.cgmes.base-name": file_base_name,
             "iidm.export.cgmes.profiles": profiles,
             "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
+            "iidm.export.cgmes.export-sv-injections-for-slacks": "False",
         })
 
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"

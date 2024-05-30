@@ -6,7 +6,7 @@ from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
 from emf.common.logging.custom_logger import initialize_custom_logger
 
-logger = logging.getLogger("task_generator")
+logger = logging.getLogger("task_generator.worker")
 elk_handler = initialize_custom_logger()
 
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
@@ -14,7 +14,11 @@ parse_app_properties(globals(), config.paths.task_generator.task_generator)
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
-tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf))
+timetravel = None
+#timetravel = "2024-05-24T23:05+0200"
+#TODO - add to config
+
+tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, timetravel))
 
 if tasks:
     logger.info(f"Creating connection to RMQ")
@@ -24,4 +28,6 @@ if tasks:
         rabbit_service.publish(json.dumps(task), RMQ_EXCHANGE)
 else:
     logger.info("No tasks generated at current time.")
+
+
 
