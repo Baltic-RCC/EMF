@@ -128,10 +128,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -150,10 +153,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -172,10 +178,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -194,10 +203,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "1D"
+        "time_horizon": "1D",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -216,10 +228,14 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "2D"
+        "time_horizon": "2D",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
+      }
       }
     }
   ]
