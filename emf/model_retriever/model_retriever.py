@@ -6,12 +6,10 @@ from typing import List
 import json
 
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import edx, elastic, opdm, minio
+from emf.common.integrations import elastic, opdm
 from emf.common.converters import opdm_metadata_to_json
-from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.model_validator.validator import validate_model
 from emf.loadflow_tool.helper import load_opdm_data
-from emf.loadflow_tool.model_statistics import get_system_metrics
-
 
 logger = logging.getLogger(__name__)
 

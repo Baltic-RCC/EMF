@@ -14,7 +14,6 @@ from aniso8601 import parse_datetime
 
 import config
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.helper import export_model
 from emf.loadflow_tool.load_files_general import OPDE_COMPONENT_KEYWORD, OPDM_PROFILE_KEYWORD, DATA_KEYWORD, \
     check_and_create_the_folder_path, PMD_FILENAME_KEYWORD, PMD_CGMES_PROFILE_KEYWORD, \
     PMD_MODEL_PART_REFERENCE_KEYWORD, PMD_MERGING_ENTITY_KEYWORD, PMD_SCENARIO_DATE_KEYWORD, \
@@ -22,7 +21,7 @@ from emf.loadflow_tool.load_files_general import OPDE_COMPONENT_KEYWORD, OPDM_PR
     BOUNDARY_OBJECT_TYPE, IGM_OBJECT_TYPE, MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, \
     MODEL_MERGING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD, MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, \
     get_meta_from_filename, IGM_FILE_TYPES, SPECIAL_TSO_NAME, VALIDATION_STATUS_KEYWORD, check_the_folder_path
-from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.model_validator.validator import validate_model
 
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'

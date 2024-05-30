@@ -11,7 +11,7 @@ from emf.common.integrations import edx, opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.helper import metadata_from_filename
-from emf.loadflow_tool.merger import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip
+from emf.loadflow_tool.model_merger.merger import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -31,7 +31,7 @@ class HandlerRmmToPdnAndMinio:
         # Parse relevant data from Task
         task = task_object
 
-        if isinstance(task, str):
+        if not isinstance(task, dict):
             task = json.loads(task_object)
 
         task["task_status_trace"].append(
