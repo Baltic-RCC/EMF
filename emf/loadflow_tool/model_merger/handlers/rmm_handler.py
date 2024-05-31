@@ -7,7 +7,7 @@ from aniso8601 import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import edx, opdm, minio
+from emf.common.integrations import opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.helper import metadata_from_filename
@@ -22,7 +22,6 @@ class HandlerRmmToPdnAndMinio:
     def __init__(self):
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio.ObjectStorage()
-        self.edx_service = edx.EDX()
 
     def handle(self, task_object: dict, **kwargs):
 
@@ -169,24 +168,6 @@ class HandlerRmmToPdnAndMinio:
                             logging.info(f"Adding file: {file_name}")
                             rmm_zip.writestr(file_name, instance_zip.open(file_name).read())
 
-
-
-        # Upload to PDN
-        business_type = OUTPUT_EDX_BUSINESS_TYPE # "MODELS-RMM"
-        receiver = OUTPUT_EDX_RECEIVER # "PUBLICATION@SC-38V-0000000012-W"
-
-        logger.info(f"Publishing {business_type} to {receiver}")
-        try:
-            rmm_publication_response = self.edx_service.send_message(receiver_EIC=receiver,
-                                                                    business_type=business_type,
-                                                                    content=rmm_data.getvalue(),
-                                                                    ba_message_id=rmm_name.replace("_", "-"))
-
-            logger.debug(self.edx_service.check_message_status(rmm_publication_response))
-
-        except:
-            logging.error(f"""Unexpected error on publishing to EDX:""", exc_info=True)
-
         # Upload to Object Storage
         rmm_object = rmm_data
         rmm_object.name = f"{OUTPUT_MINIO_FOLDER}/{rmm_name}.zip"
@@ -199,7 +180,7 @@ class HandlerRmmToPdnAndMinio:
             logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
         logger.info(f"RMM creation done for {rmm_name}")
-        end_time = datetime.datetime.now()
+        end_time = datetime.datetime.utcnow()
         task_duration = end_time - start_time
         logger.info(f"Task ended at {end_time}, total run time {task_duration}",
                     extra={"task_duration": task_duration.total_seconds(),
