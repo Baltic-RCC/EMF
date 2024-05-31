@@ -40,6 +40,7 @@ class HandlerRmmToPdnAndMinio:
             }
         )
 
+        task_creation_time = task.get('task_creation_time')
         task_properties = task.get('task_properties', {})
         included_models = task_properties.get('included', [])
         excluded_models = task_properties.get('excluded', [])
@@ -56,8 +57,6 @@ class HandlerRmmToPdnAndMinio:
         # TODO - task to contain and increase version number
         version = task_properties["version"]
 
-        # Set RMM name
-        rmm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
 
         # Collect models
         valid_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True)
@@ -118,16 +117,11 @@ class HandlerRmmToPdnAndMinio:
                     for file_name in source_zip.namelist():
                         logging.info(f"Adding file: {file_name}")
 
-                        data = BytesIO()
-                        data.name = f"{file_name.split('.', maxsplit=1)[0]}.zip"
-                        with ZipFile(data, "w") as data_zip:
-                            data_zip.writestr(file_name, source_zip.open(file_name).read())
+                        metadata = {"pmd:content-reference": file_name,
+                                    "pmd:fileName": file_name,
+                                    "DATA": source_zip.open(file_name).read()}
 
-                        metadata = {"pmd:content-reference": data.name,
-                                    "pmd:fileName": data.name,
-                                    "DATA": data.getvalue()}
-
-                        metadata.update(metadata_from_filename(data.name))
+                        metadata.update(metadata_from_filename(file_name))
                         opdm_profile = {'opdm:Profile': metadata}
                         opdm_object['opde:Component'].append(opdm_profile)
 
@@ -143,15 +137,24 @@ class HandlerRmmToPdnAndMinio:
         # TODO - run other LF if default fails
         solved_model = run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
 
+        # Update time_horizon in case of generic ID process type
+        # TODO maybe get instead of start time, task creation time
+        if time_horizon.upper() == "ID":
+            time_horizon = f"{int((parse_datetime(scenario_datetime).replace(tzinfo=None) - start_time).seconds/3600):02d}"
+            logger.info(f"Setting Intrday to TimeHorizon  {time_horizon}")
+
         # TODO - get version dynamically form ELK
         sv_data, ssh_data = create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
 
         # Fix SV
-        sv_data = fix_sv_shunts(sv_data, valid_models)
+        sv_data = fix_sv_shunts(sv_data, input_models)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
+
+        # Set RMM name
+        rmm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
 
         rmm_data = BytesIO()
         with ZipFile(rmm_data, "w") as rmm_zip:
@@ -172,10 +175,9 @@ class HandlerRmmToPdnAndMinio:
         rmm_object = rmm_data
         rmm_object.name = f"{OUTPUT_MINIO_FOLDER}/{rmm_name}.zip"
         logger.info(f"Uploading RMM to MINO {OUTPUT_MINIO_BUCKET}/{rmm_object.name}")
+
         try:
-
             self.minio_service.upload_object(rmm_object, bucket_name=OUTPUT_MINIO_BUCKET)
-
         except:
             logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
@@ -220,6 +222,7 @@ if __name__ == "__main__":
         "task_initiator": "teenus.testrscjslv1",
         "task_priority": "normal",
         "task_creation_time": "2024-05-28T20:39:42.448064",
+        "task_update_time": "",
         "task_status": "created",
         "task_status_trace": [
             {
@@ -242,8 +245,8 @@ if __name__ == "__main__":
             "included": ["ELERING", "AST", "PSE"],
             "excluded": [],
             "local_import": ["LITGRID"],
-            "time_horizon": "1D",
-            "version": "104",
+            "time_horizon": "ID",
+            "version": "105",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
         }
     }

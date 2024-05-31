@@ -142,7 +142,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "job_period_start": job_period_start_utc.isoformat(),
                         "job_period_end": job_period_end_utc.isoformat(),
                         "task_properties": {
-                            "timestamp_utc": timestamp_utc.isoformat()
+                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}"
                         }
                     }
 
