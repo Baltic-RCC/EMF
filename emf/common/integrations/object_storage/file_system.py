@@ -1,6 +1,6 @@
-import logging
 import os
 import shutil
+import logging
 import zipfile
 from enum import Enum
 from io import BytesIO
@@ -23,7 +23,7 @@ from emf.common.integrations.object_storage.file_system_general import OPDE_COMP
     MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, MODEL_MERGING_ENTITY_KEYWORD, \
     MODEL_VERSION_KEYWORD, IGM_FILE_TYPES, SPECIAL_TSO_NAME, \
     VALIDATION_STATUS_KEYWORD, check_and_create_the_folder_path, get_meta_from_filename, check_the_folder_path
-from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.model_validator.validator import validate_model
 
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'

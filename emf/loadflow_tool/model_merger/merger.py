@@ -1,20 +1,19 @@
+import config
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
+from emf.loadflow_tool import loadflow_settings
 import pypowsybl
-from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
-from validator import validate_model
+
 import logging
-import uuid
 import json
-import loadflow_settings
 import sys
-from emf.common.integrations.opdm import OPDM
 from aniso8601 import parse_datetime
-import tempfile
-import os
+import datetime
+
 import triplets
 import pandas
-import datetime
+
 from uuid import uuid4
-from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
+
 
 
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
     })
 
 
-def create_sv_and_updated_ssh(merged_model, original_models, time_horizon, version, merging_area, merging_entity, mas):
+def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
     ### SV ###
     # Set Metadata
@@ -126,7 +125,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, time_horizon, versi
     ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
 
     # Load full original data to fix issues
-    data = load_opdm_data(original_models + [latest_boundary])
+    data = load_opdm_data(original_models)
     terminals = data.type_tableview("Terminal")
 
     # Update SSH data from SV
@@ -261,8 +260,8 @@ def export_to_cgmes_zip(triplets:list):
         "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
     }
 
-    with open('entsoe_v2.4.15_2014-08-07.json', 'r') as file_object:
-        rdf_map = json.load(file_object)
+    #with open('../../config/cgm_worker/CGMES_v2_4_15_2014_08_07.json', 'r') as file_object:
+    rdf_map = json.load(config.paths.cgm_worker.CGMES_v2_4_15_2014_08_07)
 
     return pandas.concat(triplets, ignore_index=True).export_to_cimxml(rdf_map=rdf_map,
                                                                         namespace_map=namespace_map,
@@ -291,6 +290,8 @@ def filter_models(igm_models: list, included_tsos: list | str = None, excluded_t
 
 
 if __name__ == "__main__":
+
+    from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',

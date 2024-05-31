@@ -153,7 +153,7 @@ if __name__ == "__main__":
                   }
 
     test_response = query_data(test_query, return_payload=True)
-    logger.info("Test script finished")
+
 
     #models = get_latest_models_and_download("1D", '20240526T1530Z', valid=False)
     models = get_latest_models_and_download("ID", '20240522T1530Z', valid=True)

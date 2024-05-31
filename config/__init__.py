@@ -1,6 +1,8 @@
 from pathlib import Path
 import logging
 
+Path.read = Path.read_text
+
 logger = logging.getLogger(__name__)
 
 # TEST
@@ -21,6 +23,7 @@ class Paths():
     pass
 
 class Attribute():
+
     pass
 
 # List to store all configuration file paths

@@ -1,15 +1,12 @@
 import pypowsybl
 from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
-from validator import validate_model
+from emf.loadflow_tool.model_validator.validator import validate_model
 import logging
-import uuid
 import json
 import loadflow_settings
 import sys
 from emf.common.integrations.opdm import OPDM
 from aniso8601 import parse_datetime
-import tempfile
-import os
 import triplets
 import pandas
 import datetime
@@ -267,7 +264,7 @@ namespace_map = {
     #"cgmbp": "http://entsoe.eu/CIM/Extensions/CGM-BP/2020#"
 }
 
-with open('entsoe_v2.4.15_2014-08-07.json', 'r') as file_object:
+with open('../../config/cgm_worker/CGMES_v2_4_15_2014_08_07.json', 'r') as file_object:
     rdf_map = json.load(file_object)
 
 
