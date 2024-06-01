@@ -284,6 +284,12 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
     included_models = [included_models] if isinstance(included_models, str) else included_models
     excluded_models = [excluded_models] if isinstance(excluded_models, str) else excluded_models
 
+    if included_models:
+        logger.info(f"Models to be included: {included_models}")
+    else:
+        logger.info(f"Models to be excluded: {excluded_models}")
+
+
     filtered_models = []
 
     for model in models:
