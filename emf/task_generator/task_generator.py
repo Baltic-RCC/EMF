@@ -1,6 +1,7 @@
 import aniso8601
+from datetime import datetime
 
-from time_helper import datetime, parse_duration, convert_to_utc, timezone, reference_times
+from emf.task_generator.time_helper import parse_duration, convert_to_utc, timezone, reference_times
 from uuid import uuid4
 import croniter
 from pathlib import Path
@@ -131,8 +132,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "task_initiator": getlogin(),
                         "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
                         "task_creation_time": task_timestamp,
-                        "task_status": "created",
-                        "task_status_trace": [{"status": "created", "timestamp": task_timestamp}],
+                        "task_update_time": "",
+                        "task_status": "",
+                        "task_status_trace": [],
                         "task_dependencies": [],
                         "task_tags": [],
                         "task_retry_count": 0,
@@ -153,6 +155,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                     # Update tags
                     task["task_tags"].extend(process.get("tags", []))
                     task["task_tags"].extend(run.get("tags", []))
+
+                    # Update task status
+                    update_task_status(task, "created")
 
                     # Return Task
                     yield task
@@ -206,6 +211,22 @@ def filter_and_flatten_dict(nested_dict: dict, keys: list):
     """
     flattened = flatten_dict(nested_dict)
     return {key: flattened[key] for key in keys if key in flattened}
+
+def update_task_status(task, status_text):
+    """Update task status
+    Will update task_update_time
+    Will update task_status
+    Will append new status to task_status_trace"""
+
+    utc_now = datetime.utcnow().isoformat()
+
+    task["task_update_time"] = utc_now
+    task["task_status"] = status_text
+
+    task["task_status_trace"].append({
+        "status": status_text,
+        "timestamp": utc_now
+    })
 
 
 
