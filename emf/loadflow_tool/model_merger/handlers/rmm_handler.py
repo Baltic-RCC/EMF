@@ -3,7 +3,7 @@ import config
 import json
 from uuid import uuid4
 import datetime
-from aniso8601 import parse_datetime
+from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
@@ -138,10 +138,12 @@ class HandlerRmmToPdnAndMinio:
         solved_model = run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
 
         # Update time_horizon in case of generic ID process type
-        # TODO maybe get instead of start time, task creation time
         if time_horizon.upper() == "ID":
-            time_horizon = f"{int((parse_datetime(scenario_datetime).replace(tzinfo=None) - start_time).seconds/3600):02d}"
-            logger.info(f"Setting Intrday to TimeHorizon  {time_horizon}")
+            _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
+            _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
+
+            time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds/3600):02d}"
+            logger.info(f"Setting ID TimeHorizon to {time_horizon}")
 
         # TODO - get version dynamically form ELK
         sv_data, ssh_data = create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
