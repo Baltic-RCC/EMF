@@ -7,9 +7,12 @@ import mimetypes
 import re
 import logging
 import config
+from io import BytesIO
+from zipfile import ZipFile
 from datetime import datetime
 from aniso8601 import parse_duration, parse_datetime
 from emf.common.config_parser import parse_app_properties
+from emf.loadflow_tool.helper import metadata_from_filename
 urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)
@@ -164,6 +167,76 @@ class ObjectStorage:
 
         return result_list
 
+    def get_latest_models_and_download(self, time_horizon, scenario_datetime, model_names, bucket_name, prefix):
+
+        if time_horizon == 'ID':
+            # takes any integer between 0-32 which can be in model name
+            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(model_names)})"
+        else:
+            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(model_names)})"
+
+        additional_model_metadata = {'bamessageid': model_name_pattern}
+        logger.info(f"Query: {additional_model_metadata}")
+
+        additional_models = self.query_objects(
+            bucket_name=bucket_name,
+            prefix=prefix,
+            metadata=additional_model_metadata,
+            use_regex=True)
+
+        # TODO - create common packaging function for zip in zip file structures
+        # data_list = [
+        #     {
+        #         "pmd:content-reference": "something",
+        #         'opde:Component':
+        #         [
+        #             {
+        #                 'opdm:Profile':
+        #                 {
+        #                     "pmd:content-reference": "something",
+        #                     "DATA": "something",
+        #                 }
+        #             }
+        #
+        #         ]
+        #     }
+        # ]
+
+        additional_models_data = []
+
+        # Add to data to load
+        if additional_models:
+            logger.info(f"Number of additional models returned -> {len(additional_models)}")
+            for model in additional_models:
+
+                opdm_object = {
+                    "pmd:content-reference": model.object_name,
+                    'opde:Component': []
+                }
+
+                logger.info(f"Loading additional model {model.object_name}", extra={"additional_model_name": model.object_name})
+                model_data = BytesIO(self.download_object(bucket_name=bucket_name, object_name=model.object_name))
+                model_data.name = f"{model.metadata.get('X-Amz-Meta-Bamessageid')}.zip"
+
+                with ZipFile(model_data) as source_zip:
+
+                    for file_name in source_zip.namelist():
+                        logging.info(f"Adding file: {file_name}")
+
+                        metadata = {"pmd:content-reference": file_name,
+                                    "pmd:fileName": file_name,
+                                    "DATA": source_zip.open(file_name).read()}
+
+                        metadata.update(metadata_from_filename(file_name))
+                        opdm_profile = {'opdm:Profile': metadata}
+                        opdm_object['opde:Component'].append(opdm_profile)
+
+                additional_models_data.append(opdm_object)
+        else:
+            logger.info(
+                f"No additional models returned from {bucket_name} with -> prefix: {prefix}, metadata: {additional_model_metadata}")
+
+        return additional_models_data
 
 if __name__ == '__main__':
     # Test Minio API

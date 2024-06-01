@@ -44,93 +44,28 @@ class HandlerRmmToPdnAndMinio:
         task_properties = task.get('task_properties', {})
         included_models = task_properties.get('included', [])
         excluded_models = task_properties.get('excluded', [])
-        local_import_models = task_properties.get('local', [])
+        local_import_models = task_properties.get('local_import', [])
 
         time_horizon = task_properties["time_horizon"]
         scenario_datetime = task_properties["timestamp_utc"]
         merging_area = task_properties["merge_type"]
-
-        # TODO add to task
         merging_entity = task_properties["merging_entity"]
         mas = task_properties["mas"]
 
         # TODO - task to contain and increase version number
         version = task_properties["version"]
 
-
-        # Collect models
+        # Collect valid models from ObjectStorage
         valid_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True)
         latest_boundary = get_latest_boundary()
 
-        filtered_models = filter_models(valid_models, included_models, excluded_models)
+        # Filter out models that are not to be used in merge
+        filtered_models = filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
 
-        # Get additional models
-        if time_horizon == 'ID':
-            # takes any integer between 0-32 which can be in model name
-            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(local_import_models)})"
-        else:
-            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(local_import_models)})"
-        additional_model_metadata = {'bamessageid': model_name_pattern}
+        # Get additional models directly from Minio
+        additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
 
-        additional_models = self.minio_service.query_objects(
-                                                            bucket_name=INPUT_MINIO_BUCKET,
-                                                            prefix=INPUT_MINIO_FOLDER,
-                                                            metadata=additional_model_metadata,
-                                                            use_regex=True)
-
-        # data_list = [
-        #     {
-        #         "pmd:content-reference": "something",
-        #         'opde:Component':
-        #         [
-        #             {
-        #                 'opdm:Profile':
-        #                 {
-        #                     "pmd:content-reference": "something",
-        #                     "DATA": "something",
-        #                 }
-        #             }
-        #
-        #         ]
-        #     }
-        # ]
-
-        additional_models_data = []
-
-
-        # Add to data to load
-        if additional_models:
-            logger.info(f"Number of additional models returned -> {len(additional_models)}")
-            for model in additional_models:
-
-                opdm_object = {
-                    "pmd:content-reference": model.object_name,
-                    'opde:Component': []
-                }
-
-                logger.info(f"Loading additional model {model.object_name}", extra={"additional_model_name": model.object_name})
-                model_data = BytesIO(self.minio_service.download_object(bucket_name=INPUT_MINIO_BUCKET, object_name=model.object_name))
-                model_data.name = f"{model.metadata.get('X-Amz-Meta-Bamessageid')}.zip"
-
-                with ZipFile(model_data) as source_zip:
-
-                    for file_name in source_zip.namelist():
-                        logging.info(f"Adding file: {file_name}")
-
-                        metadata = {"pmd:content-reference": file_name,
-                                    "pmd:fileName": file_name,
-                                    "DATA": source_zip.open(file_name).read()}
-
-                        metadata.update(metadata_from_filename(file_name))
-                        opdm_profile = {'opdm:Profile': metadata}
-                        opdm_object['opde:Component'].append(opdm_profile)
-
-
-                additional_models_data.append(opdm_object)
-        else:
-            logger.info(
-                f"No additional models returned from {INPUT_MINIO_BUCKET} with -> prefix: {INPUT_MINIO_FOLDER}, metadata: {additional_model_metadata}")
-
+        # Load all selected models
         input_models = filtered_models + additional_models_data + [latest_boundary]
         merged_model = load_model(input_models)
 
@@ -248,7 +183,7 @@ if __name__ == "__main__":
             "excluded": [],
             "local_import": ["LITGRID"],
             "time_horizon": "ID",
-            "version": "105",
+            "version": "106",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
         }
     }
