@@ -2,6 +2,7 @@ import aniso8601
 from datetime import datetime
 
 from emf.task_generator.time_helper import parse_duration, convert_to_utc, timezone, reference_times
+from emf.common.integrations.object_storage.tasks import publish_tasks
 from uuid import uuid4
 import croniter
 from pathlib import Path
@@ -212,11 +213,14 @@ def filter_and_flatten_dict(nested_dict: dict, keys: list):
     flattened = flatten_dict(nested_dict)
     return {key: flattened[key] for key in keys if key in flattened}
 
-def update_task_status(task, status_text):
+
+def update_task_status(task, status_text, publish=True):
     """Update task status
     Will update task_update_time
     Will update task_status
     Will append new status to task_status_trace"""
+
+    logger.info(f"Updating Task status to -> {status_text}")
 
     utc_now = datetime.utcnow().isoformat()
 
@@ -227,6 +231,14 @@ def update_task_status(task, status_text):
         "status": status_text,
         "timestamp": utc_now
     })
+
+    # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
+    if publish:
+#        try:
+        publish_tasks([task])
+#        except:
+#            logger.warning("Task Publication to ELK failed")
+
 
 
 
