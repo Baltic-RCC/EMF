@@ -10,7 +10,7 @@ from emf.common.logging.custom_logger import initialize_custom_logger
 logger = logging.getLogger("task_generator.worker")
 elk_handler = initialize_custom_logger()
 
-parse_app_properties(globals(), config.paths.task_generator.task_generator)
+parse_app_properties(globals(), config.paths.task_generator.manual_task_generator)
 
 timeframe_conf = config.paths.task_generator.manual_timeframe_conf
 process_conf = config.paths.task_generator.manual_process_conf
