@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import zipfile
 from enum import Enum
 from io import BytesIO
@@ -21,9 +20,10 @@ from emf.common.integrations.object_storage.file_system_general import OPDE_COMP
     PMD_MERGING_ENTITY_KEYWORD, PMD_SCENARIO_DATE_KEYWORD, OPDE_OBJECT_TYPE_KEYWORD, PMD_TSO_KEYWORD, \
     PMD_VERSION_NUMBER_KEYWORD, PMD_TIME_HORIZON_KEYWORD, BOUNDARY_OBJECT_TYPE, IGM_OBJECT_TYPE, \
     MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, MODEL_MERGING_ENTITY_KEYWORD, \
-    MODEL_VERSION_KEYWORD, IGM_FILE_TYPES, SPECIAL_TSO_NAME, \
+    MODEL_VERSION_KEYWORD, IGM_FILE_TYPES, SPECIAL_TSO_NAME, PMD_CONTENT_REFERENCE_KEYWORD, \
     VALIDATION_STATUS_KEYWORD, check_and_create_the_folder_path, get_meta_from_filename, check_the_folder_path
-from emf.loadflow_tool.validator import validate_model
+from emf.loadflow_tool.helper import generate_OPDM_ContentReference_from_filename
+from emf.loadflow_tool.model_validator.validator import validate_model
 
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'
@@ -129,15 +129,23 @@ def load_data(file_name: str | BytesIO, file_types: list = None):
     return data
 
 
-def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, file_types: [] = None):
+def get_one_set_of_igms_from_local_storage(file_data: [],
+                                           tso_name: str = None,
+                                           file_types: [] = None,
+                                           igm_reference: str = None,
+                                           priority_profile: str = 'SV'):
     """
     Loads igm data from local storage.
     :param file_data: list of file names
     :param tso_name: the name of the subtopic_name if given
     :param file_types: list of file types
+    :param igm_reference: content reference if given
+    :param priority_profile:  set the corresponding to profile reference
     :return: dictionary that wants to be similar to OPDM profile
     """
-    igm_value = {OPDE_OBJECT_TYPE_KEYWORD: IGM_OBJECT_TYPE, OPDE_COMPONENT_KEYWORD: []}
+    igm_value = {OPDE_OBJECT_TYPE_KEYWORD: IGM_OBJECT_TYPE,
+                 PMD_CONTENT_REFERENCE_KEYWORD: igm_reference,
+                 OPDE_COMPONENT_KEYWORD: []}
     if tso_name is not None:
         igm_value[PMD_TSO_KEYWORD] = tso_name
     for file_datum in file_data:
@@ -150,11 +158,17 @@ def get_one_set_of_igms_from_local_storage(file_data: [], tso_name: str = None, 
                     igm_value[PMD_TSO_KEYWORD] = meta_for_data[datum][MODEL_MODELING_ENTITY_KEYWORD]
                 elif PMD_MODEL_PART_REFERENCE_KEYWORD in meta_for_data[datum]:
                     igm_value[PMD_TSO_KEYWORD] = meta_for_data[datum][PMD_MODEL_PART_REFERENCE_KEYWORD]
-
             opdm_profile_content = meta_for_data[datum]
             # Update the file name
             if original_file_name := opdm_profile_content.get(PMD_FILENAME_KEYWORD):
-                opdm_profile_content[PMD_FILENAME_KEYWORD] = Path(original_file_name).stem + '.zip'
+                new_name = Path(original_file_name).stem + '.zip'
+                opdm_profile_content[PMD_FILENAME_KEYWORD] = new_name
+                reference_value = generate_OPDM_ContentReference_from_filename(new_name)
+                opdm_profile_content[PMD_CONTENT_REFERENCE_KEYWORD] = reference_value
+            if (not igm_value[PMD_CONTENT_REFERENCE_KEYWORD] or
+                    (opdm_profile_content.get(PMD_CGMES_PROFILE_KEYWORD) == priority_profile and not igm_reference)):
+                if opdm_profile_content.get(PMD_CONTENT_REFERENCE_KEYWORD):
+                    igm_value[PMD_CONTENT_REFERENCE_KEYWORD] = opdm_profile_content[PMD_CONTENT_REFERENCE_KEYWORD]
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             igm_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return set_igm_values_from_profiles(igm_value)
@@ -192,14 +206,21 @@ def set_igm_values_from_profiles(igm_value: dict):
     return igm_value
 
 
-def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] = None):
+def get_one_set_of_boundaries_from_local_storage(file_names: [],
+                                                 file_types: [] = None,
+                                                 boundary_reference: str = None,
+                                                 priority_profile: str = 'TPBD'):
     """
     Loads boundary data from local storage.
     :param file_names: list of file names
     :param file_types: list of file types
+    :param boundary_reference: content reference if given
+    :param priority_profile:  set the corresponding to profile reference
     :return: dictionary that wants to be similar to OPDM profile
     """
-    boundary_value = {OPDE_OBJECT_TYPE_KEYWORD: BOUNDARY_OBJECT_TYPE, OPDE_COMPONENT_KEYWORD: []}
+    boundary_value = {OPDE_OBJECT_TYPE_KEYWORD: BOUNDARY_OBJECT_TYPE,
+                      PMD_CONTENT_REFERENCE_KEYWORD: boundary_reference,
+                      OPDE_COMPONENT_KEYWORD: []}
     for file_name in file_names:
         if (data := load_data(file_name, file_types)) is None:
             continue
@@ -217,7 +238,15 @@ def get_one_set_of_boundaries_from_local_storage(file_names: [], file_types: [] 
                 if len(cgmes_profile) == 4:
                     opdm_profile_content[PMD_CGMES_PROFILE_KEYWORD] = cgmes_profile[:2] + '_' + cgmes_profile[2:]
             if original_file_name := opdm_profile_content.get(PMD_FILENAME_KEYWORD):
-                opdm_profile_content[PMD_FILENAME_KEYWORD] = Path(original_file_name).stem + '.zip'
+                new_name = Path(original_file_name).stem + '.zip'
+                opdm_profile_content[PMD_FILENAME_KEYWORD] = new_name
+                reference_value = generate_OPDM_ContentReference_from_filename(new_name)
+                opdm_profile_content[PMD_CONTENT_REFERENCE_KEYWORD] = reference_value
+            if (not boundary_value[PMD_CONTENT_REFERENCE_KEYWORD] or
+                    (cgmes_profile == priority_profile and not boundary_reference)):
+                if opdm_profile_content.get(PMD_CONTENT_REFERENCE_KEYWORD):
+                    boundary_value[PMD_CONTENT_REFERENCE_KEYWORD] = opdm_profile_content[PMD_CONTENT_REFERENCE_KEYWORD]
+            opdm_profile_content = meta_for_data[datum]
             opdm_profile_content[DATA_KEYWORD] = save_content_to_zip_file({datum: data[datum]})
             boundary_value[OPDE_COMPONENT_KEYWORD].append({OPDM_PROFILE_KEYWORD: opdm_profile_content})
     return boundary_value
@@ -731,13 +760,13 @@ if __name__ == "__main__":
                   #   ENTRIES_ON_LEVEL: gathers all entries that were at least on the level specified
                   # print_to_console: propagate log to parent
                   # reporting_level: level that triggers policy
-                  PyPowsyblLogGatheringHandler(topic_name='IGM_validation',
-                                               send_to_elastic=False,
-                                               upload_to_minio=False,
-                                               save_local_storage=True,
-                                               logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
-                                               print_to_console=False,
-                                               report_level=logging.WARNING)
+                  # PyPowsyblLogGatheringHandler(topic_name='IGM_validation',
+                  #                              send_to_elastic=False,
+                  #                              upload_to_minio=False,
+                  #                              save_local_storage=True,
+                  #                              logging_policy=PyPowsyblLogReportingPolicy.ENTRIES_ON_LEVEL,
+                  #                              print_to_console=False,
+                  #                              report_level=logging.WARNING)
                   ]
     )
     # Get the pypowsybl log handler from root

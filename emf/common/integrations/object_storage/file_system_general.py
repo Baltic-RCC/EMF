@@ -1,6 +1,6 @@
 import os
 
-from emf.loadflow_tool.helper import metadata_from_filename
+from emf.loadflow_tool.helper import metadata_from_filename, generate_OPDM_ContentReference_from_filename
 
 import logging
 
@@ -16,6 +16,7 @@ PMD_MODEL_PART_REFERENCE_KEYWORD = 'pmd:modelPartReference'
 PMD_MERGING_ENTITY_KEYWORD = 'pmd:mergingEntity'
 PMD_MERGING_AREA_KEYWORD = 'pmd:mergingArea'
 PMD_SCENARIO_DATE_KEYWORD = 'pmd:scenarioDate'
+PMD_CONTENT_REFERENCE_KEYWORD = 'pmd:content-reference'
 OPDE_OBJECT_TYPE_KEYWORD = 'opde:Object-Type'
 PMD_TSO_KEYWORD = 'pmd:TSO'
 PMD_VERSION_NUMBER_KEYWORD = "pmd:versionNumber"
@@ -68,7 +69,6 @@ def get_meta_from_filename(file_name: str):
         for key in BOUNDARY_FILE_TYPE_FIX:
             if key in fixed_file_name:
                 fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
-        # meta_data = get_metadata_from_filename(fixed_file_name)
         meta_data = metadata_from_filename(fixed_file_name)
         # Revert back cases where there is a '-' in TSO's name like ENTSO-E
         for case in SPECIAL_TSO_NAME:
@@ -83,6 +83,7 @@ def get_meta_from_filename(file_name: str):
         logger.warning(f"Unable to parse file name: {err}, trying to salvage")
         meta_data = salvage_data_from_file_name(file_name=file_name)
     meta_data[PMD_FILENAME_KEYWORD] = file_name
+    # meta_data[PMD_CONTENT_REFERENCE_KEYWORD] = generate_OPDM_ContentReference_from_filename(file_name)
     return meta_data
 
 
