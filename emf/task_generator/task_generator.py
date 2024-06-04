@@ -42,125 +42,171 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
     time_frames = {time_frame["@id"].split("/")[-1]: time_frame for time_frame in time_frames}
 
     # Load the process configuration from the specified file.
-    process = json.loads(Path(process_conf).read_text())
+    processes = json.loads(Path(process_conf).read_text())
 
-    # Loop through each run in the process configuration.
-    for run in process["runs"]:
+    for process in processes:
 
-        # Get the time zone for the run (use the process time zone if not specified).
-        time_zone = run.get("time_zone", process["time_zone"])
+        # Loop through each run in the process configuration.
+        for run in process["runs"]:
 
-        now = datetime.now(tz=timezone(time_zone))
+            # Get the time zone for the run (use the process time zone if not specified).
+            time_zone = run.get("time_zone", process["time_zone"])
 
-        if timetravel_now:
-            now = aniso8601.parse_datetime(timetravel_now)
+            now = datetime.now(tz=timezone(time_zone))
 
-        logger.info(f"Now -> {now}")
+            if timetravel_now:
+                now = aniso8601.parse_datetime(timetravel_now)
 
-        # Calculate the start and end of the task window for the run.
-        run_window_start = reference_times[task_window_reference](now)
-        run_window_end = run_window_start + parse_duration(task_window_duration)
+            logger.info(f"Now -> {now}")
 
-        # Get the time frame configuration for the current run.
-        time_frame = time_frames[run["time_frame"]]
+            # Calculate the start and end of the task window for the run.
+            run_window_start = reference_times[task_window_reference](now)
+            run_window_end = run_window_start + parse_duration(task_window_duration)
 
-        # Set up a cron iterator for the run.
-        runs = croniter.croniter(run["run_at"], run_window_start)
+            # Get the time frame configuration for the current run.
+            time_frame = time_frames[run["time_frame"]]
 
-        # Get the next run timestamp.
-        run_timestamp = runs.get_next(datetime)
-        if (previous_timestamp := runs.get_prev(datetime)) == now:
-            run_timestamp = previous_timestamp
-        else:
-            _ = runs.get_next(datetime)
+            # Set up a cron iterator for the run.
+            runs = croniter.croniter(run["run_at"], run_window_start)
 
-
-
-        logger.info(f"Next run of {run['@id']} at {run_timestamp}")
-
-        if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
-            logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
-
-        # Loop through each timestamp in the current run.
-        while run_timestamp <= run_window_end:
-            logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
-
-            # Get the reference time for the current timestamp in the time frame.
-            reference_time = reference_times[time_frame["reference_time"]](run_timestamp)
-
-            # Calculate the start and end of the period for the current task.
-            job_period_start = reference_time + parse_duration(time_frame["period_start"])
-            job_period_end = job_period_start + parse_duration(time_frame["period_duration"])
-
-            # Convert the period start and end times to UTC.
-            job_period_start_utc = convert_to_utc(job_period_start)
-            job_period_end_utc = convert_to_utc(job_period_end)
-
-            # Calculate the open and close times for the gate (the window of time before the job period start time during wich the job/tasks must be done).
-            gate_open_utc = job_period_start_utc - parse_duration(run["gate_open"])
-            gate_close_utc = job_period_start_utc - parse_duration(run["gate_close"])
-
-            # Set up a cron iterator for the data timestamps.
-            timestamps_utc = croniter.croniter(run["data_timestamps"], job_period_start_utc)
-
-            # Get the next data timestamp.
-            timestamp_utc = timestamps_utc.next(datetime)
-
-            # Generate a unique ID for the job (a collection of tasks generated for a single run instance).
-            job_id = str(uuid4())
-
-            # Loop through each data timestamp in the current period.
-            while timestamp_utc < job_period_end_utc:
-
-                task_id = str(uuid4())
-                task_timestamp = datetime.utcnow().isoformat()
-
-                logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
-
-
-                task = {
-                    "@context": "https://example.com/task_context.jsonld",
-                    "@type": "Task",
-                    "@id": f"urn:uuid:{task_id}",
-                    "process_id": process.get("@id", None),
-                    "run_id": run.get("@id", None),
-                    "job_id": f"urn:uuid:{job_id}",
-                    "task_type": "automatic",
-                    "task_initiator": getlogin(),
-                    "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
-                    "task_creation_time": task_timestamp,
-                    "task_status": "created",
-                    "task_status_trace": [{"status": "created", "timestamp": task_timestamp}],
-                    "task_dependencies": [],
-                    "task_tags": [],
-                    "task_retry_count": 0,
-                    "task_timeout": "PT1H",
-                    "task_gate_open": gate_open_utc.isoformat(),
-                    "task_gate_close": gate_close_utc.isoformat(),
-                    "job_period_start": job_period_start_utc.isoformat(),
-                    "job_period_end": job_period_end_utc.isoformat(),
-                    "task_properties": {
-                        "timestamp_utc": timestamp_utc.isoformat()
-                    }
-                }
-
-                # Update properties
-                task["task_properties"].update(process.get("properties", {}))
-                task["task_properties"].update(run.get("properties", {}))
-
-                # Update tags
-                task["task_tags"].extend(process.get("tags", []))
-                task["task_tags"].extend(run.get("tags", []))
-
-                # Return Task
-                yield task
-
-                logger.debug(json.dumps(task, indent=4))
-
-                # Next Task
-                timestamp_utc = timestamps_utc.get_next(datetime)
-            # Next Run
+            # Get the next run timestamp.
             run_timestamp = runs.get_next(datetime)
+            if (previous_timestamp := runs.get_prev(datetime)) == now:
+                run_timestamp = previous_timestamp
+            else:
+                _ = runs.get_next(datetime)
+
+
+
+            logger.info(f"Next run of {run['@id']} at {run_timestamp}")
+
+            if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
+                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
+
+            # Loop through each timestamp in the current run.
+            while run_timestamp <= run_window_end:
+                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
+
+                # Get the reference time for the current timestamp in the time frame.
+                reference_time = reference_times[time_frame["reference_time"]](run_timestamp)
+
+                # Calculate the start and end of the period for the current task.
+                job_period_start = reference_time + parse_duration(time_frame["period_start"])
+                job_period_end = job_period_start + parse_duration(time_frame["period_duration"])
+
+                # Convert the period start and end times to UTC.
+                job_period_start_utc = convert_to_utc(job_period_start)
+                job_period_end_utc = convert_to_utc(job_period_end)
+
+                # Calculate the open and close times for the gate (the window of time before the job period start time during wich the job/tasks must be done).
+                gate_open_utc = job_period_start_utc - parse_duration(run["gate_open"])
+                gate_close_utc = job_period_start_utc - parse_duration(run["gate_close"])
+
+                # Set up a cron iterator for the data timestamps.
+                timestamps_utc = croniter.croniter(run["data_timestamps"], job_period_start_utc)
+
+                # Get the next data timestamp.
+                timestamp_utc = timestamps_utc.next(datetime)
+
+                # Generate a unique ID for the job (a collection of tasks generated for a single run instance).
+                job_id = str(uuid4())
+
+                # Loop through each data timestamp in the current period.
+                while timestamp_utc < job_period_end_utc:
+
+                    task_id = str(uuid4())
+                    task_timestamp = datetime.utcnow().isoformat()
+
+                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
+
+
+                    task = {
+                        "@context": "https://example.com/task_context.jsonld",
+                        "@type": "Task",
+                        "@id": f"urn:uuid:{task_id}",
+                        "process_id": run.get("process_id", process.get("@id", None)),
+                        "run_id": run.get("@id", None),
+                        "job_id": f"urn:uuid:{job_id}",
+                        "task_type": "automatic",
+                        "task_initiator": getlogin(),
+                        "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
+                        "task_creation_time": task_timestamp,
+                        "task_status": "created",
+                        "task_status_trace": [{"status": "created", "timestamp": task_timestamp}],
+                        "task_dependencies": [],
+                        "task_tags": [],
+                        "task_retry_count": 0,
+                        "task_timeout": "PT1H",
+                        "task_gate_open": gate_open_utc.isoformat(),
+                        "task_gate_close": gate_close_utc.isoformat(),
+                        "job_period_start": job_period_start_utc.isoformat(),
+                        "job_period_end": job_period_end_utc.isoformat(),
+                        "task_properties": {
+                            "timestamp_utc": timestamp_utc.isoformat()
+                        }
+                    }
+
+                    # Update properties
+                    task["task_properties"].update(process.get("properties", {}))
+                    task["task_properties"].update(run.get("properties", {}))
+
+                    # Update tags
+                    task["task_tags"].extend(process.get("tags", []))
+                    task["task_tags"].extend(run.get("tags", []))
+
+                    # Return Task
+                    yield task
+
+                    logger.debug(json.dumps(task, indent=4))
+
+                    # Next Task
+                    timestamp_utc = timestamps_utc.get_next(datetime)
+                # Next Run
+                run_timestamp = runs.get_next(datetime)
+
+
+def flatten_dict(nested_dict: dict, parent_key: str = '', separator: str = '.'):
+    """
+    Flattens a nested dictionary.
+
+    Parameters:
+    - nested_dict (dict): The dictionary to flatten.
+    - parent_key (str): The base key string used for recursion.
+    - separator (str): The separator between parent and child keys.
+
+    Returns:
+    - dict: A flattened dictionary where nested keys are concatenated into a single string.
+    """
+    items = []
+    for k, v in nested_dict.items():
+        new_key = f"{parent_key}{separator}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, separator=separator).items())
+        elif isinstance(v, list):
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    items.extend(flatten_dict(item, f"{new_key}[{i}]", separator=separator).items())
+                else:
+                    items.append((f"{new_key}[{i}]", item))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
+def filter_and_flatten_dict(nested_dict: dict, keys: list):
+    """
+    Creates a new flat dictionary from specified keys.
+
+    Parameters:
+    - nested_dict (dict): The original nested dictionary.
+    - keys (list): The list of keys to include in the new flat dictionary.
+
+    Returns:
+    - dict: A new flat dictionary with only the specified keys.
+    """
+    flattened = flatten_dict(nested_dict)
+    return {key: flattened[key] for key in keys if key in flattened}
+
 
 
 if __name__ == "__main__":
@@ -180,6 +226,7 @@ if __name__ == "__main__":
     tasks = list(generate_tasks(task_window_duration, task_window_reference, process_conf, timeframe_conf))
 
     tasks_table = pandas.json_normalize(tasks)
+    print(tasks_table["process_id"].value_counts())
     print(tasks_table["run_id"].value_counts())
 
 # https://example.com/runs/DayAheadCGM        24

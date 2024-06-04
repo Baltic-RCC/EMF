@@ -1,4 +1,4 @@
-{
+[{
   "@context": "https://example.com/schemas/process.jsonld",
   "@id": "https://example.com/processes/CGM_CREATION",
   "@type": "Process",
@@ -111,8 +111,19 @@
         "excluded": [],
         "time_horizon": "2D"
       }
-    },
-    {
+    }
+  ]
+},
+  {
+    "@context": "https://example.com/schemas/process.jsonld",
+    "@id": "https://example.com/processes/RMM_CREATION",
+    "@type": "Process",
+    "description": "",
+    "time_zone": "Europe/Brussels",
+    "tags": [],
+    "properties": {},
+    "runs": [
+      {
       "@context": "https://example.com/schemas/run.jsonld",
       "@id": "https://example.com/runs/IntraDayRMM/1",
       "@type": "Run",
@@ -128,10 +139,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -150,10 +164,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -172,10 +189,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -194,10 +214,13 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "1D"
+        "time_horizon": "1D",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
     {
@@ -216,11 +239,15 @@
       "tags": [],
       "properties": {
         "merge_type": "BA",
-        "included" : ["ELERING", "AST", "PSE"],
+        "merging_entity": "BALTICRSC",
+        "included": ["ELERING", "AST", "PSE"],
         "excluded": [],
         "local_import": ["LITGRID"],
-        "time_horizon": "2D"
+        "time_horizon": "2D",
+        "version": "104",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     }
-  ]
-}
+    ]
+  }
+]
