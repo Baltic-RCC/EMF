@@ -55,7 +55,7 @@ class Elastic:
         url = f"{server}/{_index}/_doc"
 
         if id:
-            url = f"{server}/{_index}/{id}"
+            url = url + f"/{id}"
 
         # Executing POST to push message into ELK
         if debug:
