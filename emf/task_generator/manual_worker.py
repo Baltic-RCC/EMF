@@ -52,15 +52,10 @@ with open(timeframe_conf, 'w') as file:
     json.dump(timeframe_config_json, file, indent=4)
 
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
-task_df = pd.DataFrame(tasks)
-if tasks:
-    a = pd.json_normalize(task_df['task_properties'])
-else:
-    a = None
 
 if tasks:
     logger.info(f"Creating connection to RMQ")
-    rabbit_service = rabbit.BlockingClient()
+    rabbit_service = rabbit.BlockingClient(host=RMQ_SERVER)
     logger.info(f"Sending tasks to Rabbit exchange '{RMQ_EXCHANGE}'")
     for task in tasks:
         rabbit_service.publish(payload=json.dumps(task), exchange_name=RMQ_EXCHANGE, headers=filter_and_flatten_dict(task, TASK_HEADER_KEYS.split(",")))
