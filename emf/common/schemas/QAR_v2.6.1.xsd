@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:entso-e="http://entsoe.eu/checks" targetNamespace="http://entsoe.eu/checks" elementFormDefault="qualified" version="1.3">
+	<xs:element name="QAReport" type="entso-e:QAReport"/>
+
+	<xs:complexType name="QAReport">
+		<xs:sequence>
+			<xs:element name="IGM" type="entso-e:IGM" minOccurs="0" maxOccurs="unbounded"/>
+			<xs:element name="CGM" type="entso-e:CGM" minOccurs="0" maxOccurs="unbounded"/>
+			<xs:element name="SingleProfile" type="entso-e:SingleProfile" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="created" use="required" type="xs:dateTime"/>
+		<xs:attribute name="schemeVersion" use="required" type="xs:decimal"/>
+		<xs:attribute name="serviceProvider" use="required" type="xs:string"/>
+		<xs:attribute name="senderCode" use="optional" type="xs:string"/>
+	</xs:complexType>
+
+	<xs:complexType name="IGM">
+		<xs:sequence>
+			<xs:element name="resource" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+			<xs:element name="ValidationParameters" type="entso-e:IGMValidationParameters" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="RuleViolation" type="entso-e:RuleViolation" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="created" use="required" type="xs:dateTime"/>
+		<xs:attribute name="scenarioTime" use="required" type="xs:dateTime"/>
+		<xs:attribute name="tso" use="required" type="xs:string"/>
+		<xs:attribute name="version" use="required" type="xs:int"/>
+		<xs:attribute name="processType" use="required" type="entso-e:ProcessType"/>
+		<xs:attribute name="qualityIndicator" use="required" type="entso-e:QualityIndicator"/>
+		<xs:attribute name="igmPartStatus" use="optional" type="entso-e:IGMPartStatus"/>
+	</xs:complexType>
+
+	<xs:complexType name="CGM">
+		<xs:sequence>
+			<xs:element name="ValidationParameters" type="entso-e:CGMValidationParameters" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="RuleViolation" type="entso-e:RuleViolation" minOccurs="0" maxOccurs="unbounded"/>
+			<xs:element name="IGM" type="entso-e:IGM" minOccurs="1" maxOccurs="unbounded"/>
+			<xs:element name="EMFInformation" type="entso-e:EMFInformation" minOccurs="1" maxOccurs="1"/>
+		</xs:sequence>
+		<xs:attribute name="created" use="required" type="xs:dateTime"/>
+		<xs:attribute name="resource" use="required" type="xs:string"/>
+		<xs:attribute name="scenarioTime" use="required" type="xs:dateTime"/>
+		<xs:attribute name="tso" type="xs:string" use="optional" />
+		<xs:attribute name="version" use="required" type="xs:int"/>
+		<xs:attribute name="processType" use="required" type="entso-e:ProcessType"/>
+		<xs:attribute name="qualityIndicator" use="required" type="entso-e:QualityIndicator"/>
+	</xs:complexType>
+
+	<xs:complexType name="SingleProfile">
+		<xs:sequence>
+			<xs:element name="RuleViolation" type="entso-e:RuleViolation" minOccurs="0" maxOccurs="unbounded"/>
+			<xs:element name="EMFInformation" type="entso-e:EMFInformation" minOccurs="0" maxOccurs="1"/>
+		</xs:sequence>
+		<xs:attribute name="created" use="required" type="xs:dateTime"/>
+		<xs:attribute name="resource" use="required" type="xs:string"/>
+		<xs:attribute name="scenarioTime" use="required" type="xs:dateTime"/>
+		<xs:attribute name="tso" use="required" type="xs:string"/>
+		<xs:attribute name="version" use="required" type="xs:int"/>
+		<xs:attribute name="processType" use="required" type="entso-e:ProcessType"/>
+		<xs:attribute name="profile" use="required" type="entso-e:Profile"/>
+		<xs:attribute name="qualityIndicator" use="required" type="entso-e:QualityIndicator"/>
+	</xs:complexType>
+
+	<xs:complexType name="IGMValidationParameters">
+		<xs:sequence>
+			<xs:element name="Interconnector" type="entso-e:Interconnector" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="nettedAreaACPosition" use="required" type="xs:float"/>
+	</xs:complexType>
+
+	<xs:complexType name="Interconnector">
+		<xs:sequence/>
+		<xs:attribute name="boundaryPoint" use="required" type="xs:string"/>
+		<xs:attribute name="currentLimit" use="optional" type="xs:float"/>
+		<xs:attribute name="dcFlow" use="optional" type="xs:float"/>
+		<xs:attribute name="tieLineName" use="required" type="xs:string"/>
+		<xs:attribute name="status" use="required" type="entso-e:LinkStatus"/>
+	</xs:complexType>
+
+	<xs:complexType name="CGMValidationParameters">
+		<xs:sequence>
+			<xs:element name="ControlAreaInterchange" type="entso-e:ControlAreaInterchange" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+
+	<xs:complexType name="ControlAreaInterchange">
+		<xs:sequence>
+			<xs:element name="Interconnector" type="entso-e:Interconnector" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="calculatedNettedAreaACPosition" use="required" type="xs:float"/>
+		<xs:attribute name="controlArea" use="required" type="xs:string"/>
+	</xs:complexType>
+
+	<xs:complexType name="RuleViolation">
+		<xs:sequence>
+			<xs:element name="Message" type="xs:string" minOccurs="1" maxOccurs="1"/>
+		</xs:sequence>
+		<xs:attribute name="ruleId" use="required" type="xs:string"/>
+		<xs:attribute name="validationLevel" use="required" type="xs:int"/>
+		<xs:attribute name="severity" use="required" type="entso-e:Severity"/>
+	</xs:complexType>
+
+	<xs:complexType name="EMFInformation">
+		<xs:sequence/>
+		<xs:attribute name="mergingEntity" use="required" type="entso-e:RSCName"/>
+		<xs:attribute name="cgmType" use="required" type="entso-e:CGMType"/>
+	</xs:complexType>
+
+	<xs:simpleType name="RSCName">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="BALTICRSC"/>
+			<xs:enumeration value="CORESO"/>
+			<xs:enumeration value="NORDICRSC"/>
+			<xs:enumeration value="SCCRSCI"/>
+			<xs:enumeration value="TSCNET"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="CGMType">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="BA"/>
+			<xs:enumeration value="CE"/>
+			<xs:enumeration value="EU"/>
+			<xs:enumeration value="IN"/>
+			<xs:enumeration value="NO"/>
+			<xs:enumeration value="UK"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="Severity">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="ERROR"/>
+			<xs:enumeration value="WARNING"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="Profile">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="EQ"/>
+			<xs:enumeration value="SSH"/>
+			<xs:enumeration value="SV"/>
+			<xs:enumeration value="TP"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="IGMPartStatus">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="Plausible"/>
+			<xs:enumeration value="Substituted"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="QualityIndicator">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="Diagnostics"/>
+			<xs:enumeration value="Invalid - dangling references"/>
+			<xs:enumeration value="Invalid - inconsistent data"/>
+			<xs:enumeration value="Invalid - preconditions PF"/>
+			<xs:enumeration value="Plausible"/>
+			<xs:enumeration value="Processible"/>
+			<xs:enumeration value="Rejected - File cannot be parsed"/>
+			<xs:enumeration value="Rejected - Invalid CGMES file"/>
+			<xs:enumeration value="Rejected - Invalid file name"/>
+			<xs:enumeration value="Rejected - Invalid file type"/>
+			<xs:enumeration value="Rejected - OCL rule violation(s)"/>
+			<xs:enumeration value="Warning - OCL rule violation(s)"/>
+			<xs:enumeration value="Substituted"/>
+			<xs:enumeration value="Unavailable"/>
+			<xs:enumeration value="Unlikely"/>
+			<xs:enumeration value="Valid"/>
+			<xs:enumeration value="Warning - non fatal inconsistencies"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="ProcessType">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value=""/>
+			<xs:enumeration value="01"/>
+			<xs:enumeration value="02"/>
+			<xs:enumeration value="03"/>
+			<xs:enumeration value="04"/>
+			<xs:enumeration value="05"/>
+			<xs:enumeration value="06"/>
+			<xs:enumeration value="07"/>
+			<xs:enumeration value="08"/>
+			<xs:enumeration value="09"/>
+			<xs:enumeration value="10"/>
+			<xs:enumeration value="11"/>
+			<xs:enumeration value="12"/>
+			<xs:enumeration value="13"/>
+			<xs:enumeration value="14"/>
+			<xs:enumeration value="15"/>
+			<xs:enumeration value="16"/>
+			<xs:enumeration value="17"/>
+			<xs:enumeration value="18"/>
+			<xs:enumeration value="19"/>
+			<xs:enumeration value="1D"/>
+			<xs:enumeration value="20"/>
+			<xs:enumeration value="21"/>
+			<xs:enumeration value="22"/>
+			<xs:enumeration value="23"/>
+			<xs:enumeration value="24"/>
+			<xs:enumeration value="25"/>
+			<xs:enumeration value="26"/>
+			<xs:enumeration value="27"/>
+			<xs:enumeration value="28"/>
+			<xs:enumeration value="29"/>
+			<xs:enumeration value="30"/>
+			<xs:enumeration value="31"/>
+			<xs:enumeration value="MO"/>
+			<xs:enumeration value="RT"/>
+			<xs:enumeration value="WK"/>
+			<xs:enumeration value="YR"/>
+			<xs:enumeration value="2D"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+	<xs:simpleType name="LinkStatus">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="OPEN"/>
+			<xs:enumeration value="CLOSED"/>
+		</xs:restriction>
+	</xs:simpleType>
+
+</xs:schema>
