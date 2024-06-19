@@ -1,12 +1,15 @@
 import os
 
-import logging
 from emf.loadflow_tool.helper import metadata_from_filename
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 OPDE_COMPONENT_KEYWORD = 'opde:Component'
 OPDM_PROFILE_KEYWORD = 'opdm:Profile'
 DATA_KEYWORD = 'DATA'
-
 PMD_FILENAME_KEYWORD = 'pmd:fileName'
 PMD_CGMES_PROFILE_KEYWORD = 'pmd:cgmesProfile'
 PMD_MODEL_PART_REFERENCE_KEYWORD = 'pmd:modelPartReference'
@@ -33,7 +36,6 @@ MODEL_VERSION_KEYWORD = 'Model.version'
 IGM_FILE_TYPES = ['_EQ_', '_TP_', '_SV_', '_SSH_']
 BOUNDARY_FILE_TYPE_FIX = {'_EQ_BD_': '_EQBD_', '_TP_BD_': '_TPBD_'}
 SPECIAL_TSO_NAME = ['ENTSO-E']
-
 VALIDATION_STATUS_KEYWORD = 'VALIDATION_STATUS'
 VALID_KEYWORD = 'valid'
 NETWORK_KEYWORD = 'network'
@@ -41,8 +43,6 @@ NETWORK_META_KEYWORD = 'network_meta'
 NETWORK_VALID_KEYWORD = 'network_valid'
 SEPARATOR_SYMBOL = '/'
 WINDOWS_SEPARATOR = '\\'
-
-logger = logging.getLogger(__name__)
 
 
 def check_and_create_the_folder_path(folder_path: str):
