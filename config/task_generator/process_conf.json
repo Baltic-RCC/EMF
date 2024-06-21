@@ -25,7 +25,8 @@
         "merge_type": "EU",
         "included" : [],
         "excluded": [],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "100"
       }
     },
     {
@@ -46,7 +47,8 @@
         "merge_type": "EU",
         "included" : [],
         "excluded": [],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "100"
       }
     },
     {
@@ -67,7 +69,8 @@
         "merge_type": "EU",
         "included" : [],
         "excluded": [],
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "version": "100"
       }
     },
     {
@@ -88,7 +91,8 @@
         "merge_type": "EU",
         "included" : [],
         "excluded": [],
-        "time_horizon": "1D"
+        "time_horizon": "1D",
+        "version": "100"
       }
     },
     {
@@ -109,7 +113,9 @@
         "merge_type": "EU",
         "included" : [],
         "excluded": [],
-        "time_horizon": "2D"
+        "time_horizon": "2D",
+        "version": "100"
+
       }
     }
   ]
@@ -144,7 +150,7 @@
         "excluded": [],
         "local_import": ["LITGRID"],
         "time_horizon": "ID",
-        "version": "104",
+        "version": "100",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
@@ -169,7 +175,7 @@
         "excluded": [],
         "local_import": ["LITGRID"],
         "time_horizon": "ID",
-        "version": "104",
+        "version": "100",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
@@ -194,7 +200,7 @@
         "excluded": [],
         "local_import": ["LITGRID"],
         "time_horizon": "ID",
-        "version": "104",
+        "version": "100",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
@@ -219,7 +225,7 @@
         "excluded": [],
         "local_import": ["LITGRID"],
         "time_horizon": "1D",
-        "version": "104",
+        "version": "100",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     },
@@ -244,7 +250,7 @@
         "excluded": [],
         "local_import": ["LITGRID"],
         "time_horizon": "2D",
-        "version": "104",
+        "version": "100",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
       }
     }
