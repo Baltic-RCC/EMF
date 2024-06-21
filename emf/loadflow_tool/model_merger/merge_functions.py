@@ -34,25 +34,6 @@ def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
     return merged_model
 
 
-def set_brell_lines_to_zero(data):
-    """
-    Copied from emf_python as is
-    Note that in test run only one of them (L309) was present
-    """
-    magic_brell_lines = {'L373': 'cf3af93a-ad15-4db9-adc2-4e4454bb843f',
-                         'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
-                         'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
-                         'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
-    for line, line_id in magic_brell_lines.items():
-        if data.query(f"ID == '{line_id}'").empty:
-            logger.info(f"Skipping Brell line {line} as it was not found in data")
-        else:
-            logger.info(f"Setting Brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
-            data.loc[data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
-            data.loc[data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
-    return data
-
-
 def create_opdm_object_meta(object_id,
                             time_horizon,
                             merging_entity,
@@ -139,10 +120,6 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     # Load original SSH data to created updated SSH
     ssh_data = load_opdm_data(original_models, "SSH")
     ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
-
-    # FIX BRELL LINES
-    ssh_data = set_brell_lines_to_zero(ssh_data)
-    # END OF FIX
 
     # Update SSH Model.scenarioTime
     ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])

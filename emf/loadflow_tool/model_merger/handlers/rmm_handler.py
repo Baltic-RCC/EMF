@@ -1,8 +1,10 @@
 import logging
+import triplets
 import config
 import json
 from uuid import uuid4
 import datetime
+from emf.loadflow_tool.helper import load_opdm_data
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -15,6 +17,50 @@ from emf.task_generator.task_generator import update_task_status
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
+
+
+def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = None, profile_to_change: str = "SSH"):
+    """
+    Sets p and q of given  (BRELL) lines to zero
+    Copied from emf_python as is
+    Workflow:
+    1) Take models (in cgmes format)
+    2) parse profile ("SSH") to triplets
+    3) Check and set the BRELL lines
+    4) if lines were set, repackage from triplets to CGMES and replace it in given profile
+    5) return models (losses: ""->'' in header, tab -> double space, closing tags -> self-closing tags if empty)
+    Note that in test run only one of them: L309 was present in AST
+    :param opdm_models: list of opdm models
+    :param magic_brell_lines: dictionary of brell lines
+    :param profile_to_change: profile to change
+    """
+    if not magic_brell_lines:
+        magic_brell_lines = {'L373': 'cf3af93a-ad15-4db9-adc2-4e4454bb843f',
+                             'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
+                             'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
+                             'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
+    for model in opdm_models:
+        logger.info(f"Checking brell lines in {model.get('pmd:content-reference'), ''}")
+        profile = load_opdm_data(opdm_objects=[model], profile=profile_to_change)
+        repackage_needed = False
+        for line, line_id in magic_brell_lines.items():
+            if profile.query(f"ID == '{line_id}'").empty:
+                logger.info(f"Skipping Brell line {line} as it was not found in data")
+            else:
+                repackage_needed = True
+                logger.info(f"Setting Brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
+                profile.loc[profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
+                profile.loc[profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
+        if repackage_needed:
+            profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
+            serialized_data = export_to_cgmes_zip([profile])
+            if len(serialized_data) == 1:
+                serialized = serialized_data[0]
+                serialized.seek(0)
+                for model_profile in model.get('opde:Component', []):
+                    if model_profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') == profile_to_change:
+                        model_profile['opdm:Profile']['DATA'] = serialized.read()
+    return opdm_models
 
 
 class HandlerRmmToPdnAndMinio:
@@ -63,6 +109,9 @@ class HandlerRmmToPdnAndMinio:
 
         # Load all selected models
         input_models = filtered_models + additional_models_data + [latest_boundary]
+        # SET BRELL LINE VALUES
+        input_models = set_brell_lines_to_zero_in_models(input_models)
+        # END OF MODIFICATION
         merged_model = load_model(input_models)
 
         # TODO - run other LF if default fails
