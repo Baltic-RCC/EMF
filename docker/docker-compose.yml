@@ -1,0 +1,13 @@
+# @Author: Tanel Treuberg
+# @Github: https://github.com/The-Magicians-Code
+# @Description: Compose service for launching and building multiple containers at once
+
+services:
+  powsybl:
+    container_name: pypowsybl
+    build:
+      context: ../
+      dockerfile: ./docker/base/Dockerfile
+    volumes:
+      - ../:/code
+    tty: true

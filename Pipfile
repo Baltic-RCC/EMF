@@ -1,0 +1,33 @@
+[[source]]
+url = "https://artifactory.elering.sise/artifactory/api/pypi/pssepip/simple/"
+verify_ssl = false
+name = "local_pypi"
+
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+pypowsybl = "1.2.1"
+aniso8601 = "*"
+lxml = "*"
+edx = "*"
+opdm-api = "*"
+triplets = "*"
+ndjson = "*"
+elasticsearch = "*"
+minio = "*"
+pytz = "*"
+requests = "*"
+pika = "*"
+saxonche = "*"
+croniter = "*"
+
+[dev-packages]
+tabulate = "*"
+pyvis = "*"
+
+[requires]
+python_version = "3.11"
