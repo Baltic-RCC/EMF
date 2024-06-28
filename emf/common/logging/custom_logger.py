@@ -41,7 +41,7 @@ def initialize_custom_logger(
 def get_elk_logging_handler():
 
     root_logger = logging.getLogger()
-    while root_logger:
+    if root_logger:
         for handler in root_logger.handlers:
             if isinstance(handler, ElkLoggingHandler):
                 return handler
@@ -77,7 +77,6 @@ class ElkLoggingHandler(logging.StreamHandler):
         self.extra = extra
         self.fields_filter = fields_filter
         self.connected = self.elk_connection()
-        self.trace_parameters
 
     def elk_connection(self):
         try:
