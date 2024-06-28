@@ -12,10 +12,12 @@ from emf.common.integrations.object_storage.models import get_latest_boundary, g
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip
 from emf.task_generator.task_generator import update_task_status
+from emf.common.logging.custom_logger import get_elk_logging_handler
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
+elk_logging_handler = get_elk_logging_handler()
 
 class HandlerRmmToPdnAndMinio:
 
@@ -32,6 +34,11 @@ class HandlerRmmToPdnAndMinio:
 
         if not isinstance(task, dict):
             task = json.loads(task_object)
+
+        # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
+        # Initialize trace
+        task_object["task_id"] = task.get('@id')
+        elk_logging_handler.start_trace(task_object)
 
         # Set task to started
         update_task_status(task, "started")
@@ -126,6 +133,9 @@ class HandlerRmmToPdnAndMinio:
         update_task_status(task, "finished")
 
         logger.debug(task)
+
+        # Stop Trace
+        elk_logging_handler.stop_trace()
 
         return task
 

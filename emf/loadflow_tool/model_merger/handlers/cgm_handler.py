@@ -12,10 +12,12 @@ from emf.common.integrations.object_storage.models import get_latest_boundary, g
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip
 from emf.task_generator.task_generator import update_task_status
+from emf.common.logging.custom_logger import get_elk_logging_handler
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
+elk_logging_handler = get_elk_logging_handler()
 
 class HandlerCreateCGM:
 
@@ -32,6 +34,11 @@ class HandlerCreateCGM:
 
         if not isinstance(task, dict):
             task = json.loads(task_object)
+
+        # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
+        # Initialize trace
+        task_object["task_id"] = task.get('@id')
+        elk_logging_handler.start_trace(task_object)
 
         # Set task to started
         update_task_status(task, "started")
@@ -134,6 +141,9 @@ class HandlerCreateCGM:
 
         logger.debug(task)
 
+        # Stop Trace
+        elk_logging_handler.stop_trace()
+
         return task
 
 
@@ -178,16 +188,15 @@ if __name__ == "__main__":
             "timestamp_utc": "2024-05-22T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": ["ELERING", "AST", "PSE"],
+            "included": [],
             "excluded": [],
-            "local_import": ["LITGRID"],
             "time_horizon": "ID",
             "version": "106",
-            "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
+            "mas": "http://www.baltic-rsc.eu/OperationalPlanning"
         }
     }
 
-    worker = HandlerRmmToPdnAndMinio()
+    worker = HandlerCreateCGM()
     finished_task = worker.handle(sample_task)
 
 
