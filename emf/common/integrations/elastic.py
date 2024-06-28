@@ -62,7 +62,7 @@ class Elastic:
             logger.debug(f"Sending data to {url}")
         if json_message.get('args', None):  # TODO revise if this is best solution
             json_message.pop('args')
-        json_data = json.dumps(json_message, default=str)
+        json_data = json.dumps(json_message, default=str, ensure_ascii=True, skipkeys=True)
         response = requests.post(url=url, data=json_data.encode(), headers={"Content-Type": "application/json"})
         if debug:
             logger.debug(f"ELK response: {response.content}")
