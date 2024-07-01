@@ -781,7 +781,7 @@ if __name__ == "__main__":
             # be used. Also, it must be unique enough do be distinguished from other folders (for example instead of
             # using 'Combinations' use 'TC1_T11_NonConform_L1/Combinations' etc.)
             # Some examples for
-            #   https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/QoCDC_v3.2.1_test_models.zip
+            #  https://www.entsoe.eu/Documents/CIM_documents/Grid_Model_CIM/QoCDC_v3.2.1_test_models.zip
             # folder_to_study = 'apg_case'
             folder_to_study = 'TC3_T1_Conform'
             examples_path = '../../../loadflow_tool/example_models/'
