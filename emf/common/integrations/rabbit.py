@@ -380,7 +380,7 @@ class RMQConsumer:
                 properties.content_type = content_type
                 logger.info(f"Message converted")
             except Exception as error:
-                logger.error(f"Message conversion failed: {error}")
+                logger.error(f"Message conversion failed: {error}", exc_info=True)
                 # ack = False
 
         if self.message_handlers:
@@ -389,7 +389,7 @@ class RMQConsumer:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body = message_handler.handle(body, properties=properties)
                 except Exception as error:
-                    logger.error(f"Message handling failed: {error}")
+                    logger.error(f"Message handling failed: {error}", exc_info=True)
                     # ack = False
 
         if ack:

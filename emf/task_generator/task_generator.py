@@ -1,6 +1,8 @@
 import aniso8601
+from datetime import datetime
 
-from time_helper import datetime, parse_duration, convert_to_utc, timezone, reference_times
+from emf.task_generator.time_helper import parse_duration, convert_to_utc, timezone, reference_times
+from emf.common.integrations.object_storage.tasks import publish_tasks
 from uuid import uuid4
 import croniter
 from pathlib import Path
@@ -131,8 +133,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "task_initiator": getlogin(),
                         "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
                         "task_creation_time": task_timestamp,
-                        "task_status": "created",
-                        "task_status_trace": [{"status": "created", "timestamp": task_timestamp}],
+                        "task_update_time": "",
+                        "task_status": "",
+                        "task_status_trace": [],
                         "task_dependencies": [],
                         "task_tags": [],
                         "task_retry_count": 0,
@@ -142,7 +145,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "job_period_start": job_period_start_utc.isoformat(),
                         "job_period_end": job_period_end_utc.isoformat(),
                         "task_properties": {
-                            "timestamp_utc": timestamp_utc.isoformat()
+                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}"
                         }
                     }
 
@@ -153,6 +156,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                     # Update tags
                     task["task_tags"].extend(process.get("tags", []))
                     task["task_tags"].extend(run.get("tags", []))
+
+                    # Update task status
+                    update_task_status(task, "created")
 
                     # Return Task
                     yield task
@@ -206,6 +212,33 @@ def filter_and_flatten_dict(nested_dict: dict, keys: list):
     """
     flattened = flatten_dict(nested_dict)
     return {key: flattened[key] for key in keys if key in flattened}
+
+
+def update_task_status(task, status_text, publish=True):
+    """Update task status
+    Will update task_update_time
+    Will update task_status
+    Will append new status to task_status_trace"""
+
+    logger.info(f"Updating Task status to -> {status_text}")
+
+    utc_now = datetime.utcnow().isoformat()
+
+    task["task_update_time"] = utc_now
+    task["task_status"] = status_text
+
+    task["task_status_trace"].append({
+        "status": status_text,
+        "timestamp": utc_now
+    })
+
+    # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
+    if publish:
+#        try:
+        publish_tasks([task])
+#        except:
+#            logger.warning("Task Publication to ELK failed")
+
 
 
 

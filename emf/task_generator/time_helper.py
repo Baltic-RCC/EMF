@@ -10,6 +10,8 @@
 # -------------------------------------------------------------------------------
 from functools import wraps
 from datetime import datetime, timedelta
+
+import aniso8601
 from aniso8601 import parse_duration as duration_parser
 from pytz import timezone
 
@@ -232,3 +234,10 @@ def convert_to_utc(date_time, default_timezone='Europe/Brussels'):
         date_time = timezone(default_timezone).localize(date_time)
 
     return date_time.astimezone(timezone("UTC"))
+
+def parse_datetime(iso_string, keep_timezone=True):
+
+    if keep_timezone:
+        return aniso8601.parse_datetime(iso_string)
+    else:
+        return aniso8601.parse_datetime(iso_string).replace(tzinfo=None)

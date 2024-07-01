@@ -6,7 +6,7 @@ from typing import List
 import json
 
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, opdm
+from emf.common.integrations import elastic, opdm, minio
 from emf.common.converters import opdm_metadata_to_json
 from emf.loadflow_tool.model_validator.validator import validate_model
 from emf.loadflow_tool.helper import load_opdm_data
@@ -181,8 +181,6 @@ if __name__ == "__main__":
     # transfer_model_meta_from_opde_to_elk()
 
     # Get models from OPDM and store to MINIO
-    from emf.common.integrations import minio
-
     service = elastic.Elastic()
     opdm_object = service.get_doc_by_id(index="models-opde-202309", id='723eb242-686c-42f1-85e3-81d38aab31e0').body['_source']
     opdm_service = opdm.OPDM()

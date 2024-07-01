@@ -271,23 +271,43 @@ def export_to_cgmes_zip(triplets:list):
                                                                         export_to_memory=True)
 
 
-def filter_models(igm_models: list, included_tsos: list | str = None, excluded_tsos: list | str = None):
+def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
     """
-    Filters the list of models to include or to exclude specific tsos if they are given
-    :param igm_models: list of igm models
-    :param included_tsos: list or string of tso names, if given, only matching models are returned
-    :param excluded_tsos: list or string of tso names, if given, matching models will be discarded
+    Filters the list of models to include or to exclude specific tsos if they are given.
+    If included is defined, excluded is not used
+    :param models: list of igm models
+    :param included_models: list or string of tso names, if given, only matching models are returned
+    :param excluded_models: list or string of tso names, if given, matching models will be discarded
     :return updated list of igms
     """
 
-    if included_tsos:
-        included_tsos = [included_tsos] if isinstance(included_tsos, str) else included_tsos
-        igm_models = [model for model in igm_models if model.get('pmd:TSO') in included_tsos]
-    if excluded_tsos:
-        excluded_tsos = [excluded_tsos] if isinstance(excluded_tsos, str) else excluded_tsos
-        igm_models = [model for model in igm_models if not model.get('pmd:TSO') in excluded_tsos]
-    return igm_models
+    included_models = [included_models] if isinstance(included_models, str) else included_models
+    excluded_models = [excluded_models] if isinstance(excluded_models, str) else excluded_models
 
+    if included_models:
+        logger.info(f"Models to be included: {included_models}")
+    else:
+        logger.info(f"Models to be excluded: {excluded_models}")
+
+
+    filtered_models = []
+
+    for model in models:
+
+        if included_models:
+            if model[filter_on] not in included_models:
+                logger.info(f"Excluded {model[filter_on]}")
+                continue
+
+        elif excluded_models:
+            if model[filter_on] in excluded_models:
+                logger.info(f"Excluded {model[filter_on]}")
+                continue
+
+        logger.info(f"Included {model[filter_on]}")
+        filtered_models.append(model)
+
+    return filtered_models
 
 if __name__ == "__main__":
 
