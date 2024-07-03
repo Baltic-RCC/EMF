@@ -132,13 +132,14 @@ def get_connected_component_counts(network: pypowsybl.network, bus_count_thresho
     return counts.to_dict()
 
 
-def load_model(opdm_objects: List[dict]):
+def load_model(opdm_objects: List[dict], parameters: dict = None):
 
     model_data = {}
     import_report = pypowsybl.report.Reporter()
     network = pypowsybl.network.load_from_binary_buffer(
         buffer=package_for_pypowsybl(opdm_objects),
         reporter=import_report,
+        parameters=parameters
         # parameters={
         #     "iidm.import.cgmes.store-cgmes-model-as-network-extension": 'true',
         #     "iidm.import.cgmes.create-active-power-control-extension": 'true',
