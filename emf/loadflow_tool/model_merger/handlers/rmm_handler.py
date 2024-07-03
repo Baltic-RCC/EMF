@@ -113,6 +113,7 @@ class HandlerRmmToPdnAndMinio:
         input_models = set_brell_lines_to_zero_in_models(input_models)
         # END OF MODIFICATION
         # FIX DANGLING REFERENCES ISSUE
+        # change this if needed!
         parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
         merged_model = load_model(input_models, parameters=parameters)
         # END OF FIX
