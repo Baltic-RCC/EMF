@@ -112,7 +112,11 @@ class HandlerRmmToPdnAndMinio:
         # SET BRELL LINE VALUES
         input_models = set_brell_lines_to_zero_in_models(input_models)
         # END OF MODIFICATION
-        merged_model = load_model(input_models)
+        # FIX DANGLING REFERENCES ISSUE
+        parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
+        merged_model = load_model(input_models, parameters=parameters)
+        # END OF FIX
+        # merged_model = load_model(input_models)
 
         # TODO - run other LF if default fails
         solved_model = run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
