@@ -133,7 +133,9 @@ def get_connected_component_counts(network: pypowsybl.network, bus_count_thresho
 
 
 def load_model(opdm_objects: List[dict], parameters: dict = None):
-
+    """
+    Brings the parameters variable out
+    """
     model_data = {}
     import_report = pypowsybl.report.Reporter()
     network = pypowsybl.network.load_from_binary_buffer(
