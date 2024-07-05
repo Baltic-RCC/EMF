@@ -23,6 +23,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "merging_entity": "BALTICRSC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included" : [],
         "excluded": [],
         "time_horizon": "ID",
@@ -45,6 +47,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "merging_entity": "BALTICRSC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included" : [],
         "excluded": [],
         "time_horizon": "ID",
@@ -67,6 +71,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "merging_entity": "BALTICRSC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included" : [],
         "excluded": [],
         "time_horizon": "ID",
@@ -89,6 +95,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "merging_entity": "BALTICRSC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included" : [],
         "excluded": [],
         "time_horizon": "1D",
@@ -111,6 +119,8 @@
       "tags": [],
       "properties": {
         "merge_type": "EU",
+        "merging_entity": "BALTICRSC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included" : [],
         "excluded": [],
         "time_horizon": "2D",
