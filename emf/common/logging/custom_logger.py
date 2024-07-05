@@ -41,13 +41,19 @@ def initialize_custom_logger(
 def get_elk_logging_handler():
 
     root_logger = logging.getLogger()
+    logger.debug(root_logger)
     if root_logger:
+        logger.debug(root_logger.handlers)
         for handler in root_logger.handlers:
             if isinstance(handler, ElkLoggingHandler):
                 return handler
 
-    #TODO Maybe initalize logger, if not found?
-    return None
+        logger.warning("ELK handler missing, trying to create one")
+        handler = ElkLoggingHandler()
+        root_logger.addHandler(handler)
+        logger.debug(root_logger.handlers)
+
+    return handler
 
 
 
@@ -74,7 +80,12 @@ class ElkLoggingHandler(logging.StreamHandler):
         super().__init__(self)
         self.server = elk_server
         self.index = index
-        self.extra = extra
+
+        if extra:
+            self.extra = extra
+        else:
+            self.extra = dict()
+
         self.fields_filter = fields_filter
         self.connected = self.elk_connection()
 
@@ -109,9 +120,14 @@ class ElkLoggingHandler(logging.StreamHandler):
         elastic.Elastic.send_to_elastic(index=self.index, json_message=elk_record, server=self.server)
 
     # TODO - Move tracing to seperate class, that on destroy will stop tracing?
-    def start_trace(self, trace_parameters:dict):
+    def start_trace(self, trace_parameters: dict):
+        parameters = trace_parameters.copy()
+
+        if not parameters.get("task_id"):
+            parameters["task_id"] = parameters.get('@id')
+
         for parameter_name in self._trace_parameter_names:
-            if parameter_value := trace_parameters.get(parameter_name, None):
+            if parameter_value := parameters.get(parameter_name, None):
                 self.extra[parameter_name] = parameter_value
             else:
                 logger.warning(f"Trace setup incomplete, missing {parameter_name}")

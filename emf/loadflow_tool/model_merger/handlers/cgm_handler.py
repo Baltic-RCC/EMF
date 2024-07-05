@@ -17,13 +17,14 @@ from emf.common.logging.custom_logger import get_elk_logging_handler
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
-elk_logging_handler = get_elk_logging_handler()
+
 
 class HandlerCreateCGM:
 
     def __init__(self):
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio.ObjectStorage()
+        self.elk_logging_handler = get_elk_logging_handler()
 
     def handle(self, task_object: dict, **kwargs):
 
@@ -37,8 +38,8 @@ class HandlerCreateCGM:
 
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
-        task_object["task_id"] = task.get('@id')
-        elk_logging_handler.start_trace(task_object)
+        self.elk_logging_handler.start_trace(task)
+        logger.debug(task)
 
         # Set task to started
         update_task_status(task, "started")
@@ -142,7 +143,7 @@ class HandlerCreateCGM:
         logger.debug(task)
 
         # Stop Trace
-        elk_logging_handler.stop_trace()
+        self.elk_logging_handler.stop_trace()
 
         return task
 

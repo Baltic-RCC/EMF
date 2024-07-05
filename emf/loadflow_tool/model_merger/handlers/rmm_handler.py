@@ -17,13 +17,13 @@ from emf.common.logging.custom_logger import get_elk_logging_handler
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
-elk_logging_handler = get_elk_logging_handler()
 
 class HandlerRmmToPdnAndMinio:
 
     def __init__(self):
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio.ObjectStorage()
+        self.elk_logging_handler = get_elk_logging_handler()
 
     def handle(self, task_object: dict, **kwargs):
 
@@ -35,10 +35,9 @@ class HandlerRmmToPdnAndMinio:
         if not isinstance(task, dict):
             task = json.loads(task_object)
 
-        # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
-        task_object["task_id"] = task.get('@id')
-        elk_logging_handler.start_trace(task_object)
+        self.elk_logging_handler.start_trace(task)
+        logger.debug(task)
 
         # Set task to started
         update_task_status(task, "started")
@@ -135,7 +134,7 @@ class HandlerRmmToPdnAndMinio:
         logger.debug(task)
 
         # Stop Trace
-        elk_logging_handler.stop_trace()
+        self.elk_logging_handler.stop_trace()
 
         return task
 
@@ -158,7 +157,7 @@ if __name__ == "__main__":
         "run_id": "https://example.com/runs/IntraDayCGM/1",
         "job_id": "urn:uuid:d9343f48-23cd-4d8a-ae69-1940a0ab1837",
         "task_type": "automatic",
-        "task_initiator": "teenus.testrscjslv1",
+        "task_initiator": "test",
         "task_priority": "normal",
         "task_creation_time": "2024-05-28T20:39:42.448064",
         "task_update_time": "",
@@ -178,7 +177,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-05-22T11:30:00+00:00",
+            "timestamp_utc": "2024-06-22T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["ELERING", "AST", "PSE"],

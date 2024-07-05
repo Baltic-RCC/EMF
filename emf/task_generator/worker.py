@@ -21,7 +21,9 @@ if tasks:
     rabbit_service = rabbit.BlockingClient()
     logger.info(f"Sending tasks to Rabbit exchange '{RMQ_EXCHANGE}'")
     for task in tasks:
+        elk_handler.start_trace(task)
         rabbit_service.publish(payload=json.dumps(task), exchange_name=RMQ_EXCHANGE, headers=filter_and_flatten_dict(task, TASK_HEADER_KEYS.split(",")))
+        elk_handler.stop_trace()
 else:
     logger.info("No tasks generated at current time.")
 
