@@ -122,14 +122,14 @@ class HandlerCreateCGM:
         # Upload to Object Storage
         rmm_object = cgm_data
         rmm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
-        logger.info(f"Uploading RMM to MINO {OUTPUT_MINIO_BUCKET}/{rmm_object.name}")
+        logger.info(f"Uploading CGM to MINO {OUTPUT_MINIO_BUCKET}/{rmm_object.name}")
 
         try:
             self.minio_service.upload_object(rmm_object, bucket_name=OUTPUT_MINIO_BUCKET)
         except:
             logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
-        logger.info(f"RMM creation done for {cgm_name}")
+        logger.info(f"CGM creation done for {cgm_name}")
         end_time = datetime.datetime.utcnow()
         task_duration = end_time - start_time
         logger.info(f"Task ended at {end_time}, total run time {task_duration}",
