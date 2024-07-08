@@ -286,8 +286,11 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
 
     if included_models:
         logger.info(f"Models to be included: {included_models}")
-    else:
+    elif excluded_models:
         logger.info(f"Models to be excluded: {excluded_models}")
+    else:
+        logger.info(f"Including all available models: {models}")
+        return models
 
 
     filtered_models = []
