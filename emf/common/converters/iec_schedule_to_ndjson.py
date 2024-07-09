@@ -109,7 +109,7 @@ def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_r
 
         # DEBUG
         #for key, value in whole_meta.items():
-        #    print(key, value)
+        #    logger.debug(key, value)
 
         curve_type = whole_meta.get("TimeSeries.curveType", "A01")
         resolution = aniso8601.parse_duration(period.find('{*}resolution').text)

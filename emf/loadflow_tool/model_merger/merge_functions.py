@@ -289,7 +289,7 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
     elif excluded_models:
         logger.info(f"Models to be excluded: {excluded_models}")
     else:
-        logger.info(f"Including all available models: {models}")
+        logger.info(f"Including all available models: {[model['pmd:TSO'] for model in models]}")
         return models
 
 

@@ -139,7 +139,7 @@ class ObjectStorage:
             objects = self.client.list_objects(bucket_name, prefix, recursive, start_after, include_user_meta, include_version)
             return objects
         except minio.error.S3Error as err:
-            print(err)
+            logger.error(err, exc_info=True)
 
     def query_objects(self, bucket_name: str, metadata: dict = None, prefix: str = None, use_regex: bool = False):
 

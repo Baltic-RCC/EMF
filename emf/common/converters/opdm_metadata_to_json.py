@@ -28,4 +28,4 @@ if __name__ == "__main__":
     # TODO - add correct example
     input_xml = "saxon/model_meta.xml"
 
-    print(convert(open(input_xml, "rb").read())[0].decode())
+    logger.info(convert(open(input_xml, "rb").read())[0].decode())

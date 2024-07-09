@@ -89,7 +89,7 @@ class BlockingClient:
 
         # Set up consumer
         if not callback:
-            callback = lambda ch, method, properties, body: print(f"Received message: {properties} (No callback processing)")
+            callback = lambda ch, method, properties, body: logger.info(f"Received message: {properties} (No callback processing)")
 
         self.consume_channel.basic_consume(
             queue=queue,
