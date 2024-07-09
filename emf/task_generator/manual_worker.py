@@ -19,20 +19,21 @@ process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
 if MERGE_TYPE == 'BA':
-    process_config_json[0]['runs'][0]['process_id'] = "https://example.com/processes/RMM_CREATION"
+    type="CGM"
 elif MERGE_TYPE == 'EU':
-    process_config_json[0]['runs'][0]['process_id'] = "https://example.com/processes/CGM_CREATION"
-
+    type = "RMM"
+   
+process_config_json[0]['runs'][0]['process_id'] = f'https://example.com/processes/{type}_CREATION'
 if TIME_HORIZON == '1D':
-    process_config_json[0]['runs'][0]['@id'] = "https://example.com/runs/DayAheadRMM"
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/DayAhead{type}'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-1'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
 elif TIME_HORIZON == '2D':
-    process_config_json[0]['runs'][0]['@id'] = 'https://example.com/runs/TwoDaysAheadRMM'
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/TwoDaysAhead{type}'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-2'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-2"
 elif TIME_HORIZON == 'ID':
-    process_config_json[0]['runs'][0]['@id'] = "https://example.com/runs/IntraDayRMM/1"
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/IntraDay{type}/1'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-1'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
 
