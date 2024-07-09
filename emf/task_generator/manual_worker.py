@@ -38,9 +38,9 @@ elif TIME_HORIZON == 'ID':
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
 
 process_config_json[0]['runs'][0]['properties']['merge_type'] = MERGE_TYPE
-process_config_json[0]['runs'][0]['properties']['included'] = INCLUDED_TSO.split(',')
-process_config_json[0]['runs'][0]['properties']['excluded'] = EXCLUDED_TSO.split(',')
-process_config_json[0]['runs'][0]['properties']['local_import'] = LOCAL_IMPORT.split(',')
+process_config_json[0]['runs'][0]['properties']['included'] = INCLUDED_TSO.split(',') if INCLUDED_TSO else []
+process_config_json[0]['runs'][0]['properties']['excluded'] = EXCLUDED_TSO.split(',') if EXCLUDED_TSO else []
+process_config_json[0]['runs'][0]['properties']['local_import'] = LOCAL_IMPORT.split(',') if LOCAL_IMPORT else []
 process_config_json[0]['runs'][0]['properties']['time_horizon'] = TIME_HORIZON
 timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
 timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
