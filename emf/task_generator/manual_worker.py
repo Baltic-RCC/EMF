@@ -19,9 +19,9 @@ process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
 if MERGE_TYPE == 'BA':
-    type="CGM"
+    type="RMM"
 elif MERGE_TYPE == 'EU':
-    type = "RMM"
+    type = "CGM"
    
 process_config_json[0]['runs'][0]['process_id'] = f'https://example.com/processes/{type}_CREATION'
 if TIME_HORIZON == '1D':
