@@ -17,6 +17,20 @@ from emf.common.logging.custom_logger import get_elk_logging_handler
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
+# TODO - move this async solution to some common module
+from concurrent.futures import ThreadPoolExecutor
+from lxml import etree
+
+executor = ThreadPoolExecutor(max_workers=20)
+def async_call(function, callback=None, *args, **kwargs):
+
+    future = executor.submit(function, *args, **kwargs)
+    if callback:
+        future.add_done_callback(lambda f: callback(f.result()))
+    return future
+def log_opdm_response(response):
+    logger.debug(etree.tostring(response, pretty_print=True).decode())
+
 
 
 class HandlerCreateCGM:
@@ -95,7 +109,7 @@ class HandlerCreateCGM:
         try:
             for item in serialized_data:
                 logger.info(f"Uploading to OPDM -> {item.name}")
-                self.opdm_service.publication_request(item)
+                async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
         except:
             logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
@@ -186,7 +200,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-05-22T11:30:00+00:00",
+            "timestamp_utc": "2024-07-08T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": [],
