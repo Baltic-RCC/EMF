@@ -45,7 +45,6 @@ process_config_json[0]['runs'][0]['properties']['time_horizon'] = TIME_HORIZON
 process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
 process_config_json[0]['runs'][0]['properties']['mas'] = TASK_MAS
 process_config_json[0]['runs'][0]['properties']['merging_entity'] = TASK_MERGING_ENTITY
-process_config_json[0]['runs'][0]['properties']['merge_type'] = TASK_MERGE_TYPE
 timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
 timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
 timeframe_config_json[0]['reference_time'] = TASK_REFERENCE_TIME
