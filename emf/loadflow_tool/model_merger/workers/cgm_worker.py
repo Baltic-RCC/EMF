@@ -12,6 +12,8 @@ elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'cgm-merge
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
+logger.info(f"Merge load flow parameters used used: {MERGE_LOAD_FLOW_SETTINGS}")
+
 # RabbitMQ consumer implementation
 consumer = rabbit.RMQConsumer(que=INPUT_RABBIT_QUE, message_handlers=[HandlerCreateCGM()])
 

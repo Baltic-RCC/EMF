@@ -14,6 +14,7 @@ from emf.loadflow_tool.helper import load_opdm_data
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
+parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
 
 
 class HandlerModelsToMinio:
@@ -107,6 +108,8 @@ class HandlerModelsValidator:
     def handle(self, opdm_objects: List[dict], **kwargs):
         # Get the latest boundary set for validation
         latest_boundary = self.opdm_service.get_latest_boundary()
+
+        logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
 
         # Run network model validation
         for opdm_object in opdm_objects:
