@@ -1,5 +1,7 @@
+import sys
 import logging
 import os
+import uuid
 import zipfile
 from enum import Enum
 from io import BytesIO
@@ -25,6 +27,7 @@ from emf.common.integrations.object_storage.file_system_general import OPDE_COMP
 from emf.loadflow_tool.helper import generate_OPDM_ContentReference_from_filename
 from emf.loadflow_tool.model_validator.validator import validate_model
 
+LOCAL_STORAGE_LOCATION = './merged_examples/'
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'
 XML_KEYWORD = '.xml'
@@ -739,9 +742,43 @@ def get_latest_models_and_download(time_horizon: str = None,
     return models
 
 
+def save_merged_model_to_local_storage(cgm_files,
+                                       cgm_folder_name: str = None,
+                                       local_storage_location: str = LOCAL_STORAGE_LOCATION):
+    """
+    Saves merged cgm to local storage. This is meant for testing purposes only
+    :param cgm_files: list of cgm_files
+    :param cgm_folder_name: sub folder name where to gather files
+    :param local_storage_location: path to store
+    :return: None
+    """
+    if not local_storage_location:
+        return
+    if cgm_folder_name is not None:
+        local_storage_location = local_storage_location + '/' + cgm_folder_name
+        local_storage_location = check_the_folder_path(local_storage_location)
+    if not os.path.exists(local_storage_location):
+        os.makedirs(local_storage_location)
+    if not isinstance(cgm_files, list):
+        cgm_files = [cgm_files]
+    for cgm_file in cgm_files:
+        try:
+            file_name = cgm_file.name
+        except AttributeError:
+            file_name = str(uuid.uuid4())
+            if zipfile.is_zipfile(cgm_file):
+                file_name = file_name + '.zip'
+        full_file_name = local_storage_location.removesuffix('/') + '/' + file_name.removeprefix('/')
+        with open(full_file_name, 'wb') as f:
+            if isinstance(cgm_file, BytesIO):
+                f.write(cgm_file.getbuffer())
+            else:
+                f.write(cgm_file)
+
+
 if __name__ == "__main__":
 
-    import sys
+    # import sys
     from emf.common.integrations.opdm import OPDM
 
     logging.basicConfig(
