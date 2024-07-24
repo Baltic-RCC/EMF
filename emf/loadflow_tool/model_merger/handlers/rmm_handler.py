@@ -12,7 +12,8 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip, remove_small_islands
+from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, \
+    run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip, remove_small_islands, copy_topological_nodes_over
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
 
@@ -138,6 +139,7 @@ class HandlerRmmToPdnAndMinio:
         sv_data = fix_sv_shunts(sv_data, input_models)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
         sv_data = remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
+        sv_data = copy_topological_nodes_over(sv_data=sv_data, original_data=input_models)
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])

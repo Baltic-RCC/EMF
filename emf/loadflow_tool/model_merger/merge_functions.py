@@ -320,6 +320,61 @@ def remove_small_islands(solved_data, island_size_limit):
     return solved_data
 
 
+def copy_topological_nodes_over(sv_data, original_data):
+    """
+    If boundary point is between two igms that are merged then there might be a case when pypowsybl doesn't count it
+    In newer versions pypowsybl may count it from several sides (from each igm side). Therefore this copies sv
+    voltages from igms over to merged model
+    NOTE THAT THIS IS A HACK
+    :param sv_data: merged model as a dataframe
+    :param original_data: input models in OPDE format (dictionary)
+    :return updated merged model
+    """
+    some_data = load_opdm_data(original_data)
+    # Get boundary nodes
+    all_boundary_nodes = some_data[(some_data['KEY'] == 'TopologicalNode.boundaryPoint') &
+                                   (some_data['VALUE'] == 'true')]
+    # Get boundary nodes that exist in igms
+    nodes_in_igms = some_data[(some_data['KEY'] == 'SvVoltage.TopologicalNode') &
+                              (some_data['VALUE'].isin(all_boundary_nodes['ID']))]
+    # Get only those boundary nodes that exist in multiple igms
+    multiple_occurrences = nodes_in_igms['VALUE'].value_counts()
+    in_several_igms = multiple_occurrences[multiple_occurrences > 1]
+    # Get boundary nodes that already have the voltage level declared in sv file
+    already_existing = sv_data[(sv_data['KEY'] == 'SvVoltage.TopologicalNode') &
+                               (sv_data['VALUE'].isin(in_several_igms.index))]
+    # Exclude the existing nodes
+    in_several_igms = in_several_igms[~in_several_igms.index.isin(already_existing['VALUE'])]
+    # Get corresponding voltage level ids from igms
+    node_voltage_level_ids = nodes_in_igms[nodes_in_igms['VALUE'].isin(in_several_igms.index)]
+    # Remove duplicates
+    duplicates_dropped = node_voltage_level_ids.drop_duplicates(subset=['VALUE'])
+    # Get voltage levels
+    node_voltages = some_data[some_data['ID'].isin(duplicates_dropped['ID'])]
+    # Get file id
+    sv_file_ids = sv_data['INSTANCE_ID'].unique()
+    if len(sv_file_ids) == 1:
+        sv_file_id = sv_file_ids[0]
+        node_voltages.loc[:, 'INSTANCE_ID'] = sv_file_id
+        # node_voltages.loc[node_voltages['KEY'] == 'SvVoltage.angle', 'VALUE'] = 0
+        # node_voltages.loc[node_voltages['KEY'] == 'SvVoltage.v', 'VALUE'] = 0
+        sv_data = triplets.rdf_parser.update_triplet_from_triplet(sv_data, node_voltages)
+        # No need to update islands
+        # topological_islands = sv_data[(sv_data['KEY'] == 'Type') & (sv_data['VALUE'] == 'TopologicalIsland')
+        #                               & (sv_data['INSTANCE_ID'] == sv_file_id)]
+        # nodes_in_island = sv_data[sv_data['ID'].isin(topological_islands['ID'])]
+        # new_nodes = pandas.DataFrame()
+        # magic_island_id = nodes_in_island['ID'].iloc[0]
+        # new_nodes['VALUE'] = in_several_igms.index
+        # new_nodes['KEY'] = 'TopologicalIsland.TopologicalNodes'
+        # new_nodes['ID'] = magic_island_id
+        # new_nodes['INSTANCE_ID'] = sv_file_id
+        # sv_data = triplets.rdf_parser.update_triplet_from_triplet(sv_data, new_nodes)
+    else:
+        logger.error(f"Cannot determine the id of merged sv file")
+    return sv_data
+
+
 if __name__ == "__main__":
 
     from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
