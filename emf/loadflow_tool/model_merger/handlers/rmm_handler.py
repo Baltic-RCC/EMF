@@ -12,8 +12,9 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip
+from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip, remove_small_islands
 from emf.task_generator.task_generator import update_task_status
+from emf.common.logging.custom_logger import get_elk_logging_handler
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -68,6 +69,7 @@ class HandlerRmmToPdnAndMinio:
     def __init__(self):
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio.ObjectStorage()
+        self.elk_logging_handler = get_elk_logging_handler()
 
     def handle(self, task_object: dict, **kwargs):
 
@@ -78,6 +80,10 @@ class HandlerRmmToPdnAndMinio:
 
         if not isinstance(task, dict):
             task = json.loads(task_object)
+
+        # Initialize trace
+        self.elk_logging_handler.start_trace(task)
+        logger.debug(task)
 
         # Set task to started
         update_task_status(task, "started")
@@ -131,6 +137,7 @@ class HandlerRmmToPdnAndMinio:
         # Fix SV
         sv_data = fix_sv_shunts(sv_data, input_models)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
+        sv_data = remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
@@ -176,6 +183,9 @@ class HandlerRmmToPdnAndMinio:
 
         logger.debug(task)
 
+        # Stop Trace
+        self.elk_logging_handler.stop_trace()
+
         return task
 
 
@@ -197,7 +207,7 @@ if __name__ == "__main__":
         "run_id": "https://example.com/runs/IntraDayCGM/1",
         "job_id": "urn:uuid:d9343f48-23cd-4d8a-ae69-1940a0ab1837",
         "task_type": "automatic",
-        "task_initiator": "teenus.testrscjslv1",
+        "task_initiator": "test",
         "task_priority": "normal",
         "task_creation_time": "2024-05-28T20:39:42.448064",
         "task_update_time": "",
@@ -217,7 +227,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-05-22T11:30:00+00:00",
+            "timestamp_utc": "2024-06-22T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["ELERING", "AST", "PSE"],

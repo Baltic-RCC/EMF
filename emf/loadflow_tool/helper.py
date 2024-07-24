@@ -207,7 +207,7 @@ def metadata_from_filename(file_name):
         file_metadata['pmd:validFrom'], file_metadata['pmd:timeHorizon'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
 
     else:
-        print("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
+        logger.warning("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
 
     model_authority_list = model_authority.split("-")
 
@@ -221,7 +221,7 @@ def metadata_from_filename(file_name):
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'], file_metadata['pmd:modelPartReference'] = model_authority_list
 
     else:
-        print(f"Parsing error {model_authority}")
+        logger.error(f"Parsing error {model_authority}")
 
     return file_metadata
 
@@ -280,7 +280,7 @@ def get_metadata_from_filename(file_name):
     meta_separator                = "_"
     entity_and_domain_separator   = "-"
 
-    #print(file_name)
+    logger.debug(file_name)
     file_metadata = {}
     file_name, file_type = file_name.split(file_type_separator)
 
@@ -296,7 +296,7 @@ def get_metadata_from_filename(file_name):
         file_metadata["Model.version"] = file_meta_list
         file_metadata["Model.processType"] = ""
 
-        print("Warning - only 4 meta elements found, expecting 5, setting Model.processType to empty string")
+        logger.warning("Only 4 meta elements found, expecting 5, setting Model.processType to empty string")
 
     # Naming after QoDC 2.1, always 5 positions
     elif len(file_meta_list) == 5:
@@ -308,7 +308,7 @@ def get_metadata_from_filename(file_name):
         file_metadata["Model.version"] = file_meta_list
 
     else:
-        print("Non CGMES file {}".format(file_name))
+        logger.error("Non CGMES file {}".format(file_name))
 
     if file_metadata.get("Model.modelingEntity", False):
 

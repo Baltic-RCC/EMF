@@ -7,8 +7,9 @@ import config
 import logging
 
 # Initialize custom logger
-elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'rmm-merger', 'worker_uuid': str(uuid4())})
 logger = logging.getLogger(__name__)
+elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'rmm-merger', 'worker_uuid': str(uuid4())})
+
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 

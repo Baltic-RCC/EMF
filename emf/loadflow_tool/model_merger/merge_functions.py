@@ -286,8 +286,11 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
 
     if included_models:
         logger.info(f"Models to be included: {included_models}")
-    else:
+    elif excluded_models:
         logger.info(f"Models to be excluded: {excluded_models}")
+    else:
+        logger.info(f"Including all available models: {[model['pmd:TSO'] for model in models]}")
+        return models
 
 
     filtered_models = []
@@ -308,6 +311,14 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
         filtered_models.append(model)
 
     return filtered_models
+
+
+def remove_small_islands(solved_data, island_size_limit):
+    small_island = pandas.DataFrame(solved_data.query("KEY == 'TopologicalIsland.TopologicalNodes'").ID.value_counts()).reset_index().query("count <= @island_size_limit")
+    solved_data = triplets.rdf_parser.remove_triplet_from_triplet(solved_data, small_island, columns=["ID"])
+    logger.info(f"Removed {len(small_island)} island(s) with size <= {island_size_limit}")
+    return solved_data
+
 
 if __name__ == "__main__":
 
