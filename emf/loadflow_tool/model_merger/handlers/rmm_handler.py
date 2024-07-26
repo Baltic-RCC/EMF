@@ -139,7 +139,7 @@ class HandlerRmmToPdnAndMinio:
         sv_data = fix_sv_shunts(sv_data, input_models)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
         sv_data = remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
-        sv_data = copy_topological_nodes_over(sv_data=sv_data, original_data=input_models)
+        sv_data = copy_topological_nodes_over(cgm_sv_data=sv_data, original_data=input_models)
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
