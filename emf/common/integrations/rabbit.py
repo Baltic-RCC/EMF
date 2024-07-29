@@ -172,6 +172,7 @@ class RMQConsumer:
                  que: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
+                 heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC,
                  message_handlers: List[object] | None = None,
                  message_converter: object | None = None):
         """Create a new instance of the consumer class, passing in the AMQP
@@ -201,6 +202,23 @@ class RMQConsumer:
                                                                 port=self._port,
                                                                 virtual_host=self._vhost,
                                                                 credentials=pika.PlainCredentials(username, password))
+        self.set_heartbeat(heartbeat=heartbeat)
+
+    def set_heartbeat(self, heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC):
+        """
+        Brings heartbeat parameter out to be configured
+        NB! guard is to added not to switch the heartbeat off
+        :param heartbeat: new heartbeat value to send to server
+        """
+        if heartbeat:
+            if isinstance(heartbeat, str):
+                try:
+                    heartbeat = int(heartbeat)
+                except ValueError:
+                    heartbeat = None
+            # Do not switch the heartbeat off
+            if heartbeat and heartbeat > 0:
+                self._connection_parameters.heartbeat = heartbeat
 
     def connect(self):
         """This method connects to RabbitMQ, returning the connection handle.
