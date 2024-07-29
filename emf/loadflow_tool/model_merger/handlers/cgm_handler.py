@@ -10,9 +10,11 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip, remove_small_islands
+from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
+from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
+import triplets
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -30,7 +32,6 @@ def async_call(function, callback=None, *args, **kwargs):
     return future
 def log_opdm_response(response):
     logger.debug(etree.tostring(response, pretty_print=True).decode())
-
 
 
 class HandlerCreateCGM:
@@ -77,14 +78,23 @@ class HandlerCreateCGM:
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
+        filtered_models = merge_functions.filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
 
         # Load all selected models
         input_models = filtered_models + [latest_boundary]
-        merged_model = load_model(input_models)
+        #merged_model = merge_functions.load_model(input_models)
+
+        assembeled_data = merge_functions.load_opdm_data(input_models)
+        assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
+        assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
+
+        merged_model = merge_functions.load_model(create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])]))
+
+        del assembeled_data
 
         # TODO - run other LF if default fails
-        solved_model = run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+
 
         # Update time_horizon in case of generic ID process type
         if time_horizon.upper() == "ID":
@@ -95,15 +105,15 @@ class HandlerCreateCGM:
             logger.info(f"Setting ID TimeHorizon to {time_horizon}")
 
         # TODO - get version dynamically form ELK
-        sv_data, ssh_data = create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
+        sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
 
         # Fix SV
-        sv_data = fix_sv_shunts(sv_data, input_models)
-        sv_data = fix_sv_tapsteps(sv_data, ssh_data)
-        sv_data = remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
+        sv_data = merge_functions.fix_sv_shunts(sv_data, input_models)
+        sv_data = merge_functions.fix_sv_tapsteps(sv_data, ssh_data)
+        sv_data = merge_functions.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
 
         # Package both input models and exported CGM profiles to in memory zip files
-        serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
+        serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
 
 
         ### Upload to OPDM ###
@@ -129,18 +139,17 @@ class HandlerCreateCGM:
             # Include original IGM files
             for object in input_models:
                 for instance in object['opde:Component']:
-                    with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
-                        for file_name in instance_zip.namelist():
-                            logging.info(f"Adding file: {file_name}")
-                            cgm_zip.writestr(file_name, instance_zip.open(file_name).read())
+                        file_object = opdmprofile_to_bytes(instance)
+                        logging.info(f"Adding file: {file_object.name}")
+                        cgm_zip.writestr(file_object.name, file_object.getvalue())
 
         # Upload to Object Storage
-        rmm_object = cgm_data
-        rmm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
-        logger.info(f"Uploading CGM to MINO {OUTPUT_MINIO_BUCKET}/{rmm_object.name}")
+        cgm_object = cgm_data
+        cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
+        logger.info(f"Uploading CGM to MINO {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
 
         try:
-            self.minio_service.upload_object(rmm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+            self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
         except:
             logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
@@ -181,7 +190,7 @@ if __name__ == "__main__":
         "run_id": "https://example.com/runs/IntraDayCGM/1",
         "job_id": "urn:uuid:d9343f48-23cd-4d8a-ae69-1940a0ab1837",
         "task_type": "automatic",
-        "task_initiator": "teenus.testrscjslv1",
+        "task_initiator": "cgm_handler_unit_test",
         "task_priority": "normal",
         "task_creation_time": "2024-05-28T20:39:42.448064",
         "task_update_time": "",
@@ -201,10 +210,10 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-07-08T11:30:00+00:00",
+            "timestamp_utc": "2024-07-28T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": [],
+            "included": ["D4", "D7"],
             "excluded": [],
             "time_horizon": "ID",
             "version": "106",

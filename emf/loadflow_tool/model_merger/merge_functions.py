@@ -251,6 +251,47 @@ def fix_sv_tapsteps(sv_data, ssh_data):
     sv_data = pandas.concat([sv_data, pandas.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
     return sv_data
 
+
+def configure_paired_boundarypoint_injections(data):
+    """Where there are paired boundary points, eqivalent injections need to be modified
+    Set P and Q to 0 - so that no additional consumption or prduction is on tieline
+    Set voltage control off - so that no additional consumption or prduction is on tieline
+    Set terminal to connected - to be sure we have paired connected injections at boundary point
+    """
+
+    boundary_points = data.query("KEY == 'ConnectivityNode.boundaryPoint' and VALUE == 'true'")[["ID"]]
+    #boundary_points = data.type_tableview("ConnectivityNode").reset_index().query("`ConnectivityNode.boundaryPoint` == 'true'")
+    boundary_points = boundary_points.merge(data.type_tableview("Terminal").reset_index(), left_on="ID", right_on="Terminal.ConnectivityNode", suffixes=('_ConnectivityNode', '_Terminal'))
+
+    injections = data.type_tableview('EquivalentInjection').reset_index().merge(boundary_points, left_on="ID", right_on='Terminal.ConductingEquipment', suffixes=('_ConnectivityNode', ''))
+
+    # Get paired injections at boundary points
+    paired_injections = injections.groupby("Terminal.ConnectivityNode").filter(lambda x: len(x) == 2)
+
+    # Set terminal status
+    updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
+    updated_terminal_status["KEY"] = "ACDCTerminal.connected"
+    updated_terminal_status["VALUE"] = "true"
+
+    # Set Regulation off
+    updated_regulation_status = paired_injections[["ID"]].copy()
+    updated_regulation_status["KEY"] = "EquivalentInjection.regulationStatus"
+    updated_regulation_status["VALUE"] = "false"
+
+    # Set P to 0
+    updated_p_value = paired_injections[["ID"]].copy()
+    updated_p_value["KEY"] = "EquivalentInjection.p"
+    updated_p_value["VALUE"] = 0
+
+    # Set Q to 0
+    updated_q_value = paired_injections[["ID"]].copy()
+    updated_q_value["KEY"] = "EquivalentInjection.q"
+    updated_q_value["VALUE"] = 0
+
+    return data.update_triplet_from_triplet(pandas.concat([updated_terminal_status, updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+
+
+
 def export_to_cgmes_zip(triplets:list):
 
     namespace_map = {
