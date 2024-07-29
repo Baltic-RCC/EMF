@@ -71,6 +71,30 @@ def save_opdm_objects(opdm_objects: list) -> list:
 
     return exported_files
 
+def create_opdm_objects(models: list, metadata=None) -> list:
+    """
+    Function to create OPDM object like sturcture in memory
+
+    :return: list of OPDM objects
+    """
+    opdm_objects = []
+
+    for model in models:
+        opdm_object = {'opde:Component': []}
+
+        if metadata:
+            opdm_object.update(metadata)
+
+        for profile_instance in model:
+            opdm_object['opde:Component'].append({'opdm:Profile': {
+                'pmd:fileName': profile_instance.name,
+                'DATA': profile_instance.getvalue()
+            }})
+
+        opdm_objects.append(opdm_object)
+
+    return opdm_objects
+
 
 def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     """
