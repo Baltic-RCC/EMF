@@ -400,7 +400,7 @@ def copy_topological_nodes_over(cgm_sv_data, original_data: list | pandas.DataFr
     node_voltages = some_data[some_data['ID'].isin(export_levels['SvVoltage'])]
     # Get file id
     if node_voltages.empty:
-        return
+        return cgm_sv_data
     logger.info(f"Copying {len(node_voltages.index)} voltage levels to boundary nodes")
     sv_file_ids = cgm_sv_data['INSTANCE_ID'].unique()
     if len(sv_file_ids) == 1:
