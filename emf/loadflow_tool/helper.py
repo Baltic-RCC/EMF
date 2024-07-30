@@ -156,13 +156,29 @@ def get_connected_component_counts(network: pypowsybl.network, bus_count_thresho
     return counts.to_dict()
 
 
-def load_model(opdm_objects: List[dict]):
-
+def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
+    """
+    Loads given list of models (opdm_objects) into pypowsybl using internal (known good) default_parameters
+    Additional parameters can be specified as a dict in field parameters which will overwrite the default ones if keys
+    are matching
+    :param opdm_objects: list of dictionaries following the opdm model format
+    :param parameters: dictionary of desired parameters for loading models to pypowsybl
+    :param skip_default_parameters: skip the default parameters
+    """
     model_data = {}
+    default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
+    if not skip_default_parameters:
+        if not parameters:
+            parameters = default_parameters
+        else:
+            # Give a priority to parameters given from outside
+            parameters = {**default_parameters, **parameters}
+
     import_report = pypowsybl.report.Reporter()
     network = pypowsybl.network.load_from_binary_buffer(
         buffer=package_for_pypowsybl(opdm_objects),
         reporter=import_report,
+        parameters=parameters
         # parameters={
         #     "iidm.import.cgmes.store-cgmes-model-as-network-extension": 'true',
         #     "iidm.import.cgmes.create-active-power-control-extension": 'true',
