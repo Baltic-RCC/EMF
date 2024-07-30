@@ -93,7 +93,8 @@ class HandlerCreateCGM:
         del assembeled_data
 
         # TODO - run other LF if default fails
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+
 
         # Update time_horizon in case of generic ID process type
         if time_horizon.upper() == "ID":
