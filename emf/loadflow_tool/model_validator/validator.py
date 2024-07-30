@@ -4,7 +4,7 @@ import json
 import time
 import math
 import config
-from emf.loadflow_tool.loadflow_settings import *
+from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
@@ -20,7 +20,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.vali
 # note - multiple islands wo load or generation can be an issue
 
 
-def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_validations=True):
+def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS), run_element_validations=True):
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
@@ -75,7 +75,7 @@ def validate_model(opdm_objects, loadflow_parameters=CGM_RELAXED_2, run_element_
 
     # Send validation data to Elastic
     try:
-        response = elastic.Elastic.send_to_elastic(index=ELK_INDEX, json_message=model_data)
+        response = elastic.Elastic.send_to_elastic(index=VALIDATOR_ELK_INDEX, json_message=model_data)
     except Exception as error:
         logger.error(f"Validation report sending to Elastic failed: {error}")
 
