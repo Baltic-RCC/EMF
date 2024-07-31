@@ -64,6 +64,7 @@ def create_opdm_object_meta(object_id,
                                 <BP>{time_horizon}</BP>
                                 <TOOL>pypowsybl_{pypowsybl.__version__}</TOOL>
                                 <RSC>{merging_entity}</RSC>
+                                <TXT>Model: Simplification of reality for given need.</TXT>
                             </MDE>""",
         'pmd:versionNumber': f"{int(version):03d}",
         'file_type': file_type
@@ -73,13 +74,13 @@ def create_opdm_object_meta(object_id,
 
 def update_FullModel_from_OpdmObject(data, opdm_object):
 
-
     return triplets.cgmes_tools.update_FullModel_from_dict(data, metadata={
         "Model.version": f"{int(opdm_object['pmd:versionNumber']):03d}",
         "Model.created": f"{parse_datetime(opdm_object['pmd:creationDate']):%Y-%m-%dT%H:%M:%S.%fZ}",
         "Model.mergingEntity": opdm_object['pmd:mergingEntity'],
         "Model.domain": opdm_object['pmd:mergingArea'],
         "Model.scenarioTime": f"{parse_datetime(opdm_object['pmd:scenarioDate']):%Y-%m-%dT%H:%M:00Z}",
+        "Model.description": opdm_object['pmd:description'],
     })
 
 
@@ -89,7 +90,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     # Set Metadata
     SV_ID = merged_model['network_meta']['id'].split("uuid:")[-1]
 
-    opdm_object_meta = create_opdm_object_meta( SV_ID,
+    opdm_object_meta = create_opdm_object_meta(SV_ID,
                                                 time_horizon,
                                                 merging_entity,
                                                 merging_area,
@@ -120,13 +121,6 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     # Load original SSH data to created updated SSH
     ssh_data = load_opdm_data(original_models, "SSH")
     ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
-
-    # Update SSH Model.scenarioTime
-    ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
-
-    # Load full original data to fix issues
-    data = load_opdm_data(original_models)
-    terminals = data.type_tableview("Terminal")
 
     # Update SSH data from SV
     ssh_update_map = [
@@ -167,8 +161,12 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
             "to_attribute": "ShuntCompensator.sections",
         }
     ]
-    updated_ssh_data = ssh_data.copy()
+    # Load terminal from original data
+    terminals = load_opdm_data(original_models).type_tableview("Terminal")
+
+    # Update
     for update in ssh_update_map:
+        logger.info(f"Updating: {update['from_attribute']} -> {update['to_attribute']}")
         source_data = sv_data.type_tableview(update['from_class']).reset_index(drop=True)
 
         # Merge with terminal, if needed
@@ -176,42 +174,37 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
             source_data = source_data.merge(terminals, left_on=terminal_reference, right_on='ID')
             logger.debug(f"Added Terminals to {update['from_class']}")
 
-        updated_ssh_data = updated_ssh_data.update_triplet_from_triplet(
-            source_data.rename(columns={update['from_ID']: 'ID', update['from_attribute']: update['to_attribute']})[
-                ['ID', update['to_attribute']]].set_index('ID').tableview_to_triplet(), add=False)
+        ssh_data = ssh_data.update_triplet_from_triplet(source_data.rename(columns={
+            update['from_ID']: 'ID',
+            update['from_attribute']: update['to_attribute']}
+        )[['ID', update['to_attribute']]].set_index('ID').tableview_to_triplet(), add=False)
 
     # Generate new UUID for updated SSH
     updated_ssh_id_map = {}
-    for OLD_ID in updated_ssh_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
+    for OLD_ID in ssh_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
         NEW_ID = str(uuid4())
         updated_ssh_id_map[OLD_ID] = NEW_ID
         logger.info(f"Assigned new UUID for updated SSH: {OLD_ID} -> {NEW_ID}")
 
     # Update SSH ID-s
-    updated_ssh_data = updated_ssh_data.replace(updated_ssh_id_map)
+    ssh_data = ssh_data.replace(updated_ssh_id_map)
 
     # Update in SV SSH references
     sv_data = sv_data.replace(updated_ssh_id_map)
 
     # Add SSH supersedes reference to old SSH
-    ssh_supersedes_data = pandas.DataFrame(
-        [{"ID": item[1], "KEY": "Model.Supersedes", "VALUE": item[0]} for item in updated_ssh_id_map.items()])
-    ssh_supersedes_data['INSTANCE_ID'] = updated_ssh_data.query("KEY == 'Type'").merge(ssh_supersedes_data.ID)[
-        'INSTANCE_ID']
-    updated_ssh_data = updated_ssh_data.update_triplet_from_triplet(ssh_supersedes_data)
+    ssh_supersedes_data = pandas.DataFrame([{"ID": item[1], "KEY": "Model.Supersedes", "VALUE": item[0]} for item in updated_ssh_id_map.items()])
+    ssh_supersedes_data['INSTANCE_ID'] = ssh_data.query("KEY == 'Type'").merge(ssh_supersedes_data.ID)['INSTANCE_ID']
+    ssh_data = ssh_data.update_triplet_from_triplet(ssh_supersedes_data)
 
     # Update SSH metadata
-    updated_ssh_data = triplets.cgmes_tools.update_FullModel_from_dict(updated_ssh_data, {
-        "Model.version": opdm_object_meta['pmd:versionNumber'],
-        "Model.created": opdm_object_meta['pmd:creationDate'],
-        "Model.mergingEntity": opdm_object_meta['pmd:mergingEntity'],
-        "Model.domain": opdm_object_meta['pmd:mergingArea']
-    })
+    ssh_data = update_FullModel_from_OpdmObject(ssh_data, opdm_object_meta)
 
     # Update SSH filenames
     filename_mask = "{scenarioTime:%Y%m%dT%H%MZ}_{processType}_{mergingEntity}-{domain}-{forEntity}_{messageType}_{version:03d}"
-    updated_ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(updated_ssh_data, filename_mask=filename_mask)
-    return sv_data, updated_ssh_data
+    ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(ssh_data, filename_mask=filename_mask)
+
+    return sv_data, ssh_data
 
 def fix_sv_shunts(sv_data, original_data):
     """Remove Shunt Sections for EQV Shunts"""
@@ -271,7 +264,7 @@ def configure_paired_boundarypoint_injections(data):
     # Set terminal status
     updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
     updated_terminal_status["KEY"] = "ACDCTerminal.connected"
-    updated_terminal_status["VALUE"] = "true"
+    updated_terminal_status["VALUE"] = "false"
 
     # Set Regulation off
     updated_regulation_status = paired_injections[["ID"]].copy()
