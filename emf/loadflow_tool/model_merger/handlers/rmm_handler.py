@@ -12,7 +12,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_merger.merge_functions import filter_models, fix_sv_tapsteps, fix_sv_shunts, load_model, run_lf, create_sv_and_updated_ssh, export_to_cgmes_zip, remove_small_islands
+from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
 
@@ -54,7 +54,7 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                 profile.loc[profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
         if repackage_needed:
             profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
-            serialized_data = export_to_cgmes_zip([profile])
+            serialized_data = merge_functions.export_to_cgmes_zip([profile])
             if len(serialized_data) == 1:
                 serialized = serialized_data[0]
                 serialized.seek(0)
@@ -108,7 +108,7 @@ class HandlerRmmToPdnAndMinio:
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
+        filtered_models = merge_functions.filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
 
         # Get additional models directly from Minio
         additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
@@ -119,10 +119,10 @@ class HandlerRmmToPdnAndMinio:
         input_models = set_brell_lines_to_zero_in_models(input_models)
         # END OF MODIFICATION
 
-        merged_model = load_model(input_models)
+        merged_model = merge_functions.load_model(input_models)
 
         # TODO - run other LF if default fails
-        solved_model = run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
 
         # Update time_horizon in case of generic ID process type
         if time_horizon.upper() == "ID":
@@ -133,15 +133,20 @@ class HandlerRmmToPdnAndMinio:
             logger.info(f"Setting ID TimeHorizon to {time_horizon}")
 
         # TODO - get version dynamically form ELK
-        sv_data, ssh_data = create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
+        sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
 
         # Fix SV
-        sv_data = fix_sv_shunts(sv_data, input_models)
-        sv_data = fix_sv_tapsteps(sv_data, ssh_data)
-        sv_data = remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
-
+        sv_data = merge_functions.fix_sv_shunts(sv_data, input_models)
+        sv_data = merge_functions.fix_sv_tapsteps(sv_data, ssh_data)
+        sv_data = merge_functions.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
+        models_as_triplets = merge_functions.load_opdm_data(input_models)
+        sv_data = merge_functions.remove_duplicate_sv_voltages(cgm_sv_data=sv_data,
+                                                               original_data=models_as_triplets)
+        sv_data = merge_functions.check_and_fix_dependencies(cgm_sv_data=sv_data,
+                                                             cgm_ssh_data=ssh_data,
+                                                             original_data=models_as_triplets)
         # Package both input models and exported CGM profiles to in memory zip files
-        serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
+        serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
 
         # Set RMM name
         rmm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
@@ -228,14 +233,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-06-22T11:30:00+00:00",
+            "timestamp_utc": "2024-07-31T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["ELERING", "AST", "PSE"],
             "excluded": [],
             "local_import": ["LITGRID"],
             "time_horizon": "ID",
-            "version": "106",
+            "version": "111",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
         }
     }
