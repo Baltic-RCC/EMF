@@ -10,7 +10,7 @@ name = "pypi"
 
 [packages]
 pandas = "*"
-pypowsybl = "1.2.1"
+pypowsybl = "1.6.1"
 aniso8601 = "*"
 lxml = "*"
 edx = "*"
