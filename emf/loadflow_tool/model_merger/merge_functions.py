@@ -269,7 +269,7 @@ def configure_paired_boundarypoint_injections(data):
     # Set Regulation off
     updated_regulation_status = paired_injections[["ID"]].copy()
     updated_regulation_status["KEY"] = "EquivalentInjection.regulationStatus"
-    updated_regulation_status["VALUE"] = "false"
+    updated_regulation_status["VALUE"] = "true"
 
     # Set P to 0
     updated_p_value = paired_injections[["ID"]].copy()

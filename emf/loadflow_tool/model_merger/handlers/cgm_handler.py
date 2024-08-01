@@ -88,12 +88,15 @@ class HandlerCreateCGM:
         assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
         assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
 
-        merged_model = merge_functions.load_model(create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])]))
-
+        input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
         del assembeled_data
 
+        merged_model = merge_functions.load_model(input_models)
+
+
         # TODO - run other LF if default fails
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_RELAXED_1)#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status - {solved_model}")
 
 
         # Update time_horizon in case of generic ID process type
@@ -210,13 +213,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-07-28T11:30:00+00:00",
+            "timestamp_utc": "2024-07-31T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": ["D4", "D7"],
+            "included": ["AST", "ELERING"],
             "excluded": [],
             "time_horizon": "ID",
-            "version": "106",
+            "version": "109",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning"
         }
     }

@@ -86,10 +86,12 @@ def create_opdm_objects(models: list, metadata=None) -> list:
             opdm_object.update(metadata)
 
         for profile_instance in model:
-            opdm_object['opde:Component'].append({'opdm:Profile': {
-                'pmd:fileName': profile_instance.name,
-                'DATA': profile_instance.getvalue()
-            }})
+
+            opdm_profile = metadata_from_filename(profile_instance.name)
+            opdm_profile['pmd:fileName'] = profile_instance.name
+            opdm_profile['DATA'] = profile_instance.getvalue()
+
+            opdm_object['opde:Component'].append({'opdm:Profile': opdm_profile})
 
         opdm_objects.append(opdm_object)
 
