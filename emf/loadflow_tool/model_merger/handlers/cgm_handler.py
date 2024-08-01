@@ -88,12 +88,15 @@ class HandlerCreateCGM:
         assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
         assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
 
-        merged_model = merge_functions.load_model(create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])]))
-
+        input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
         del assembeled_data
 
+        merged_model = merge_functions.load_model(input_models)
+
+
         # TODO - run other LF if default fails
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_RELAXED_1)#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status - {solved_model}")
 
 
         # Update time_horizon in case of generic ID process type
