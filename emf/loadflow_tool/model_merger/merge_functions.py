@@ -7,6 +7,7 @@ import logging
 import json
 import sys
 from aniso8601 import parse_datetime
+from decimal import Decimal
 import datetime
 
 import triplets

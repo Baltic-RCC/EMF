@@ -95,8 +95,8 @@ class HandlerCreateCGM:
 
 
         # TODO - run other LF if default fails
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_RELAXED_1)#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-        logger.info(f"Loadflow status - {solved_model}")
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status of main island - {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
 
         # Update time_horizon in case of generic ID process type
@@ -220,13 +220,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-07-31T11:30:00+00:00",
+            "timestamp_utc": "2024-08-01T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["AST", "ELERING"],
             "excluded": [],
-            "time_horizon": "ID",
-            "version": "109",
+            "time_horizon": "1D",
+            "version": "123",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning"
         }
     }
