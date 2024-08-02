@@ -81,6 +81,7 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
         "Model.domain": opdm_object['pmd:mergingArea'],
         "Model.scenarioTime": f"{parse_datetime(opdm_object['pmd:scenarioDate']):%Y-%m-%dT%H:%M:00Z}",
         "Model.description": opdm_object['pmd:description'],
+        "Model.processType": opdm_object['pmd:timeHorizon']
     })
 
 
@@ -264,12 +265,12 @@ def configure_paired_boundarypoint_injections(data):
     # Set terminal status
     updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
     updated_terminal_status["KEY"] = "ACDCTerminal.connected"
-    updated_terminal_status["VALUE"] = "false"
+    updated_terminal_status["VALUE"] = "true"
 
     # Set Regulation off
     updated_regulation_status = paired_injections[["ID"]].copy()
     updated_regulation_status["KEY"] = "EquivalentInjection.regulationStatus"
-    updated_regulation_status["VALUE"] = "true"
+    updated_regulation_status["VALUE"] = "false"
 
     # Set P to 0
     updated_p_value = paired_injections[["ID"]].copy()
