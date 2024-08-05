@@ -400,7 +400,9 @@ class RMQConsumer:
 
                 while not converter_task.done():
                     logger.info("Waiting for converter")
-                    time.sleep(1)
+                    self._connection.process_data_events(time_limit=1)
+                    #self._connection._heartbeat_checker.send_heartbeat()
+
 
                 try:
                     body, content_type = converter_task.result()
@@ -426,7 +428,8 @@ class RMQConsumer:
 
                     while not handler_task.done():
                         logger.info("Waiting for handler")
-                        time.sleep(1)
+                        self._connection.process_data_events(time_limit=1)
+                        #time.sleep(1)
 
                     try:
                         body = handler_task.result()
