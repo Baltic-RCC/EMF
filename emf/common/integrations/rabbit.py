@@ -422,7 +422,7 @@ class RMQConsumer:
 
                 for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-                    handler_task = handler_executor.submit(message_handler.handle, body, properties)
+                    handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
 
                     while not handler_task.done():
                         logger.info("Waiting for handler")
