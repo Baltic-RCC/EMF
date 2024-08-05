@@ -122,6 +122,13 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     ssh_data = load_opdm_data(original_models, "SSH")
     ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
 
+    # Update SSH Model.scenarioTime
+    ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
+
+    # Load full original data to fix issues
+    data = load_opdm_data(original_models)
+    terminals = data.type_tableview("Terminal")
+
     # Update SSH data from SV
     ssh_update_map = [
         {
