@@ -95,8 +95,10 @@ class HandlerCreateCGM:
 
 
         # TODO - run other LF if default fails
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_RELAXED_1)#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-        logger.info(f"Loadflow status - {solved_model}")
+
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status of main island - {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
+
 
 
         # Update time_horizon in case of generic ID process type
@@ -114,12 +116,19 @@ class HandlerCreateCGM:
         sv_data = merge_functions.fix_sv_shunts(sv_data, input_models)
         sv_data = merge_functions.fix_sv_tapsteps(sv_data, ssh_data)
         sv_data = merge_functions.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
+        models_as_triplets = merge_functions.load_opdm_data(input_models)
+        sv_data = merge_functions.remove_duplicate_sv_voltages(cgm_sv_data=sv_data,
+                                                               original_data=models_as_triplets)
+        sv_data = merge_functions.check_and_fix_dependencies(cgm_sv_data=sv_data,
+                                                             cgm_ssh_data=ssh_data,
+                                                             original_data=models_as_triplets)
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
 
 
         ### Upload to OPDM ###
+
         try:
             for item in serialized_data:
                 logger.info(f"Uploading to OPDM -> {item.name}")
@@ -213,19 +222,17 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-07-31T11:30:00+00:00",
+            "timestamp_utc": "2024-08-01T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["AST", "ELERING"],
             "excluded": [],
-            "time_horizon": "ID",
-            "version": "109",
+            "time_horizon": "1D",
+            "version": "123",
+
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning"
         }
     }
 
     worker = HandlerCreateCGM()
     finished_task = worker.handle(sample_task)
-
-
-

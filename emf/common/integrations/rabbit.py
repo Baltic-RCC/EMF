@@ -5,6 +5,8 @@ import pika
 import config
 from typing import List
 from emf.common.config_parser import parse_app_properties
+from concurrent.futures import ThreadPoolExecutor
+
 
 logger = logging.getLogger(__name__)
 
@@ -393,22 +395,53 @@ class RMQConsumer:
 
         # Convert if needed
         if self.message_converter:
-            try:
-                body, content_type = self.message_converter.convert(body)
-                properties.content_type = content_type
-                logger.info(f"Message converted")
-            except Exception as error:
-                logger.error(f"Message conversion failed: {error}", exc_info=True)
-                # ack = False
+            with ThreadPoolExecutor() as converter_executor:
+                converter_task = converter_executor.submit(self.message_converter.convert, body)
+
+                while not converter_task.done():
+                    logger.info("Waiting for converter")
+                    time.sleep(1)
+
+                try:
+                    body, content_type = converter_task.result()
+
+                except Exception as error:
+                    logger.error(f"Message conversion failed: {error}", exc_info=True)
+                    ack = False
+
+            # try:
+            #     body, content_type = self.message_converter.convert(body)
+            #     properties.content_type = content_type
+            #     logger.info(f"Message converted")
+            # except Exception as error:
+            #     logger.error(f"Message conversion failed: {error}", exc_info=True)
+            #     # ack = False
 
         if self.message_handlers:
-            for message_handler in self.message_handlers:
-                try:
+            with ThreadPoolExecutor() as handler_executor:
+
+                for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-                    body = message_handler.handle(body, properties=properties)
-                except Exception as error:
-                    logger.error(f"Message handling failed: {error}", exc_info=True)
-                    # ack = False
+                    handler_task = handler_executor.submit(self.message_handler.handle, body, properties)
+
+                    while not handler_task.done():
+                        logger.info("Waiting for handler")
+                        time.sleep(1)
+
+                    try:
+                        body = handler_task.result()
+
+                    except Exception as error:
+                        logger.error(f"Message handling failed: {error}", exc_info=True)
+                        ack = False
+
+            # for message_handler in self.message_handlers:
+            #     try:
+            #         logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
+            #         body = message_handler.handle(body, properties=properties)
+            #     except Exception as error:
+            #         logger.error(f"Message handling failed: {error}", exc_info=True)
+            #         # ack = False
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
