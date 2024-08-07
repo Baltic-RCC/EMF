@@ -433,6 +433,7 @@ class RMQConsumer:
                     handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
 
                     while not handler_task.done():
+
                         try:
                             # TODO - set to debug when rabbit issue solved
                             logger.info("Waiting for handler")
@@ -451,6 +452,7 @@ class RMQConsumer:
 
                         except Exception as error:
                             logger.info(error)
+
 
                     try:
                         body = handler_task.result()
