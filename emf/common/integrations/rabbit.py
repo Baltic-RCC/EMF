@@ -5,12 +5,17 @@ import pika
 import config
 from typing import List
 from emf.common.config_parser import parse_app_properties
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from pika.adapters.asyncio_connection import AsyncioConnection
+import asyncio
 
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(globals(), config.paths.integrations.rabbit)
+
+pika_logger = logging.getLogger("pika")
+pika_logger.setLevel(logging.DEBUG)
 
 
 class BlockingClient:
@@ -231,8 +236,9 @@ class RMQConsumer:
 
         """
         logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
+        logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
 
-        return pika.SelectConnection(
+        return AsyncioConnection(
             parameters=self._connection_parameters,
             on_open_callback=self.on_connection_open,
             on_open_error_callback=self.on_connection_open_error,
@@ -401,9 +407,8 @@ class RMQConsumer:
                 while not converter_task.done():
                     logger.info("Waiting for converter")
                     #self._connection.process_data_events(time_limit=1)
-                    self._connection._heartbeat_checker.send_heartbeat()
-                    time.sleep(1)
-
+                    self._connection._heartbeat_checker._send_heartbeat()
+                    time.sleep(10)
 
                 try:
                     body, content_type = converter_task.result()
@@ -428,10 +433,24 @@ class RMQConsumer:
                     handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
 
                     while not handler_task.done():
-                        logger.info("Waiting for handler")
-                        # self._connection.process_data_events(time_limit=1)
-                        self._connection._heartbeat_checker.send_heartbeat()
-                        time.sleep(1)
+                        try:
+                            # TODO - set to debug when rabbit issue solved
+                            logger.info("Waiting for handler")
+                            #logger.info(self._connection.ioloop.is_running())
+                            #logger.info(asyncio.current_task(self._connection.ioloop))
+                            #logger.info(asyncio.all_tasks(self._connection.ioloop))
+                            #logger.info(self._connection.ioloop._scheduled)
+                            #loop_time = self._connection.ioloop.time()
+                            #logger.info([task.when() - loop_time for task in self._connection.ioloop._scheduled])
+                            #logger.info(self._connection.ioloop.time())
+                            self._connection._heartbeat_checker._send_heartbeat()
+                            #self._connection.ioloop.poll()
+                            #self._connection.process_data_events(time_limit=1)
+                            #self._connection._heartbeat_checker.send_heartbeat()
+                            time.sleep(10)
+
+                        except Exception as error:
+                            logger.info(error)
 
                     try:
                         body = handler_task.result()
@@ -492,7 +511,7 @@ class RMQConsumer:
         starting the IOLoop to block and allow the SelectConnection to operate.
         """
         self._connection = self.connect()
-        self._connection.ioloop.start()
+        self._connection.ioloop.run_forever()
 
     def stop(self):
         """Cleanly shutdown the connection to RabbitMQ by stopping the consumer
@@ -509,7 +528,7 @@ class RMQConsumer:
             logger.info(f"Stopping")
             if self._consuming:
                 self.stop_consuming()
-                self._connection.ioloop.start()
+                self._connection.ioloop.run_forever()
             else:
                 self._connection.ioloop.stop()
             logger.info(f"Stopped")
