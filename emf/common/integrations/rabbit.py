@@ -460,6 +460,9 @@ class RMQConsumer:
                     except Exception as error:
                         logger.error(f"Message handling failed: {error}", exc_info=True)
                         ack = False
+                        # In case of failure, stop message processing and close the thread
+                        handler_executor.shutdown(wait=False)
+                        break
 
             # for message_handler in self.message_handlers:
             #     try:
