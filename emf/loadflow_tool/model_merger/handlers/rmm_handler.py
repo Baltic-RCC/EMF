@@ -4,7 +4,7 @@ import config
 import json
 from uuid import uuid4
 import datetime
-from emf.loadflow_tool.helper import load_opdm_data
+from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -117,7 +117,13 @@ class HandlerRmmToPdnAndMinio:
         input_models = filtered_models + additional_models_data + [latest_boundary]
         # SET BRELL LINE VALUES
         input_models = set_brell_lines_to_zero_in_models(input_models)
+
+        assembeled_data = merge_functions.load_opdm_data(input_models)
+        assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
+        assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
         # END OF MODIFICATION
+        input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
+        del assembeled_data
 
         merged_model = merge_functions.load_model(input_models)
 
