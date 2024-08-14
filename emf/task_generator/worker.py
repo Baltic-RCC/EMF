@@ -16,10 +16,9 @@ process_conf = config.paths.task_generator.process_conf
 
 process_config_json = json.load(process_conf)
 
-for config in process_config_json:
-    for runs in config['runs']:
-        runs['properties']['included'] = INCLUDED_TSO.split(',') if INCLUDED_TSO else []
-        runs['properties']['excluded'] = EXCLUDED_TSO.split(',') if EXCLUDED_TSO else []
+for runs in process_config_json[0]['runs']:
+    runs['properties']['included'] = INCLUDED_TSO.split(',') if INCLUDED_TSO else []
+    runs['properties']['excluded'] = EXCLUDED_TSO.split(',') if EXCLUDED_TSO else []
 
 
 with open(process_conf, 'w') as file:
