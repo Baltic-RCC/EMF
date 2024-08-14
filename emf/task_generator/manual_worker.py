@@ -19,21 +19,21 @@ process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
 if MERGE_TYPE == 'BA':
-    type="RMM"
+    merge_type = "RMM"
 elif MERGE_TYPE == 'EU':
-    type = "CGM"
+    merge_type = "CGM"
    
-process_config_json[0]['runs'][0]['process_id'] = f'https://example.com/processes/{type}_CREATION'
+process_config_json[0]['runs'][0]['process_id'] = f'https://example.com/processes/{merge_type}_CREATION'
 if TIME_HORIZON == '1D':
-    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/DayAhead{type}'
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/DayAhead{merge_type}'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-1'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
 elif TIME_HORIZON == '2D':
-    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/TwoDaysAhead{type}'
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/TwoDaysAhead{merge_type}'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-2'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-2"
 elif TIME_HORIZON == 'ID':
-    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/IntraDay{type}/1'
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/IntraDay{merge_type}/1'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-1'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
 
@@ -43,7 +43,7 @@ process_config_json[0]['runs'][0]['properties']['excluded'] = EXCLUDED_TSO.split
 process_config_json[0]['runs'][0]['properties']['local_import'] = LOCAL_IMPORT.split(',') if LOCAL_IMPORT else []
 process_config_json[0]['runs'][0]['properties']['time_horizon'] = TIME_HORIZON
 process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
-process_config_json[0]['runs'][0]['properties']['mas'] = TASK_MAS
+# process_config_json[0]['runs'][0]['properties']['mas'] = TASK_MAS
 process_config_json[0]['runs'][0]['properties']['merging_entity'] = TASK_MERGING_ENTITY
 timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
 timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION

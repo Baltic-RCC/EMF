@@ -14,6 +14,17 @@ parse_app_properties(globals(), config.paths.task_generator.task_generator)
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
+process_config_json = json.load(process_conf)
+
+for config in process_config_json:
+    for runs in config['runs']:
+        runs['properties']['included'] = INCLUDED_TSO.split(',') if INCLUDED_TSO else []
+        runs['properties']['excluded'] = EXCLUDED_TSO.split(',') if EXCLUDED_TSO else []
+
+
+with open(process_conf, 'w') as file:
+    json.dump(process_config_json, file, indent=1)
+
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
 
 if tasks:
