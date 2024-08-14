@@ -538,10 +538,11 @@ def disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data,
             # Update values in SV profile
             cgm_sv_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_sv_data, new_power_flows)
             # Just in case disconnect those things also
-            terminals_in_ssh = cgm_ssh_data[cgm_ssh_data["KEY"].str.contains("Terminal.connected")].merge(
-                nok_loads[["Terminal"]].rename(columns={'Terminal': 'ID'}), on='ID')
-            terminals_in_ssh.loc[:, 'VALUE'] = 'false'
-            cgm_ssh_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_ssh_data, terminals_in_ssh)
+            # The following part can cause 'Disconnected Terminal' error
+            # terminals_in_ssh = cgm_ssh_data[cgm_ssh_data["KEY"].str.contains("Terminal.connected")].merge(
+            #     nok_loads[["Terminal"]].rename(columns={'Terminal': 'ID'}), on='ID')
+            # terminals_in_ssh.loc[:, 'VALUE'] = 'false'
+            # cgm_ssh_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_ssh_data, terminals_in_ssh)
     return cgm_sv_data, cgm_ssh_data
 
 
