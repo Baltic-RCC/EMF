@@ -91,7 +91,8 @@ class HandlerCreateCGM:
 
             assembeled_data = merge_functions.load_opdm_data(input_models)
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
-            assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
+            # assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
+            assembeled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembeled_data)
 
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
             del assembeled_data
