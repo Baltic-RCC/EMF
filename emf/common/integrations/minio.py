@@ -209,14 +209,15 @@ class ObjectStorage:
             logger.info(f"Number of additional models returned -> {len(additional_models)}")
             for model in additional_models:
 
-                opdm_object = {
-                    "pmd:content-reference": model.object_name,
-                    'opde:Component': []
-                }
-
                 logger.info(f"Loading additional model {model.object_name}", extra={"additional_model_name": model.object_name})
                 model_data = BytesIO(self.download_object(bucket_name=bucket_name, object_name=model.object_name))
                 model_data.name = f"{model.metadata.get('X-Amz-Meta-Bamessageid')}.zip"
+
+                opdm_object = {
+                    "pmd:content-reference": model.object_name,
+                    "pmd:TSO": f"{[tso for tso in model_names if tso in model_data.name][0]}",
+                    'opde:Component': []
+                }
 
                 with ZipFile(model_data) as source_zip:
 

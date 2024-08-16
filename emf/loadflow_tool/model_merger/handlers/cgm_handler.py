@@ -7,7 +7,7 @@ from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio
+from emf.common.integrations import opdm, minio, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
@@ -188,6 +188,16 @@ class HandlerCreateCGM:
 
             # Stop Trace
             self.elk_logging_handler.stop_trace()
+
+            # Send merge report to Elastic
+            try:
+                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, task_properties, MERGE_LOAD_FLOW_SETTINGS)
+                try:
+                    response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
+                except Exception as error:
+                    logger.error(f"Merge report sending to Elastic failed: {error}")
+            except Exception as error:
+                logger.error(f"Failed to create merge report: {error}")
 
             return task
 

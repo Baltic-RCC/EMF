@@ -4,12 +4,12 @@ import config
 import json
 from uuid import uuid4
 import datetime
-from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects
+from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects, opdmprofile_to_bytes
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio
+from emf.common.integrations import opdm, minio, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.model_merger import merge_functions
@@ -113,15 +113,15 @@ class HandlerRmmToPdnAndMinio:
         # Get additional models directly from Minio
         additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
         
-        input_models = filtered_models + additional_models_data
-        
-        #Run Process only if you find some models to merge, otherwise return None
-        if not input_models:
+        filtered_models = filtered_models + additional_models_data
+
+        # Run Process only if you find some models to merge, otherwise return None
+        if not filtered_models:
             logger.warning("Found no Models To Merge, Returning NONE")
             return None
         else:
             # Load all selected models
-            input_models = input_models + [latest_boundary]
+            input_models = filtered_models + [latest_boundary]
             # SET BRELL LINE VALUES
             input_models = set_brell_lines_to_zero_in_models(input_models)
 
@@ -171,17 +171,16 @@ class HandlerRmmToPdnAndMinio:
             rmm_data = BytesIO()
             with ZipFile(rmm_data, "w") as rmm_zip:
 
-                # Include CGM model files
+                # Include RMM model files
                 for item in serialized_data:
                     rmm_zip.writestr(item.name, item.getvalue())
 
                 # Include original IGM files
                 for object in input_models:
                     for instance in object['opde:Component']:
-                        with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
-                            for file_name in instance_zip.namelist():
-                                logging.info(f"Adding file: {file_name}")
-                                rmm_zip.writestr(file_name, instance_zip.open(file_name).read())
+                        file_object = opdmprofile_to_bytes(instance)
+                        logging.info(f"Adding file: {file_object.name}")
+                        rmm_zip.writestr(file_object.name, file_object.getvalue())
 
             # Upload to Object Storage
             rmm_object = rmm_data
@@ -198,10 +197,10 @@ class HandlerRmmToPdnAndMinio:
             task_duration = end_time - start_time
             logger.info(f"Task ended at {end_time}, total run time {task_duration}",
                         extra={"task_duration": task_duration.total_seconds(),
-                            "task_start_time": start_time.isoformat(),
-                            "task_end_time": end_time.isoformat()})
+                               "task_start_time": start_time.isoformat(),
+                               "task_end_time": end_time.isoformat()})
 
-            # Set task to started
+            # Set task to finished
             update_task_status(task, "finished")
 
             logger.debug(task)
@@ -209,12 +208,22 @@ class HandlerRmmToPdnAndMinio:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
+            # Send merge report to Elastic
+            try:
+                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, task_properties, MERGE_LOAD_FLOW_SETTINGS)
+                try:
+                    response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
+                except Exception as error:
+                    logger.error(f"Merge report sending to Elastic failed: {error}")
+            except Exception as error:
+                logger.error(f"Failed to create merge report: {error}")
+
             return task
 
 
 if __name__ == "__main__":
-
     import sys
+
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -250,14 +259,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-07-31T11:30:00+00:00",
-            "merge_type": "EU",
+            "timestamp_utc": "2024-08-06T12:30:00+00:00",
+            "merge_type": "BA",
             "merging_entity": "BALTICRSC",
-            "included": ["ELERING", "AST", "PSE"],
+            "included": ["ELERING", "PSE"],
             "excluded": [],
             "local_import": ["LITGRID"],
-            "time_horizon": "ID",
-            "version": "111",
+            "time_horizon": "1D",
+            "version": "103",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
         }
     }

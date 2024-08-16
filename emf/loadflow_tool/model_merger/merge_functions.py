@@ -1,5 +1,5 @@
 import config
-from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, parse_pypowsybl_report
 from emf.loadflow_tool import loadflow_settings
 import pypowsybl
 
@@ -394,6 +394,34 @@ def export_to_cgmes_zip(triplets: list):
                                                                        export_type="xml_per_instance_zip_per_xml",
                                                                        debug=False,
                                                                        export_to_memory=True)
+
+
+def generate_merge_report(merged_model, input_models, task_properties, loadflow_settings):
+
+    merge_report = {}
+    merge_report['loadflow_results'] = []
+
+    pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])
+    merge_report['network_metadata'] = merged_model['network_meta']
+
+    pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
+    for island in pp_results:
+        island['status'] = island.get('status').name
+        island['active_power_mismatch'] = island.pop('slack_bus_results')[0].active_power_mismatch
+
+    merge_report['network_metadata'].update({"merged_tso": [model['pmd:TSO'] for model in input_models],
+                                             "merge_loadflow_parameters": loadflow_settings,
+                                             "island_count": len(merge_report['loadflow_results'])
+                                             })
+
+    for dict1, dict2 in zip(pp_report, pp_results):
+        combo = {**dict1, **dict2}
+        merge_report['loadflow_results'].append(combo)
+    merge_report['loadflow_results'] = {f"network_{i}": value for i, value in enumerate(merge_report['loadflow_results'])}
+
+    merge_report['task_properties'] = task_properties
+
+    return merge_report
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
