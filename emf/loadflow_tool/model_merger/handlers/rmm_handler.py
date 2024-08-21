@@ -9,7 +9,7 @@ from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio, elastic
+from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
 from emf.loadflow_tool.model_merger import merge_functions
@@ -68,7 +68,7 @@ class HandlerRmmToPdnAndMinio:
 
     def __init__(self):
         self.opdm_service = opdm.OPDM()
-        self.minio_service = minio.ObjectStorage()
+        self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
 
     def handle(self, task_object: dict, **kwargs):
