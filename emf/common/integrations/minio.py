@@ -7,6 +7,7 @@ import mimetypes
 import re
 import logging
 import config
+from typing import List
 from io import BytesIO
 from zipfile import ZipFile
 from datetime import datetime
@@ -143,7 +144,7 @@ class ObjectStorage:
 
     def query_objects(self, bucket_name: str, metadata: dict = None, prefix: str = None, use_regex: bool = False):
 
-        """Example: service.query_objects(prefix="BRELL", metadata={'bamessageid': '20230215T1630Z-2D-RUSSIA-001'})"""
+        """Example: service.query_objects(prefix="IGM", metadata={'bamessageid': '20230215T1630Z-1D-LITGRID-001'})"""
 
         objects = self.client.list_objects(bucket_name, prefix, recursive=True, include_user_meta=True)
 
@@ -151,29 +152,36 @@ class ObjectStorage:
             return objects
 
         result_list = []
+        regex_hit = False
         for object in objects:
             object_metadata = self.client.stat_object(bucket_name, object.object_name).metadata
 
             meta_match = True
             for query_key, query_value in metadata.items():
-                meta_value = object_metadata.get(f"x-amz-meta-{query_key}")
-                meta_match = meta_value != query_value
-
-                if use_regex:
-                    meta_match = re.search(pattern=query_value, string=meta_value)
+                meta_value = object_metadata.get(f"x-amz-meta-{query_key}", None)
+                # meta_match true if it was true and meta_value equals query_value or regex was used and found
+                if meta_value:
+                    regex_hit = bool(re.search(pattern=query_value, string=meta_value)) if use_regex else False
+                meta_match = (meta_match and ((meta_value == query_value) or regex_hit))
 
             if meta_match:
                 result_list.append(object)
 
         return result_list
 
-    def get_latest_models_and_download(self, time_horizon, scenario_datetime, model_names, bucket_name, prefix):
+    def get_latest_models_and_download(self,
+                                       time_horizon: str,
+                                       scenario_datetime: str,
+                                       model_entity: List[str],
+                                       bucket_name: str,
+                                       prefix: str):
 
+        # Define a search pattern according time horizon
         if time_horizon == 'ID':
-            # takes any integer between 0-32 which can be in model name
-            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(model_names)})"
+            # takes any integer between 0-36 which can be in model name
+            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-({'0[0-9]|1[0-9]|2[0-9]|3[0-6]'})-({'|'.join(model_entity)})"
         else:
-            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(model_names)})"
+            model_name_pattern = f"{parse_datetime(scenario_datetime):%Y%m%dT%H%M}Z-{time_horizon}-({'|'.join(model_entity)})"
 
         additional_model_metadata = {'bamessageid': model_name_pattern}
         logger.info(f"Query: {additional_model_metadata}")
@@ -202,20 +210,32 @@ class ObjectStorage:
         #     }
         # ]
 
-        additional_models_data = []
-
         # Add to data to load
+        additional_models_data = []
         if additional_models:
-            logger.info(f"Number of additional models returned -> {len(additional_models)}")
-            for model in additional_models:
+            logger.info(f"Number of additional models received: {len(additional_models)}")
+            logger.info(f"Additional models received: {[x.object_name for x in additional_models]}")
 
+            # Filter to the latest versions of received network models for each model entity
+            logger.info(f"Filtering to latest model version")
+            additional_models_filtered = {}
+            for model in additional_models:
+                parts = model.object_name.split('.')[0].split('-')
+                party, version = parts[-2], parts[-1]
+                # Check if the party already in the filtered dictionary or version is higher
+                if party not in additional_models_filtered or version > additional_models_filtered[party][1]:
+                    additional_models_filtered[party] = (model, version)
+            additional_models_filtered = [model for model, version in additional_models_filtered.values()]
+
+            # Download relevant models
+            for model in additional_models_filtered:
                 logger.info(f"Loading additional model {model.object_name}", extra={"additional_model_name": model.object_name})
                 model_data = BytesIO(self.download_object(bucket_name=bucket_name, object_name=model.object_name))
                 model_data.name = f"{model.metadata.get('X-Amz-Meta-Bamessageid')}.zip"
 
                 opdm_object = {
                     "pmd:content-reference": model.object_name,
-                    "pmd:TSO": f"{[tso for tso in model_names if tso in model_data.name][0]}",
+                    "pmd:TSO": f"{[tso for tso in model_entity if tso in model_data.name][0]}",
                     'opde:Component': []
                 }
 
@@ -234,13 +254,28 @@ class ObjectStorage:
 
                 additional_models_data.append(opdm_object)
         else:
-            logger.info(
-                f"No additional models returned from {bucket_name} with -> prefix: {prefix}, metadata: {additional_model_metadata}")
+            logger.info(f"No additional models returned from {bucket_name}: prefix: {prefix}, metadata: {additional_model_metadata}")
 
         return additional_models_data
 
+
 if __name__ == '__main__':
     # Test Minio API
+    ## Define logging
+    logging.basicConfig(
+        format='%(levelname) -10s %(asctime) -20s %(name) -35s %(funcName) -35s %(lineno) -5d: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        level=logging.INFO,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
+    ## Start service
     service = ObjectStorage()
     buckets = service.client.list_buckets()
     print(buckets)
+
+    models = service.get_latest_models_and_download(time_horizon='ID',
+                                                    scenario_datetime='20240820T1530Z',
+                                                    model_entity=['AST'],
+                                                    bucket_name='opde-confidential-models',
+                                                    prefix='IGM')
