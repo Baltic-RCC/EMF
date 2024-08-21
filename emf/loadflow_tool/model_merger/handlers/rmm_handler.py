@@ -40,9 +40,14 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                              'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
                              'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
                              'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
-    for model in opdm_models:
+    for model in opdm_models[:]:
         logger.info(f"Checking brell lines in {model.get('pmd:content-reference'), ''}")
-        profile = load_opdm_data(opdm_objects=[model], profile=profile_to_change)
+        try:
+            profile = load_opdm_data(opdm_objects=[model], profile=profile_to_change)
+        except Exception as error:
+            logger.error(f"Failed to load model: {error}")
+            opdm_models.remove(model)
+            continue
         repackage_needed = False
         for line, line_id in magic_brell_lines.items():
             if profile.query(f"ID == '{line_id}'").empty:
@@ -111,8 +116,11 @@ class HandlerRmmToPdnAndMinio:
         filtered_models = merge_functions.filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
 
         # Get additional models directly from Minio
-        additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
-        
+        if local_import_models:
+            additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
+        else:
+            additional_models_data = []
+
         filtered_models = filtered_models + additional_models_data
 
         # Run Process only if you find some models to merge, otherwise return None
@@ -124,7 +132,9 @@ class HandlerRmmToPdnAndMinio:
             input_models = filtered_models + [latest_boundary]
             # SET BRELL LINE VALUES
             input_models = set_brell_lines_to_zero_in_models(input_models)
-
+            if len(input_models) < 2:
+                logger.warning("Found no Models To Merge, Returning NONE")
+                return None
             assembeled_data = merge_functions.load_opdm_data(input_models)
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
             # assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
@@ -260,12 +270,12 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-08-06T12:30:00+00:00",
+            "timestamp_utc": "2024-08-21T13:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRSC",
-            "included": ["ELERING", "PSE"],
+            "included": ["AST"],
             "excluded": [],
-            "local_import": ["LITGRID"],
+            "local_import": [],
             "time_horizon": "1D",
             "version": "103",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"

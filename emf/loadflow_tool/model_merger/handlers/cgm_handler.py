@@ -87,8 +87,10 @@ class HandlerCreateCGM:
         else:
             # Load all selected models
             input_models = filtered_models + [latest_boundary]
+            if len(input_models) < 2:
+                logger.warning("Found no Models To Merge, Returning NONE")
+                return None
             #merged_model = merge_functions.load_model(input_models)
-
             assembeled_data = merge_functions.load_opdm_data(input_models)
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
             # assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
@@ -240,10 +242,10 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-08-01T11:30:00+00:00",
+            "timestamp_utc": "2024-08-21T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": ["AST", "ELERING"],
+            "included": ["AST"],
             "excluded": [],
             "time_horizon": "1D",
             "version": "123",
