@@ -17,9 +17,12 @@ process_conf = config.paths.task_generator.process_conf
 process_config_json = json.load(process_conf)
 
 for runs in process_config_json[0]['runs']:
-    runs['properties']['included'] = INCLUDED_TSO.split(',') if INCLUDED_TSO else []
-    runs['properties']['excluded'] = EXCLUDED_TSO.split(',') if EXCLUDED_TSO else []
-
+    runs['properties']['included'] = CGM_INCLUDED_TSO.split(',') if CGM_INCLUDED_TSO else []
+    runs['properties']['excluded'] = CGM_EXCLUDED_TSO.split(',') if CGM_EXCLUDED_TSO else []
+for runs in process_config_json[1]['runs']:
+    runs['properties']['included'] = RMM_INCLUDED_TSO.split(',') if RMM_INCLUDED_TSO else []
+    runs['properties']['excluded'] = RMM_EXCLUDED_TSO.split(',') if RMM_EXCLUDED_TSO else []
+    runs['properties']['local_import'] = RMM_LOCAL_IMPORT.split(',') if RMM_LOCAL_IMPORT else []
 
 with open(process_conf, 'w') as file:
     json.dump(process_config_json, file, indent=1)
