@@ -188,7 +188,7 @@ class HandlerRmmToPdnAndMinio:
                 # Include original IGM files
                 for object in input_models:
                     for instance in object['opde:Component']:
-                        if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP']:
+                        if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
                             file_object = opdmprofile_to_bytes(instance)
                             logging.info(f"Adding file: {file_object.name}")
                             rmm_zip.writestr(file_object.name, file_object.getvalue())
