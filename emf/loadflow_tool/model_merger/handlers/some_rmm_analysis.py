@@ -492,7 +492,7 @@ if __name__ == '__main__':
                   # ('Musa', 'Viskali'), # was not able to find it
                   ('Panevezys', 'Aizkriaukle'),
                   ('IAE', 'Liksna'),
-                  ('RigaTec2', 'Kilingi-N�mme'),
+                  ('RigaTec2', 'Kilingi-Nõmme'),
                   ('Tartu', 'Valmiera'),
                   ('Valmiera', 'Tsirguliina')]
     test_lines = get_active_flows_on_lines(original_data=model_data, cgm_sv_data=sv_data, destinations=some_lines)
