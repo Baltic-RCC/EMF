@@ -252,12 +252,14 @@ def update_task_status(task, status_text, publish=True):
 
 def set_task_version(task, elk_index='emfos-tasks*'):
     query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
-             'run_id': task['run_id']}
+             'task_properties.time_horizon': task['task_properties']['time_horizon'],
+             'task_properties.merge_type': task['task_properties']['merge_type']}
+
     try:
         task_list = query_data(query, index=elk_index)
     except:
         task_list = None
-        logger.warning("ELK query unsuccessful.")
+        logger.error("ELK query unsuccessful.")
 
     if task_list:
         latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
