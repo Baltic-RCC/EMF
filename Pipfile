@@ -3,14 +3,6 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
-[[source]]
-url = "https://artifactory.elering.sise/artifactory/api/pypi/pssepip/simple/"
-verify_ssl = false
-name = "local_pypi"
-
-[pipenv]
-install_search_all_sources = true
-
 [packages]
 pandas = "2.2.2"
 numpy = "2.0.0"

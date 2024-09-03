@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "288cb9bf67faa3c5493bc404c785a6f275cf49e05e5224fbb1699cc850fe17de"
+            "sha256": "d60b928bcdefcd7b406a75d6f027d38f620152213c5a568261891afec20c7ef0"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -12,11 +12,6 @@
                 "name": "pypi",
                 "url": "https://pypi.org/simple",
                 "verify_ssl": true
-            },
-            {
-                "name": "local_pypi",
-                "url": "https://artifactory.elering.sise/artifactory/api/pypi/pssepip/simple/",
-                "verify_ssl": false
             }
         ]
     },
