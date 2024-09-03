@@ -14,7 +14,7 @@ RUN pip install pipenv --user
 # Install pipenv
 COPY Pipfile .
 COPY Pipfile.lock .
-RUN python -m pipenv install --system --deploy
+RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 
 # Make runtime container to have smaller size
 FROM base as runtime
