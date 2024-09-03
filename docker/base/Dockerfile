@@ -8,8 +8,9 @@ ENV PYTHONFAULTHANDLER 1
 
 FROM base as deps
 
-RUN pip install --upgrade setuptools pip --user
-RUN pip install pipenv --user
+RUN pip install --upgrade setuptools pip
+RUN pip install pipenv
+RUN pipenv --version
 
 # Install pipenv
 COPY Pipfile .
