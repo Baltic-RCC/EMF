@@ -22,19 +22,18 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build . --file docker/base/Dockerfile --tag ${{ variables.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
-#        run: docker build . --file docker/base/Dockerfile --tag balticrcc/emfos-model-retriever:$(date +%s)
+        run: docker build . --file docker/base/Dockerfile --tag ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
-          username: ${{ variables.DOCKER_USERNAME }}
+          username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # Push the Docker image to Docker Hub
       - name: Push Docker image to Docker Hub
-        run: docker push ${{ variables.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
+        run: docker push ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
 
       - name: Image details
-        run: echo "Image ${{ variables.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s) pushed to Docker Hub"
+        run: echo "Image ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s) pushed to Docker Hub"
