@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Print env variables
+      - name: Print environment variables
+        run: env
+
       # Build the Docker image
       - name: Build the Docker image
         run: docker build . --file docker/base/Dockerfile --tag ${{ secrets.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
