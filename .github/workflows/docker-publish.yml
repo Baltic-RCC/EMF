@@ -18,7 +18,8 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build . --file docker/base/Dockerfile --tag ${{ secrets.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
+#        run: docker build . --file docker/base/Dockerfile --tag ${{ secrets.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
+        run: docker build . --file docker/base/Dockerfile --tag emfos-model-retriever:$(date +%s)
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
