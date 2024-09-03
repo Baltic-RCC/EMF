@@ -79,6 +79,10 @@ class HandlerRmmToPdnAndMinio:
     def handle(self, task_object: dict, **kwargs):
 
         start_time = datetime.datetime.utcnow()
+        merge_data = {"uploaded_to_opde": 'False',
+                      "uploaded_to_minio": 'False',
+                      "scaled": 'False',
+                      "replaced": 'False'}
 
         # Parse relevant data from Task
         task = task_object
@@ -143,10 +147,12 @@ class HandlerRmmToPdnAndMinio:
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
             del assembeled_data
 
+            merge_start = datetime.datetime.utcnow()
             merged_model = merge_functions.load_model(input_models)
 
             # TODO - run other LF if default fails
             solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+            merge_end = datetime.datetime.utcnow()
 
             # Update time_horizon in case of generic ID process type
             if time_horizon.upper() == "ID":
@@ -176,10 +182,10 @@ class HandlerRmmToPdnAndMinio:
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
 
             # Set RMM name
-            rmm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+            cgm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
 
-            rmm_data = BytesIO()
-            with ZipFile(rmm_data, "w") as rmm_zip:
+            cgm_data = BytesIO()
+            with ZipFile(cgm_data, "w") as rmm_zip:
 
                 # Include RMM model files
                 for item in serialized_data:
@@ -194,16 +200,18 @@ class HandlerRmmToPdnAndMinio:
                             rmm_zip.writestr(file_object.name, file_object.getvalue())
 
             # Upload to Object Storage
-            rmm_object = rmm_data
-            rmm_object.name = f"{OUTPUT_MINIO_FOLDER}/{rmm_name}.zip"
-            logger.info(f"Uploading RMM to MINO {OUTPUT_MINIO_BUCKET}/{rmm_object.name}")
+            cgm_object = cgm_data
+            cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
+            logger.info(f"Uploading RMM to MINO {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
 
             try:
-                self.minio_service.upload_object(rmm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                if response:
+                    merge_data.update({'uploaded_to_minio': 'True'})
             except:
                 logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
-            logger.info(f"RMM creation done for {rmm_name}")
+            logger.info(f"RMM creation done for {cgm_name}")
             end_time = datetime.datetime.utcnow()
             task_duration = end_time - start_time
             logger.info(f"Task ended at {end_time}, total run time {task_duration}",
@@ -219,9 +227,16 @@ class HandlerRmmToPdnAndMinio:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
+            merge_data.update({'task': task,
+                               'small_island_size': SMALL_ISLAND_SIZE,
+                               'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
+                               'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
+                               'content_reference': cgm_object.name,
+                               'cgm_name': cgm_name})
+
             # Send merge report to Elastic
             try:
-                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, task_properties, MERGE_LOAD_FLOW_SETTINGS)
+                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, merge_data)
                 try:
                     response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
                 except Exception as error:

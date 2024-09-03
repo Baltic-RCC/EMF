@@ -396,30 +396,62 @@ def export_to_cgmes_zip(triplets: list):
                                                                        export_to_memory=True)
 
 
-def generate_merge_report(merged_model, input_models, task_properties, loadflow_settings):
+def generate_merge_report(merged_model, input_models, merge_data):
+    """
+    Creates JSON type report of pypowsybl loadflow results
 
-    merge_report = {}
-    merge_report['loadflow_results'] = []
+    Args:
+        merged_model: merged pypowsybl network
+        input_models: individual models used to create mered model
+        merge_data: data related to cgm merge
 
-    pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])
-    merge_report['network_metadata'] = merged_model['network_meta']
+    Returns:
+        dict: report of merge results
+    """
+    task_properties = merge_data.get('task')['task_properties']
+    merge_report = {'loadflow': {'island': []}, 'merge': {}}
+
+    merge_report.update({'@timestamp': merge_data['task'].get('@timestamp'),
+                         'process_id': merge_data['task'].get('process_id'),
+                         'run_id': merge_data['task'].get('run_id'),
+                         'job_id': merge_data['task'].get('job_id'),
+                         'task_id': merge_data['task'].get('@id'),
+                         'time_horizon': task_properties.get('time_horizon'),
+                         'scenario_timestamp': task_properties.get('timestamp_utc'),
+                         'version': task_properties.get('version'),
+                         })
 
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
+    pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])
+
     for island in pp_results:
         island['status'] = island.get('status').name
         island['active_power_mismatch'] = island.pop('slack_bus_results')[0].active_power_mismatch
 
-    merge_report['network_metadata'].update({"merged_tso": [model['pmd:TSO'] for model in input_models],
-                                             "merge_loadflow_parameters": loadflow_settings,
-                                             "island_count": len(merge_report['loadflow_results'])
-                                             })
-
     for dict1, dict2 in zip(pp_report, pp_results):
-        combo = {**dict1, **dict2}
-        merge_report['loadflow_results'].append(combo)
-    merge_report['loadflow_results'] = {f"network_{i}": value for i, value in enumerate(merge_report['loadflow_results'])}
+        combined = {**dict1, **dict2}
+        if int(dict1['buses']) > int(merge_data.get('small_island_size')):
+            merge_report['loadflow']['island'].append(combined)
 
-    merge_report['task_properties'] = task_properties
+    for island in merge_report['loadflow']['island']:
+        island.update({k: v for k, v in island['Network balance'].items()})
+        island.pop('Network balance')
+    merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']), "loadflow_parameters": merge_data.get('loadflow_settings')})
+
+    merge_report['network'] = merged_model['network_meta']
+    merge_report['network'].update({'name': merge_data.get('cgm_name')})
+
+    merge_report['merge'].update({
+        "status": [pp_results[0]['status']],
+        "included": [model['pmd:TSO'] for model in input_models],
+        "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
+        "merge_duration_s": merge_data.get('merge_duration'),
+        "scaled": merge_data.get('scaled'),
+        "model_replaced": merge_data.get('replaced'),
+        "uploaded_to_opde": merge_data.get('uploaded_to_opde'),
+        "uploaded_to_minio": merge_data.get('uploaded_to_minio'),
+        "content_reference": merge_data.get('content_reference'),
+    })
 
     return merge_report
 
