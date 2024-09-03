@@ -4,10 +4,10 @@ name: Build and Publish Docker Image
 on:
   push:
     branches:
-      - dev
+      - mk-3-docker
   pull_request:
     branches:
-      - dev
+      - mk-3-docker
 
 jobs:
   build:
