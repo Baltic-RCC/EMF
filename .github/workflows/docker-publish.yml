@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "WORKER_NAME=emfos-model-retriever" >> $GITHUB_ENV
           echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
-          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ env.WORKER_NAME }}/${{ env.BRANCH_NAME }}" >> $GITHUB_ENV  
+          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ vars.WORKER_NAME }}/${{ vars.BRANCH_NAME }}" >> $GITHUB_ENV  
           echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
           echo "LATEST_TAG=latest" >> $GITHUB_ENV
 
