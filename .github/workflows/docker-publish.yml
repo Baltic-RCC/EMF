@@ -20,10 +20,11 @@ jobs:
       - name: Set Docker image tag and other variables
         id: vars
         run: |
-          echo "TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
-          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/emfos-model-retriever" >> $GITHUB_ENV
-          echo "COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
-          echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+          echo "WORKER_NAME=emfos-model-retriever" >> $GITHUB_ENV
+          echo "BRANCH_NAME=${{ GITHUB_REF#refs/heads/ }}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ env.WORKER_NAME }}/${{ env.BRANCH_NAME }}" >> $GITHUB_ENV  
+          echo "IMAGE_TAG=${{ date +%Y%m%d%H%M%S }}" >> $GITHUB_ENV
+          echo "LATEST_TAG=latest" >> $GITHUB_ENV
 
       # Print env variables
       - name: Print environment variables
@@ -31,7 +32,9 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build . --file docker/base/Dockerfile --tag ${{ env.IMAGE_NAME }}:${{ env.TAG }}
+        run: |
+          docker build . --file docker/base/Dockerfile --tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
@@ -41,8 +44,13 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # Push the Docker image to Docker Hub
-      - name: Push Docker image to Docker Hub
+      - name: Push Docker image to Docker Hub with date-based tag
         run: docker push ${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
+      - name: Push Docker image to Docker Hub with "latest" tag
+        run: docker push ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+
       - name: Image details
-        run: echo "Image ${{ env.IMAGE_NAME }}:${{ env.TAG }} pushed to Docker Hub"
+        run: |
+          echo "Image ${{ env.IMAGE_NAME }}:${{ env.TAG }} pushed to Docker Hub"
+          echo "Image ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }} pushed to Docker Hub"
