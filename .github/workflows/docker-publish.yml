@@ -49,12 +49,12 @@ jobs:
 
       # Push the Docker image to Docker Hub
       - name: Push Docker image to Docker Hub with date-based tag
-        run: docker push ${{ env.IMAGE_NAME }}:${{ env.TAG }}
+        run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
       - name: Push Docker image to Docker Hub with "latest" tag
-        run: docker push ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+        run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
 
       - name: Image details
         run: |
-          echo "Image ${{ env.IMAGE_NAME }}:${{ env.TAG }} pushed to Docker Hub"
-          echo "Image ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }} pushed to Docker Hub"
+          echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}} pushed to Docker Hub"
+          echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }} pushed to Docker Hub"
