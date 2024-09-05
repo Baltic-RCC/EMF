@@ -21,13 +21,18 @@ jobs:
         run: |
           echo "WORKER_NAME=emfos-model-retriever" >> $GITHUB_ENV
           echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
-          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ env.WORKER_NAME }}/${{ env.BRANCH_NAME }}" >> $GITHUB_ENV  
           echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
           echo "LATEST_TAG=latest" >> $GITHUB_ENV
 
       # Print env variables
       - name: Print environment variables
         run: env
+
+      # Construct image name
+      - name: Construct and output IMAGE_NAME
+        runs: |
+          IMAGE_NAME="${DOCKER_USERNAME}/${WORKER_NAME}/${BRANCH_NAME}"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
       # Build the Docker image
       - name: Build the Docker image
