@@ -31,14 +31,14 @@ jobs:
       # Construct image name
       - name: Construct and output IMAGE_NAME
         run: |
-          IMAGE_NAME="${DOCKER_USERNAME}/${WORKER_NAME}-${BRANCH_NAME}"
+          IMAGE_NAME="${DOCKER_USERNAME}/${WORKER_NAME}"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
       # Build the Docker image
       - name: Build the Docker image
         run: |
-          docker build . --file docker/base/Dockerfile --tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+          docker build . --file docker/base/Dockerfile --tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
