@@ -31,7 +31,7 @@ jobs:
       # Construct image name
       - name: Construct and output IMAGE_NAME
         run: |
-          IMAGE_NAME="${DOCKER_USERNAME}/${WORKER_NAME}/${BRANCH_NAME}"
+          IMAGE_NAME="${DOCKER_USERNAME}/${WORKER_NAME}:${BRANCH_NAME}"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
       # Build the Docker image
