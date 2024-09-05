@@ -4,7 +4,7 @@ import config
 import json
 from uuid import uuid4
 import datetime
-from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects, opdmprofile_to_bytes
+from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects, opdmprofile_to_bytes, attr_to_dict
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -79,10 +79,12 @@ class HandlerRmmToPdnAndMinio:
     def handle(self, task_object: dict, **kwargs):
 
         start_time = datetime.datetime.utcnow()
-        merge_data = {"uploaded_to_opde": 'False',
-                      "uploaded_to_minio": 'False',
-                      "scaled": 'False',
-                      "replaced": 'False'}
+        merge_log = {"uploaded_to_opde": 'False',
+                     "uploaded_to_minio": 'False',
+                     "scaled": 'False',
+                     "exclusion_reason": [],
+                     "replacement": 'False',
+                     "replaced_entity": []}
 
         # Parse relevant data from Task
         task = task_object
@@ -113,27 +115,41 @@ class HandlerRmmToPdnAndMinio:
         version = task_properties["version"]
 
         # Collect valid models from ObjectStorage
-        valid_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True)
+        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False)
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = merge_functions.filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
+        filtered_models = merge_functions.filter_models(downloaded_models, included_models, excluded_models, filter_on='pmd:TSO')
 
         # Get additional models directly from Minio
         if local_import_models:
             additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
+            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
         else:
             additional_models_data = []
 
-        filtered_models = filtered_models + additional_models_data
+        # Check model validity and availability
+        valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
+        invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
+        if invalid_models:
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is no valid'} for tso in invalid_models])
+        valid_models = valid_models + additional_models_data
+
+        if included_models:
+            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in downloaded_models]]
+            if missing_models:
+                merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
+        else:
+            missing_models = []
 
         # Run Process only if you find some models to merge, otherwise return None
-        if not filtered_models:
+        if not valid_models:
             logger.warning("Found no Models To Merge, Returning NONE")
             return None
         else:
             # Load all selected models
-            input_models = filtered_models + [latest_boundary]
+            input_models = valid_models + [latest_boundary]
             # SET BRELL LINE VALUES
             input_models = set_brell_lines_to_zero_in_models(input_models)
             if len(input_models) < 2:
@@ -207,7 +223,7 @@ class HandlerRmmToPdnAndMinio:
             try:
                 response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
                 if response:
-                    merge_data.update({'uploaded_to_minio': 'True'})
+                    merge_log.update({'uploaded_to_minio': 'True'})
             except:
                 logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
@@ -227,7 +243,7 @@ class HandlerRmmToPdnAndMinio:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
-            merge_data.update({'task': task,
+            merge_log.update({'task': task,
                                'small_island_size': SMALL_ISLAND_SIZE,
                                'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
                                'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
@@ -236,7 +252,7 @@ class HandlerRmmToPdnAndMinio:
 
             # Send merge report to Elastic
             try:
-                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, merge_data)
+                merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
                 try:
                     response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
                 except Exception as error:
@@ -285,12 +301,12 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-08-21T13:30:00+00:00",
+            "timestamp_utc": "2024-09-03T13:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRSC",
-            "included": ["AST"],
+            "included": ["AST", "PSE"],
             "excluded": [],
-            "local_import": [],
+            "local_import": ['LITGRID', 'ELERING'],
             "time_horizon": "1D",
             "version": "103",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"

@@ -1,5 +1,5 @@
 import config
-from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, parse_pypowsybl_report
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, parse_pypowsybl_report, get_network_elements
 from emf.loadflow_tool import loadflow_settings
 import pypowsybl
 
@@ -408,6 +408,7 @@ def generate_merge_report(merged_model, input_models, merge_data):
     Returns:
         dict: report of merge results
     """
+    model_elements = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
     task_properties = merge_data.get('task')['task_properties']
     merge_report = {'loadflow': {'island': []}, 'merge': {}}
 
@@ -419,6 +420,8 @@ def generate_merge_report(merged_model, input_models, merge_data):
                          'time_horizon': task_properties.get('time_horizon'),
                          'scenario_timestamp': task_properties.get('timestamp_utc'),
                          'version': task_properties.get('version'),
+                         'merge_type': task_properties.get('merge_type'),
+                         'merge_entity': task_properties.get('merging_entity'),
                          })
 
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
@@ -434,6 +437,8 @@ def generate_merge_report(merged_model, input_models, merge_data):
             merge_report['loadflow']['island'].append(combined)
 
     for island in merge_report['loadflow']['island']:
+        island['Slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
+        island['Slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
         island.update({k: v for k, v in island['Network balance'].items()})
         island.pop('Network balance')
     merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']), "loadflow_parameters": merge_data.get('loadflow_settings')})
@@ -443,11 +448,13 @@ def generate_merge_report(merged_model, input_models, merge_data):
 
     merge_report['merge'].update({
         "status": [pp_results[0]['status']],
-        "included": [model['pmd:TSO'] for model in input_models],
-        "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
+        "included": [model['pmd:TSO'] for model in input_models if model['pmd:TSO']],
+        "excluded": [item['tso'] for item in merge_data.get('exclusion_reason')],
+        "exclusion_reason": merge_data.get('exclusion_reason'),
         "merge_duration_s": merge_data.get('merge_duration'),
         "scaled": merge_data.get('scaled'),
-        "model_replaced": merge_data.get('replaced'),
+        "replacement": merge_data.get('replacement'),
+        "replacement_entity": merge_data.get('replacement_entity'),
         "uploaded_to_opde": merge_data.get('uploaded_to_opde'),
         "uploaded_to_minio": merge_data.get('uploaded_to_minio'),
         "content_reference": merge_data.get('content_reference'),
