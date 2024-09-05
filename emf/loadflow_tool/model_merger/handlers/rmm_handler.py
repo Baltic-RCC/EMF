@@ -5,6 +5,7 @@ import json
 from uuid import uuid4
 import datetime
 from emf.loadflow_tool.helper import load_opdm_data, create_opdm_objects, opdmprofile_to_bytes, attr_to_dict
+from emf.loadflow_tool.replacement import run_replacement
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -84,7 +85,8 @@ class HandlerRmmToPdnAndMinio:
                      "scaled": 'False',
                      "exclusion_reason": [],
                      "replacement": 'False',
-                     "replaced_entity": []}
+                     "replaced_entity": [],
+                     "replacement_reason": []}
 
         # Parse relevant data from Task
         task = task_object
@@ -142,6 +144,22 @@ class HandlerRmmToPdnAndMinio:
                 merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
         else:
             missing_models = []
+
+        # Run replacement on missing/invalid models
+        if missing_models or invalid_models:
+            try:
+                logger.info(f"Running replacement for missing models: {missing_models}")
+                replacement_models = run_replacement(missing_models + invalid_models, time_horizon, scenario_datetime)
+                if replacement_models:
+                    merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
+                                                              'replacement_time_horizon': model['pmd:timeHorizon'],
+                                                              'replacement_scenario_date': model['pmd:scenarioDate']} for model in replacement_models])
+                    valid_models = valid_models + replacement_models
+                    merge_log.update({'replacement': 'True'})
+                    # TODO put exclusion_reason logging under replacement
+            except Exception as error:
+                logger.error(f"Failed to run replacement: {error}")
+
 
         # Run Process only if you find some models to merge, otherwise return None
         if not valid_models:
@@ -301,12 +319,12 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-09-03T13:30:00+00:00",
+            "timestamp_utc": "2024-09-05T19:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRSC",
-            "included": ["AST", "PSE"],
+            "included": ["PSE"],
             "excluded": [],
-            "local_import": ['LITGRID', 'ELERING'],
+            "local_import": [],
             "time_horizon": "1D",
             "version": "103",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
