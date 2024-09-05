@@ -1,6 +1,6 @@
 # Define base container image (platform has to be defined if using with ARM64 architecture)
-#FROM python:3.12
-FROM --platform=linux/amd64 python:3.12
+FROM python:3.11
+#FROM --platform=linux/amd64 python:3.11
 
 # Install tools to set up python environment
 RUN pip install --upgrade setuptools
