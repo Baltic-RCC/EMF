@@ -13,8 +13,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    variables:
+
+
     steps:
       - uses: actions/checkout@v4
+
+      # Set multiple environment variables
+      - name: Set Docker image tag and other variables
+        id: vars
+        run: |
+          echo "TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/emfos-model-retriever" >> $GITHUB_ENV
+          echo "COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+          echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
 
       # Print env variables
       - name: Print environment variables
@@ -22,7 +34,7 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build . --file docker/base/Dockerfile --tag ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
+        run: docker build . --file docker/base/Dockerfile --tag ${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
@@ -33,7 +45,7 @@ jobs:
 
       # Push the Docker image to Docker Hub
       - name: Push Docker image to Docker Hub
-        run: docker push ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s)
+        run: docker push ${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
       - name: Image details
-        run: echo "Image ${{ vars.DOCKER_USERNAME }}/emfos-model-retriever:$(date +%s) pushed to Docker Hub"
+        run: echo "Image ${{ env.IMAGE_NAME }}:${{ env.TAG }} pushed to Docker Hub"
