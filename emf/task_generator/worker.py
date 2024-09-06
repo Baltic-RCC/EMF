@@ -19,10 +19,12 @@ process_config_json = json.load(process_conf)
 for runs in process_config_json[0]['runs']:
     runs['properties']['included'] = CGM_INCLUDED_TSO.split(',') if CGM_INCLUDED_TSO else []
     runs['properties']['excluded'] = CGM_EXCLUDED_TSO.split(',') if CGM_EXCLUDED_TSO else []
+    runs['properties']['replacement'] = RUN_REPLACEMENT
 for runs in process_config_json[1]['runs']:
     runs['properties']['included'] = RMM_INCLUDED_TSO.split(',') if RMM_INCLUDED_TSO else []
     runs['properties']['excluded'] = RMM_EXCLUDED_TSO.split(',') if RMM_EXCLUDED_TSO else []
     runs['properties']['local_import'] = RMM_LOCAL_IMPORT.split(',') if RMM_LOCAL_IMPORT else []
+    runs['properties']['replacement'] = RUN_REPLACEMENT
 
 with open(process_conf, 'w') as file:
     json.dump(process_config_json, file, indent=1)

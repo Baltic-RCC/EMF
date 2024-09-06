@@ -112,8 +112,7 @@ class HandlerRmmToPdnAndMinio:
         merging_area = task_properties["merge_type"]
         merging_entity = task_properties["merging_entity"]
         mas = task_properties["mas"]
-
-        # TODO - task to contain and increase version number
+        model_replacement = task_properties["replacement"]
         version = task_properties["version"]
 
         # Collect valid models from ObjectStorage
@@ -146,11 +145,12 @@ class HandlerRmmToPdnAndMinio:
             missing_models = []
 
         # Run replacement on missing/invalid models
-        if missing_models or invalid_models:
+        if (missing_models or invalid_models) and model_replacement == 'True':
             try:
                 logger.info(f"Running replacement for missing models: {missing_models}")
                 replacement_models = run_replacement(missing_models + invalid_models, time_horizon, scenario_datetime)
                 if replacement_models:
+                    logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
                                                               'replacement_time_horizon': model['pmd:timeHorizon'],
                                                               'replacement_scenario_date': model['pmd:scenarioDate']} for model in replacement_models])
@@ -159,7 +159,6 @@ class HandlerRmmToPdnAndMinio:
                     # TODO put exclusion_reason logging under replacement
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
-
 
         # Run Process only if you find some models to merge, otherwise return None
         if not valid_models:
@@ -327,7 +326,8 @@ if __name__ == "__main__":
             "local_import": [],
             "time_horizon": "1D",
             "version": "103",
-            "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM"
+            "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
+            "replacement": "False",
         }
     }
 
