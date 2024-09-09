@@ -439,7 +439,10 @@ def generate_merge_report(merged_model, input_models, merge_data):
     for island in merge_report['loadflow']['island']:
         island['Slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
         island['Slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
-        island.update({k: v for k, v in island['Network balance'].items()})
+        network_balance = {"active_generation_MW": float(island['Network balance']['active generation'].split()[0]),
+                           "reactive_generation_MVar": float(island['Network balance']['reactive generation'].split()[0]),
+                           "reactive_load_MVar": float(island['Network balance']['reactive load'].split()[0])}
+        island.update({k: v for k, v in network_balance.items()})
         island.pop('Network balance')
     merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']), "loadflow_parameters": merge_data.get('loadflow_settings')})
 
