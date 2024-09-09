@@ -25,18 +25,18 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
      Returns:  from configuration a list of replaced models
     """
     replacement_config = json.loads(Path(__file__).parent.parent.parent.joinpath(conf).read_text())
-    igm_list = []
+    model_list = []
     replacement_models = []
     replacements = pd.DataFrame()
     for tso in tso_list:
-        query = {"pmd:TSO": tso}
+        query = {"pmd:TSO": tso, "valid": True}
         response = query_data(query, QUERY_FILTER)
-        igm_list.extend(response)
-    igm_df = pd.DataFrame(igm_list)
+        model_list.extend(response)
+    model_df = pd.DataFrame(model_list)
 
     # Set scenario dat to UTC
     scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-    replacement_df = create_current_replacement_table2(scenario_date, time_horizon, igm_df, replacement_config)
+    replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
 
     if not replacement_df.empty:
         unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
@@ -84,7 +84,7 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     return hour_list_final, day_list_final, business_list_final
 
 
-def create_current_replacement_table2(target_timestamp, target_timehorizon, valid_models_df, conf):
+def create_replacement_table(target_timestamp, target_timehorizon, valid_models_df, conf):
     """
 
     Args:
@@ -97,6 +97,9 @@ def create_current_replacement_table2(target_timestamp, target_timehorizon, vali
 
     """
     list_hour_priority, list_time_priority, list_business_priority = make_lists_priority(target_timestamp, target_timehorizon, conf) #make list of relevant Timestamps
+
+    # Change ID naming for simpler replacement logic
+    valid_models_df['pmd:timeHorizon'] = valid_models_df['pmd:timeHorizon'].apply(lambda x: 'ID' if x in [f'{i:02}' for i in range(1, 25)] else x)
 
     valid_models_df["priority_business"] = valid_models_df["pmd:timeHorizon"].apply(lambda x: list_business_priority.index(x) if x in list_business_priority else None)
     valid_models_df["pmd:scenarioDate"] = valid_models_df["pmd:scenarioDate"].apply(lambda x: parser.parse(x).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -114,9 +117,9 @@ def create_current_replacement_table2(target_timestamp, target_timehorizon, vali
 
 if __name__ == "__main__":
 
-    missing_tso = ['LITGRID', 'AST']
-    test_time_horizon = "1D"
-    test_scenario_date = "2024-05-20T00:30:00Z"
+    missing_tso = ['PSE']
+    test_time_horizon = "ID"
+    test_scenario_date = "2024-09-05T19:30:00Z"
 
     response_list = run_replacement(missing_tso, test_time_horizon, test_scenario_date)
     print('')
