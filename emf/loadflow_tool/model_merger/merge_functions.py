@@ -1,3 +1,6 @@
+import zipfile
+from io import BytesIO
+
 import config
 from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
 from emf.loadflow_tool import loadflow_settings
@@ -106,6 +109,25 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
 
     # Load SV data
     sv_data = pandas.read_RDF([exported_model])
+
+    # Fix naming
+    contents = zipfile.ZipFile(exported_model)
+
+    naming_strategy = pandas.DataFrame()
+
+    for file_name in contents.namelist():
+        if 'naming_strategy' in file_name:
+            naming_strategy = pandas.read_csv(filepath_or_buffer=BytesIO(contents.read(file_name)), sep=';')
+            break
+    if not naming_strategy.empty:
+        existing_values = sv_data.merge(naming_strategy, left_on='VALUE', right_on='CgmesUuid')
+        existing_values = existing_values[existing_values['IidmId'] != 'unknown']
+        if not existing_values.empty:
+            logger.warning(f"Mapping {len(existing_values.index)} ids back:")
+            print(existing_values[['CgmesUuid', 'IidmId']])
+            existing_values['VALUE'] = existing_values['IidmId']
+            new_existing_values = existing_values[['ID', 'KEY', 'VALUE', 'INSTANCE_ID']]
+            sv_data = triplets.rdf_parser.update_triplet_from_triplet(sv_data, new_existing_values)
 
     # Update
     sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
