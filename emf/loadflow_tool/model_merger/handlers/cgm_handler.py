@@ -95,9 +95,17 @@ class HandlerCreateCGM:
             assembeled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembeled_data)
 
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
+            assembled_data, updated = (merge_functions.
+                                       handle_not_retained_switches_between_nodes(assembeled_data,
+                                                                                  open_not_retained_switches=True))
+            if updated:
+                updated_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
+            else:
+                updated_models = input_models
+
             del assembeled_data
 
-            merged_model = merge_functions.load_model(input_models)
+            merged_model = merge_functions.load_model(updated_models)
 
 
             # TODO - run other LF if default fails

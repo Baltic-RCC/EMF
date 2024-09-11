@@ -560,6 +560,56 @@ def remove_small_islands(solved_data, island_size_limit):
     return solved_data
 
 
+def check_switch_terminals(input_data: pandas.DataFrame, column_name: str):
+    """
+    Checks if column of a dataframe contains only one value
+    :param input_data: input data frame
+    :param column_name: name of the column to check
+    return True if different values are in column, false otherwise
+    """
+    data_slice = (input_data.reset_index())[column_name]
+    return not pandas.Series(data_slice[0] == data_slice).all()
+
+
+def handle_not_retained_switches_between_nodes(original_data, open_not_retained_switches: bool = False):
+    """
+    For the loadflow open all the non-retained switches that connect different topological nodes
+    Currently it is seen to help around 9 to 10 Kirchhoff 1st law errors from 2 TSOs
+    :param original_data: original models in triplets format
+    :param open_not_retained_switches: if true then found switches are set to open, else it only checks and reports
+    :return: updated original data
+    """
+    updated_switches = False
+    original_models = get_opdm_data_from_models(original_data)
+    not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
+                                            & (original_models['VALUE'] == "false")][['ID']]
+    closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
+                                      & (original_models['VALUE'] == 'false')]
+    not_retained_closed = not_retained_switches.merge(closed_switches[['ID']], on='ID')
+    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
+    terminals = terminals[['Terminal',
+                           # 'ACDCTerminal.connected',
+                           'Terminal.ConductingEquipment',
+                           'Terminal.TopologicalNode']]
+    not_retained_terminals = (terminals.rename(columns={'Terminal.ConductingEquipment': 'ID'})
+                              .merge(not_retained_closed, on='ID'))
+    if not_retained_terminals.empty:
+        return original_data, updated_switches
+    between_tn = ((not_retained_terminals.groupby('ID')[['Terminal.TopologicalNode']]
+                  .apply(lambda x: check_switch_terminals(x, 'Terminal.TopologicalNode')))
+                  .reset_index(name='same_TN'))
+    between_tn = between_tn[between_tn['same_TN']]
+    if not between_tn.empty:
+        logger.warning(f"Found {len(between_tn.index)} not retained switches between topological nodes")
+        if open_not_retained_switches:
+            logger.warning(f"Opening not retained switches")
+            open_switches = closed_switches.merge(between_tn[['ID']], on='ID')
+            open_switches.loc[:, 'VALUE'] = 'true'
+            original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
+            updated_switches = True
+    return original_data, updated_switches
+
+
 def disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data,
                                               cgm_ssh_data,
                                               original_data,
