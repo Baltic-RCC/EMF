@@ -14,6 +14,7 @@ from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
+from emf.loadflow_tool.replacement import run_replacement
 import triplets
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,13 @@ class HandlerCreateCGM:
     def handle(self, task_object: dict, **kwargs):
 
         start_time = datetime.datetime.utcnow()
+        merge_log = {"uploaded_to_opde": 'False',
+                     "uploaded_to_minio": 'False',
+                     "scaled": 'False',
+                     "exclusion_reason": [],
+                     "replacement": 'False',
+                     "replaced_entity": [],
+                     "replacement_reason": []}
 
         # Parse relevant data from Task
         task = task_object
@@ -63,22 +71,51 @@ class HandlerCreateCGM:
         task_properties = task.get('task_properties', {})
         included_models = task_properties.get('included', [])
         excluded_models = task_properties.get('excluded', [])
+        task['task_properties']['local_import'] = []
 
         time_horizon = task_properties["time_horizon"]
         scenario_datetime = task_properties["timestamp_utc"]
         merging_area = task_properties["merge_type"]
         merging_entity = task_properties["merging_entity"]
         mas = task_properties["mas"]
-
-        # TODO - task to contain and increase version number
+        model_replacement = task_properties["replacement"]
         version = task_properties["version"]
 
         # Collect valid models from ObjectStorage
-        valid_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True)
+        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False)
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = merge_functions.filter_models(valid_models, included_models, excluded_models, filter_on='pmd:TSO')
+        filtered_models = merge_functions.filter_models(downloaded_models, included_models, excluded_models, filter_on='pmd:TSO')
+
+        # Check model validity and availability
+        valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
+        invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
+        if invalid_models:
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is no valid'} for tso in invalid_models])
+
+        if included_models:
+            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in downloaded_models]]
+            if missing_models:
+                merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
+        else:
+            missing_models = []
+
+        # Run replacement on missing/invalid models
+        if (missing_models or invalid_models) and model_replacement == 'True':
+            try:
+                logger.info(f"Running replacement for missing models: {missing_models}")
+                replacement_models = run_replacement(missing_models + invalid_models, time_horizon, scenario_datetime)
+                if replacement_models:
+                    logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
+                    merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
+                                                              'replacement_time_horizon': model['pmd:timeHorizon'],
+                                                              'replacement_scenario_date': model['pmd:scenarioDate']} for model in replacement_models])
+                    valid_models = valid_models + replacement_models
+                    merge_log.update({'replacement': 'True'})
+                    # TODO put exclusion_reason logging under replacement
+            except Exception as error:
+                logger.error(f"Failed to run replacement: {error}")
 
         #Run Process only if you find some models to merge, otherwise return None
         if not filtered_models:
@@ -86,7 +123,7 @@ class HandlerCreateCGM:
             return None
         else:
             # Load all selected models
-            input_models = filtered_models + [latest_boundary]
+            input_models = valid_models + [latest_boundary]
             if len(input_models) < 2:
                 logger.warning("Found no Models To Merge, Returning NONE")
                 return None
@@ -99,15 +136,13 @@ class HandlerCreateCGM:
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
             del assembeled_data
 
+            merge_start = datetime.datetime.utcnow()
             merged_model = merge_functions.load_model(input_models)
 
-
             # TODO - run other LF if default fails
-
             solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+            merge_end = datetime.datetime.utcnow()
             logger.info(f"Loadflow status of main island - {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
-
-
 
             # Update time_horizon in case of generic ID process type
             if time_horizon.upper() == "ID":
@@ -139,12 +174,13 @@ class HandlerCreateCGM:
 
             ### Upload to OPDM ###
 
-            try:
-                for item in serialized_data:
-                    logger.info(f"Uploading to OPDM -> {item.name}")
-                    async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
-            except:
-                logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
+            # try:
+            #     for item in serialized_data:
+            #         logger.info(f"Uploading to OPDM -> {item.name}")
+            #         async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
+            #         merge_log.update({'uploaded_to_opde': 'True'})
+            # except:
+            #     logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
             ### Upload to Object Storage ###
 
@@ -171,7 +207,9 @@ class HandlerCreateCGM:
             logger.info(f"Uploading CGM to MINO {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
 
             try:
-                self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                if response:
+                    merge_log.update({'uploaded_to_minio': 'True'})
             except:
                 logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
@@ -191,9 +229,16 @@ class HandlerCreateCGM:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
+            merge_log.update({'task': task,
+                               'small_island_size': SMALL_ISLAND_SIZE,
+                               'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
+                               'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
+                               'content_reference': cgm_object.name,
+                               'cgm_name': cgm_name})
+
             # Send merge report to Elastic
             try:
-                merge_report = merge_functions.generate_merge_report(solved_model, filtered_models, task_properties, MERGE_LOAD_FLOW_SETTINGS)
+                merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
                 try:
                     response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
                 except Exception as error:
@@ -242,7 +287,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-08-21T11:30:00+00:00",
+            "timestamp_utc": "2024-09-09T11:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ["AST"],
@@ -250,7 +295,8 @@ if __name__ == "__main__":
             "time_horizon": "1D",
             "version": "123",
 
-            "mas": "http://www.baltic-rsc.eu/OperationalPlanning"
+            "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
+            "replacement": "False",
         }
     }
 

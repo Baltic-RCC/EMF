@@ -42,9 +42,9 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
         unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
         for unique_tso in unique_tsos_list:
             sample_tso = replacement_df.loc[(replacement_df["pmd:TSO"] == unique_tso)]
-            sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
-            sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
             sample_tso = sample_tso.loc[(sample_tso["priority_day"] == sample_tso["priority_day"].min())]
+            sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
+            sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
             sample_tso_min = sample_tso.loc[(sample_tso["pmd:versionNumber"] == sample_tso["pmd:versionNumber"].max())]
             replacements = pd.concat([replacements, sample_tso_min])
 
@@ -103,7 +103,6 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
 
     valid_models_df["priority_business"] = valid_models_df["pmd:timeHorizon"].apply(lambda x: list_business_priority.index(x) if x in list_business_priority else None)
     valid_models_df["pmd:scenarioDate"] = valid_models_df["pmd:scenarioDate"].apply(lambda x: parser.parse(x).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    #TODO figure why priory columns are None
     valid_models_df["priority_hour"] = valid_models_df["pmd:scenarioDate"].apply(lambda x:
                                                                           list_hour_priority.index(datetime.strptime(x, "%Y-%m-%dT%H:%M:%SZ").strftime("%H:%M"))
                                                                           if datetime.strptime(x, "%Y-%m-%dT%H:%M:%SZ").strftime("%H:%M") in list_hour_priority else None)

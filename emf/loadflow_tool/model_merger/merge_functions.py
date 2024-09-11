@@ -413,13 +413,13 @@ def generate_merge_report(merged_model, input_models, merge_data):
     merge_report = {'loadflow': {'island': []}, 'merge': {}}
 
     merge_report.update({'@timestamp': merge_data['task'].get('@timestamp'),
-                         'process_id': merge_data['task'].get('process_id'),
-                         'run_id': merge_data['task'].get('run_id'),
-                         'job_id': merge_data['task'].get('job_id'),
-                         'task_id': merge_data['task'].get('@id'),
-                         'time_horizon': task_properties.get('time_horizon'),
-                         'scenario_timestamp': task_properties.get('timestamp_utc'),
-                         'version': task_properties.get('version'),
+                         '@process_id': merge_data['task'].get('process_id'),
+                         '@run_id': merge_data['task'].get('run_id'),
+                         '@job_id': merge_data['task'].get('job_id'),
+                         '@task_id': merge_data['task'].get('@id'),
+                         '@time_horizon': task_properties.get('time_horizon'),
+                         '@scenario_timestamp': task_properties.get('timestamp_utc'),
+                         '@version': task_properties.get('version'),
                          'merge_type': task_properties.get('merge_type'),
                          'merge_entity': task_properties.get('merging_entity'),
                          })
