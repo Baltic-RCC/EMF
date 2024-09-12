@@ -437,9 +437,11 @@ def generate_merge_report(merged_model, input_models, merge_data):
             merge_report['loadflow']['island'].append(combined)
 
     for island in merge_report['loadflow']['island']:
+        island['Scenario_date'] = task_properties.get('timestamp_utc')
         island['Slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
         island['Slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
         network_balance = {"active_generation_MW": float(island['Network balance']['active generation'].split()[0]),
+                           "active_load_MW": float(island['Network balance']['active load'].split()[0]),
                            "reactive_generation_MVar": float(island['Network balance']['reactive generation'].split()[0]),
                            "reactive_load_MVar": float(island['Network balance']['reactive load'].split()[0])}
         island.update({k: v for k, v in network_balance.items()})
@@ -452,11 +454,11 @@ def generate_merge_report(merged_model, input_models, merge_data):
     merge_report['merge'].update({
         "status": [pp_results[0]['status']],
         "included": [model['pmd:TSO'] for model in input_models if model['pmd:TSO']],
-        "excluded": [[item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]]],
+        "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
         "exclusion_reason": merge_data.get('exclusion_reason'),
         "merge_duration_s": merge_data.get('merge_duration'),
         "scaled": merge_data.get('scaled'),
-        "replacement": merge_data.get('replacement'),
+        "replaced": merge_data.get('replacement'),
         "replaced_entity": merge_data.get('replaced_entity'),
         "uploaded_to_opde": merge_data.get('uploaded_to_opde'),
         "uploaded_to_minio": merge_data.get('uploaded_to_minio'),

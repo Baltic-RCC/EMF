@@ -134,7 +134,7 @@ class HandlerRmmToPdnAndMinio:
         valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
         invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
         if invalid_models:
-            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is no valid'} for tso in invalid_models])
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is not valid'} for tso in invalid_models])
         valid_models = valid_models + additional_models_data
 
         if included_models:
