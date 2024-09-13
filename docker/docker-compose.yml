@@ -2,6 +2,8 @@
 # @Github: https://github.com/The-Magicians-Code
 # @Description: Compose service for launching and building multiple containers at once
 
+version: '3'
+
 services:
   powsybl:
     container_name: pypowsybl
