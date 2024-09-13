@@ -7,7 +7,7 @@ import sys
 logger = logging.getLogger(__name__)
 
 
-def query_data(metadata_query: dict, query_filter: str = None, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None):
+def query_data(metadata_query: dict, query_filter: str = None, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None, scroll: str='1m'):
     """
     Queries Elasticsearch based on provided metadata queries.
 
@@ -54,8 +54,15 @@ def query_data(metadata_query: dict, query_filter: str = None, index: str = ELAS
         query = {"bool": {"must": match_and_term_list}}
 
     # Return query results
-    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort)
-    content_list = [content["_source"] for content in response["hits"]["hits"]]
+    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort, scroll=scroll)
+    scroll_id = response['_scroll_id']
+    hits = response["hits"]["hits"]
+    content_list = [content["_source"] for content in hits]
+    while len(hits) > 0:
+        response = elastic_service.client.scroll(scroll_id=scroll_id, scroll=scroll)
+        hits = response["hits"]["hits"]
+        if hits:
+            content_list.extend([content["_source"] for content in hits])
 
     if return_payload:
         for num, item in enumerate(content_list):
