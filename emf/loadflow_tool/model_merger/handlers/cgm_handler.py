@@ -174,13 +174,13 @@ class HandlerCreateCGM:
 
             ### Upload to OPDM ###
 
-            # try:
-            #     for item in serialized_data:
-            #         logger.info(f"Uploading to OPDM -> {item.name}")
-            #         async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
-            #         merge_log.update({'uploaded_to_opde': 'True'})
-            # except:
-            #     logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
+            try:
+                for item in serialized_data:
+                    logger.info(f"Uploading to OPDM -> {item.name}")
+                    async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
+                    merge_log.update({'uploaded_to_opde': 'True'})
+            except:
+                logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
             ### Upload to Object Storage ###
 
