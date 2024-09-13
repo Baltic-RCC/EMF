@@ -14,7 +14,7 @@ from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
-from emf.loadflow_tool.replacement import run_replacement
+from emf.loadflow_tool.replacement import run_replacement, get_available_tsos
 import triplets
 
 logger = logging.getLogger(__name__)
@@ -92,20 +92,24 @@ class HandlerCreateCGM:
         valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
         invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
         if invalid_models:
-            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is no valid'} for tso in invalid_models])
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is not valid'} for tso in invalid_models])
 
         if included_models:
             missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in downloaded_models]]
             if missing_models:
                 merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
         else:
-            missing_models = []
+            if model_replacement == 'True':
+                available_tsos = get_available_tsos()
+                missing_models = [model for model in available_tsos if model not in [model['pmd:TSO'] for model in downloaded_models] + excluded_models]
+            else:
+                missing_models = []
 
         # Run replacement on missing/invalid models
-        if (missing_models or invalid_models) and model_replacement == 'True':
+        if model_replacement == 'True':
             try:
-                logger.info(f"Running replacement for missing models: {missing_models}")
-                replacement_models = run_replacement(missing_models + invalid_models, time_horizon, scenario_datetime)
+                logger.info(f"Running replacement for missing models")
+                replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
                 if replacement_models:
                     logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
