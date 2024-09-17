@@ -2,13 +2,13 @@
 name: Build and Publish Docker Image
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - dev
   pull_request:
     branches:
       - dev
-  workflow_dispatch:
 
 jobs:
   build:
