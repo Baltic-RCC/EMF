@@ -5,10 +5,12 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - dev
+      - mk-retriever-debug
+#      - dev
   pull_request:
     branches:
-      - dev
+      - mk-retriever-debug
+#      - dev
 
 jobs:
   build:
