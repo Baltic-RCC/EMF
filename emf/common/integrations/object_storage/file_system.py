@@ -1,4 +1,3 @@
-import sys
 import logging
 import os
 import uuid
@@ -15,8 +14,7 @@ from aniso8601 import parse_datetime
 
 import config
 from emf.common.config_parser import parse_app_properties
-from emf.common.logging.pypowsybl_logger import get_pypowsybl_log_handler, PyPowsyblLogGatheringHandler, \
-    PyPowsyblLogReportingPolicy
+from emf.common.logging.pypowsybl_logger import get_pypowsybl_log_handler
 from emf.common.integrations.object_storage.file_system_general import OPDE_COMPONENT_KEYWORD, OPDM_PROFILE_KEYWORD, \
     DATA_KEYWORD, PMD_FILENAME_KEYWORD, PMD_CGMES_PROFILE_KEYWORD, PMD_MODEL_PART_REFERENCE_KEYWORD, \
     PMD_MERGING_ENTITY_KEYWORD, PMD_SCENARIO_DATE_KEYWORD, OPDE_OBJECT_TYPE_KEYWORD, PMD_TSO_KEYWORD, \
@@ -27,7 +25,9 @@ from emf.common.integrations.object_storage.file_system_general import OPDE_COMP
 from emf.loadflow_tool.helper import generate_OPDM_ContentReference_from_filename
 from emf.loadflow_tool.model_validator.validator import validate_model
 
-LOCAL_STORAGE_LOCATION = './merged_examples/'
+# from emf.loadflow_tool.model_validator.validator import validate_model
+
+LOCAL_STORAGE_LOCATION = './cgm_merge'
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'
 XML_KEYWORD = '.xml'
@@ -299,7 +299,7 @@ def get_list_of_content_files(paths: str | list) -> []:
             list_of_files.append(element)
         else:
             logger.error(f"{element} is not a path nor a .xml or a .zip file")
-            raise LocalFileLoaderError
+            # raise LocalFileLoaderError
     return list_of_files
 
 
@@ -383,7 +383,7 @@ def download_zip_file(url_to_zip: str, path_to_download: str = None):
         for chunk in r.iter_content(chunk_size=chunk_size):
             f.write(chunk)
             downloaded_size += chunk_size
-            sys.stdout.write(f"\rDownloaded {(100 *downloaded_size / file_size):.2f}%")
+            sys.stdout.write(f"\rDownloaded {(100 * downloaded_size / file_size):.2f}%")
             sys.stdout.flush()
         # shutil.copyfileobj(r.raw, f)
     sys.stdout.write("\n")
@@ -507,6 +507,9 @@ def check_and_get_examples(path_to_search: str,
     :param recursion_depth: the max allowed iterations for the recursion
     :param path_to_search: folder to search
     """
+    # If root folder is not specified return search path
+    if not local_folder_for_examples:
+        return path_to_search
     file_name = url_for_examples.split('/')[-1]
     local_folder_for_examples = check_the_folder_path(local_folder_for_examples)
     full_file_name = local_folder_for_examples + file_name
@@ -531,20 +534,29 @@ def check_and_get_examples(path_to_search: str,
     return search_directory(local_folder_for_examples, path_to_search)
 
 
-def check_if_filename_exists_in_list(existing_file_names: list, new_file_name: str):
+def check_if_filename_exists_in_list(existing_file_instances: list, new_file_instance):
     """
     Checks if filename is present in dict, if not then adds it
     Also checks version numbers, replaces the filename if the version number is bigger
-    :param existing_file_names: list of existing file names
-    :param new_file_name: new file name to be added
+    :param existing_file_instances: list of existing file names
+    :param new_file_instance: new file name to be added
     """
-    reduced_file_name = os.path.basename(new_file_name)
+    if isinstance(new_file_instance, str):
+        reduced_file_name = os.path.basename(new_file_instance)
+        existing_file_names = existing_file_instances
+    else:
+        try:
+            reduced_file_name = os.path.basename(new_file_instance.name)
+            existing_file_names = [file_instance.name for file_instance in existing_file_instances]
+        except Exception:
+            return existing_file_instances
     file_base = os.path.splitext(reduced_file_name)[0]
     file_base_dict = get_meta_from_filename(reduced_file_name)
     if any([file_base in existing_file_name for existing_file_name in existing_file_names]):
-        return existing_file_names
+        return existing_file_instances
     new_version_number = file_base_dict.get(MODEL_VERSION_KEYWORD) or file_base_dict.get(PMD_VERSION_NUMBER_KEYWORD)
     file_base_reduced = file_base.removesuffix(new_version_number)
+
     similar = {file_name: get_meta_from_filename(os.path.basename(file_name))
                for file_name in existing_file_names if file_base_reduced in file_name}
     if similar:
@@ -552,11 +564,19 @@ def check_if_filename_exists_in_list(existing_file_names: list, new_file_name: s
                   for file in similar}
         max_file = max(exists, key=exists.get)
         if int(exists[max_file]) < int(new_version_number):
-            existing_file_names.remove(max_file)
+            if max_file in existing_file_instances:
+                existing_file_instances.remove(max_file)
+            else:
+                try:
+                    existing_file_instances = [file_instance for file_instance in existing_file_instances if
+                                               max_file not in file_instance.name]
+                except Exception:
+                    logger.error(f"Unable to remove duplicates")
+                    return existing_file_instances
         else:
-            return existing_file_names
-    existing_file_names.append(new_file_name)
-    return existing_file_names
+            return existing_file_instances
+    existing_file_instances.append(new_file_instance)
+    return existing_file_instances
 
 
 def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = False):
@@ -578,15 +598,23 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
     boundary_file_types = [file_type.strip("_") for file_type in BOUNDARY_FILE_TYPES]
     if root_folder is not None:
         root_folder = check_the_folder_path(root_folder)
-    for file_name in list_of_files:
+    for file_instance in list_of_files:
+        if isinstance(file_instance, str):
+            file_name = file_instance
+            if root_folder is not None:
+                file_instance = root_folder.removesuffix('/') + '/' + file_instance.removeprefix('/')
+        else:
+            try:
+                file_name = file_instance.name
+            except Exception:
+                logger.error(f"Unknown input: {file_instance}")
+                continue
         file_extension = os.path.splitext(file_name)[-1]
         # Check if file is supported file
         if file_extension not in PREFERRED_FILE_TYPES:
             continue
         # Check if file supports standard naming convention, refer to helper.get_metadata_from_filename for more details
         file_name_meta = get_meta_from_filename(file_name)
-        if root_folder is not None:
-            file_name = root_folder + file_name
         tso_name = (file_name_meta.get(MODEL_MODELING_ENTITY_KEYWORD) or
                     file_name_meta.get(PMD_MODEL_PART_REFERENCE_KEYWORD))
         file_type_name = (file_name_meta.get(MODEL_MESSAGE_TYPE_KEYWORD) or
@@ -607,15 +635,15 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
                 if tso_name not in tso_files.keys():
                     tso_files[tso_name] = []
                 # Check if file without the extension is already present
-                tso_files[tso_name] = check_if_filename_exists_in_list(existing_file_names=tso_files[tso_name],
-                                                                       new_file_name=file_name)
+                tso_files[tso_name] = check_if_filename_exists_in_list(existing_file_instances=tso_files[tso_name],
+                                                                       new_file_instance=file_instance)
             # Handle boundaries
             elif file_type_name in boundary_file_types:
                 if tso_name not in boundaries.keys():
                     boundaries[tso_name] = []
                 # Check if file without the extension is already present
-                boundaries[tso_name] = check_if_filename_exists_in_list(existing_file_names=boundaries[tso_name],
-                                                                        new_file_name=file_name)
+                boundaries[tso_name] = check_if_filename_exists_in_list(existing_file_instances=boundaries[tso_name],
+                                                                        new_file_instance=file_instance)
             else:
                 logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
         else:
@@ -778,7 +806,7 @@ def save_merged_model_to_local_storage(cgm_files,
 
 if __name__ == "__main__":
 
-    # import sys
+    import sys
     from emf.common.integrations.opdm import OPDM
 
     logging.basicConfig(
@@ -861,6 +889,7 @@ if __name__ == "__main__":
 
     validated_models = []
     # Validate models
+    # NB! Validate_models starts rabbit listener by import
     for model in available_models:
         model_tso_name = model['pmd:TSO']
         # pypowsybl_log_gatherer.set_subtopic_name(tso)
