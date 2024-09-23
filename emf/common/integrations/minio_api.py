@@ -7,11 +7,12 @@ import mimetypes
 import re
 import logging
 import config
+import functools
 from typing import List
 from io import BytesIO
 from zipfile import ZipFile
 from datetime import datetime
-from aniso8601 import parse_duration, parse_datetime
+from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
 from emf.loadflow_tool.helper import metadata_from_filename
 urllib3.disable_warnings()
@@ -21,9 +22,20 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.integrations.minio)
 
 
+def renew_authentication_token(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if datetime.utcnow() >= self.token_expiration:
+            logger.warning("Authentication token expired, renewing token")
+            self._create_client()
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 class ObjectStorage:
 
-    def __init__(self, server=MINIO_SERVER, username=MINIO_USERNAME, password=MINIO_PASSWORD):
+    def __init__(self, server: str = MINIO_SERVER, username: str = MINIO_USERNAME, password: str = MINIO_PASSWORD):
         self.server = server
         self.username = username
         self.password = password
@@ -35,29 +47,27 @@ class ObjectStorage:
                 #ca_certs='/usr/local/share/ca-certificates/CA-Bundle.crt'
             )
 
-        # Init client
-        self.__create_client()
+        # Initialize client
+        self._create_client()
 
-    def __create_client(self):
+    def _create_client(self):
+        """Connect to Minio"""
+        credentials = self._get_credentials()
+        self.token_expiration = parse_datetime(credentials['Expiration']).replace(tzinfo=None)
+        self.client = minio.Minio(endpoint=self.server,
+                                  access_key=credentials['AccessKeyId'],
+                                  secret_key=credentials['SecretAccessKey'],
+                                  session_token=credentials['SessionToken'],
+                                  secure=True,
+                                  http_client=self.http_client,
+                                  )
 
-        if self.token_expiration < (datetime.utcnow() + parse_duration("PT1M")):
-            credentials = self.__get_credentials()
-
-            self.token_expiration = parse_datetime(credentials['Expiration']).replace(tzinfo=None)
-            self.client = minio.Minio(endpoint=self.server,
-                                      access_key=credentials['AccessKeyId'],
-                                      secret_key=credentials['SecretAccessKey'],
-                                      session_token=credentials['SessionToken'],
-                                      secure=True,
-                                      http_client=self.http_client,
-                                      )
-
-    def __get_credentials(self, action="AssumeRoleWithLDAPIdentity", version="2011-06-15"):
+    def _get_credentials(self, action: str = "AssumeRoleWithLDAPIdentity", version: str = "2011-06-15"):
         """
         Method to get temporary credentials for LDAP user
         :param action: string of action
         :param version: version
-        :return:
+        :return: dictionary with authentication details
         """
         # Define LDAP service user parameters
         params = {
@@ -65,7 +75,8 @@ class ObjectStorage:
             "LDAPUsername": self.username,
             "LDAPPassword": self.password,
             "Version": version,
-            "DurationSeconds": TOKEN_EXPIRATION,
+            # "DurationSeconds": TOKEN_EXPIRATION,
+            "DurationSeconds": '900',
         }
 
         # Sending request for temporary credentials and parsing it out from returned xml
@@ -79,7 +90,8 @@ class ObjectStorage:
 
         return credentials
 
-    def upload_object(self, file_path_or_file_object, bucket_name, metadata=None):
+    @renew_authentication_token
+    def upload_object(self, file_path_or_file_object: str | bytes, bucket_name: str, metadata: dict | None = None):
         """
         Method to upload file to Minio storage
         :param file_path_or_file_object: file path or BytesIO object
@@ -111,7 +123,8 @@ class ObjectStorage:
 
         return response
 
-    def download_object(self, bucket_name, object_name):
+    @renew_authentication_token
+    def download_object(self, bucket_name: str, object_name: str):
         try:
             object_name = object_name.replace("//", "/")
             file_data = self.client.get_object(bucket_name, object_name)
@@ -120,11 +133,9 @@ class ObjectStorage:
         except minio.error.S3Error as err:
             logger.error(err)
 
-    def object_exists(self, object_name, bucket_name):
-
-        # TODO - add description
-        # TODO - add logging
-
+    @renew_authentication_token
+    def object_exists(self, object_name: str, bucket_name: str) -> bool:
+        """Check whether object exists in specified bucket by its object name"""
         exists = False
         try:
             self.client.stat_object(bucket_name, object_name)
@@ -134,16 +145,23 @@ class ObjectStorage:
 
         return exists
 
-    def list_objects(self, bucket_name, prefix=None, recursive=False, start_after=None, include_user_meta=True, include_version=False):
-
+    @renew_authentication_token
+    def list_objects(self,
+                     bucket_name: str,
+                     prefix: str | None = None,
+                     recursive: bool = False,
+                     start_after: str | None = None,
+                     include_user_meta: bool = True,
+                     include_version:  bool = False):
+        """Return all object of specified bucket"""
         try:
             objects = self.client.list_objects(bucket_name, prefix, recursive, start_after, include_user_meta, include_version)
             return objects
         except minio.error.S3Error as err:
             logger.error(err, exc_info=True)
 
+    @renew_authentication_token
     def query_objects(self, bucket_name: str, metadata: dict = None, prefix: str = None, use_regex: bool = False):
-
         """Example: service.query_objects(prefix="IGM", metadata={'bamessageid': '20230215T1630Z-1D-LITGRID-001'})"""
 
         objects = self.client.list_objects(bucket_name, prefix, recursive=True, include_user_meta=True)
@@ -169,6 +187,7 @@ class ObjectStorage:
 
         return result_list
 
+    @renew_authentication_token
     def get_latest_models_and_download(self,
                                        time_horizon: str,
                                        scenario_datetime: str,
@@ -272,6 +291,7 @@ if __name__ == '__main__':
     ## Start service
     service = ObjectStorage()
     buckets = service.client.list_buckets()
+    objects = service.list_objects(bucket_name='iop')
     print(buckets)
 
     models = service.get_latest_models_and_download(time_horizon='ID',
