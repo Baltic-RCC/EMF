@@ -26,10 +26,9 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data = load_model(opdm_objects=opdm_objects)
     network = model_data["network"]
 
-    # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
+    # Run all validations
     if run_element_validations:
-        validations = list(
-            set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value", "SHUNTS"]))
+        validations = list(set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
 
         model_data["validations"] = {}
 
@@ -38,7 +37,8 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
-                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network, validation_types=[validation_type])._valid.__bool__()
+                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
+                                                                                          validation_types=[validation_type])._valid.__bool__()
             except Exception as error:
                 logger.error(f"Failed {validation_type} validation with error: {error}")
                 continue
@@ -49,7 +49,6 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
-
 
     # Parsing loadflow results
     # TODO move sanitization to Elastic integration
