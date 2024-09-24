@@ -58,6 +58,8 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
             tso_missing = [model for model in tso_list if model not in unique_tsos_list]
             if tso_missing:
                 logger.info(f"No replacement models found for TSO(s): {tso_missing}")
+        else:
+            logger.error(f"No replacement models found, replacement list is empty")
     else:
         logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
 
