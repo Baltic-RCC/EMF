@@ -40,7 +40,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
                 model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
                                                                                           validation_types=[validation_type])._valid.__bool__()
             except Exception as error:
-                logger.error(f"Failed {validation_type} validation with error: {error}")
+                logger.warning(f"Failed {validation_type} validation with error: {error}")
                 continue
 
     # Validate if loadflow can be run
