@@ -91,7 +91,7 @@ class ObjectStorage:
         return credentials
 
     @renew_authentication_token
-    def upload_object(self, file_path_or_file_object: str | bytes, bucket_name: str, metadata: dict | None = None):
+    def upload_object(self, file_path_or_file_object: str | BytesIO, bucket_name: str, metadata: dict | None = None):
         """
         Method to upload file to Minio storage
         :param file_path_or_file_object: file path or BytesIO object
