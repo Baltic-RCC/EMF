@@ -75,8 +75,7 @@ class ObjectStorage:
             "LDAPUsername": self.username,
             "LDAPPassword": self.password,
             "Version": version,
-            # "DurationSeconds": TOKEN_EXPIRATION,
-            "DurationSeconds": '900',
+            "DurationSeconds": TOKEN_EXPIRATION,
         }
 
         # Sending request for temporary credentials and parsing it out from returned xml
