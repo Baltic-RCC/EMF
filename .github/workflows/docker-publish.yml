@@ -6,12 +6,10 @@ on:
     branches:
       - main
       - dev
-      - mk-retriever-debug
   pull_request:
     branches:
       - main
       - dev
-      - mk-retriever-debug
 
 jobs:
   build:
