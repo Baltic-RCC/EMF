@@ -609,6 +609,7 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
             except Exception:
                 logger.error(f"Unknown input: {file_instance}")
                 continue
+        file_name = os.path.basename(file_name)
         file_extension = os.path.splitext(file_name)[-1]
         # Check if file is supported file
         if file_extension not in PREFERRED_FILE_TYPES:
