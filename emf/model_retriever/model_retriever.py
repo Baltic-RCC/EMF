@@ -9,7 +9,6 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
 from emf.common.integrations.object_storage import models
 from emf.common.converters import opdm_metadata_to_json
-from emf.loadflow_tool.merge import latest_boundary
 from emf.loadflow_tool.model_validator.validator import validate_model
 from emf.loadflow_tool.helper import load_opdm_data
 
