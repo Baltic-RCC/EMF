@@ -416,6 +416,8 @@ class RMQConsumer:
                 except Exception as error:
                     logger.error(f"Message conversion failed: {error}", exc_info=True)
                     ack = False
+                    converter_executor.shutdown(wait=False)
+                    self.stop()
 
             # try:
             #     body, content_type = self.message_converter.convert(body)
@@ -462,6 +464,7 @@ class RMQConsumer:
                         ack = False
                         # In case of failure, stop message processing and close the thread
                         handler_executor.shutdown(wait=False)
+                        self.stop()
                         break
 
             # for message_handler in self.message_handlers:
