@@ -136,7 +136,7 @@ class HandlerCreateCGM:
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
             # assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
             assembeled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembeled_data)
-            escape_upper_xml = assembled_data[assembled_data['VALUE'].astype(str).str.contains('.XML')]
+            escape_upper_xml = assembeled_data[assembeled_data['VALUE'].astype(str).str.contains('.XML')]
             if not escape_upper_xml.empty:
                 escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
                 assembeled_data = triplets.rdf_parser.update_triplet_from_triplet(assembeled_data, escape_upper_xml,
