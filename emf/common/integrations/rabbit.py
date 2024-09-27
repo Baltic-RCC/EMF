@@ -424,6 +424,7 @@ class RMQConsumer:
             except Exception as error:
                 logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
+                self.stop()
 
         if self.message_handlers:
             # with ThreadPoolExecutor() as handler_executor:
@@ -471,7 +472,10 @@ class RMQConsumer:
                 except Exception as error:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
-
+                    converter_executor.shutdown(wait=False)
+                    self.stop()
+                    break
+                    
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
 

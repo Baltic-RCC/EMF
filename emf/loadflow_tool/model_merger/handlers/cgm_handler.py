@@ -14,7 +14,7 @@ from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
-from emf.loadflow_tool.replacement import run_replacement
+from emf.loadflow_tool.replacement import run_replacement, get_available_tsos
 import triplets
 
 logger = logging.getLogger(__name__)
@@ -92,20 +92,24 @@ class HandlerCreateCGM:
         valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
         invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
         if invalid_models:
-            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is no valid'} for tso in invalid_models])
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is not valid'} for tso in invalid_models])
 
         if included_models:
-            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in downloaded_models]]
+            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in valid_models]]
             if missing_models:
                 merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
         else:
-            missing_models = []
+            if model_replacement == 'True':
+                available_tsos = get_available_tsos()
+                missing_models = [model for model in available_tsos if model not in [model['pmd:TSO'] for model in valid_models] + excluded_models]
+            else:
+                missing_models = []
 
         # Run replacement on missing/invalid models
-        if (missing_models or invalid_models) and model_replacement == 'True':
+        if model_replacement == 'True' and missing_models:
             try:
-                logger.info(f"Running replacement for missing models: {missing_models}")
-                replacement_models = run_replacement(missing_models + invalid_models, time_horizon, scenario_datetime)
+                logger.info(f"Running replacement for missing models")
+                replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
                 if replacement_models:
                     logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
@@ -118,8 +122,8 @@ class HandlerCreateCGM:
                 logger.error(f"Failed to run replacement: {error}")
 
         #Run Process only if you find some models to merge, otherwise return None
-        if not filtered_models:
-            logger.warning("Found no Models To Merge, Returning NONE")
+        if not valid_models:
+            logger.warning("Found no valid models to merge, Returning NONE")
             return None
         else:
             # Load all selected models
@@ -132,6 +136,12 @@ class HandlerCreateCGM:
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
             # assembeled_data = merge_functions.configure_paired_boundarypoint_injections(assembeled_data)
             assembeled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembeled_data)
+            escape_upper_xml = assembeled_data[assembeled_data['VALUE'].astype(str).str.contains('.XML')]
+            if not escape_upper_xml.empty:
+                escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
+                assembeled_data = triplets.rdf_parser.update_triplet_from_triplet(assembeled_data, escape_upper_xml,
+                                                                                  update=True,
+                                                                                  add=False)
 
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
             del assembeled_data
@@ -287,16 +297,16 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-09-09T11:30:00+00:00",
+            "timestamp_utc": "2024-09-13T13:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": ["AST"],
-            "excluded": [],
-            "time_horizon": "1D",
+            "included": [],
+            "excluded": ["APG", "FI"],
+            "time_horizon": "ID",
             "version": "123",
 
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
-            "replacement": "False",
+            "replacement": "True",
         }
     }
 

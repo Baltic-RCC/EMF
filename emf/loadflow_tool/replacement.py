@@ -25,32 +25,43 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
      Returns:  from configuration a list of replaced models
     """
     replacement_config = json.loads(Path(__file__).parent.parent.parent.joinpath(conf).read_text())
-    model_list = []
     replacement_models = []
     replacements = pd.DataFrame()
-    for tso in tso_list:
-        query = {"pmd:TSO": tso, "valid": True}
-        response = query_data(query, QUERY_FILTER)
-        model_list.extend(response)
-    model_df = pd.DataFrame(model_list)
+    # TODO time horizon exclusion logic + exclude available models from query
+    query = {"opde:Object-Type": "IGM", "pmd:TSO.keyword": tso_list, "valid": True}
+    body = query_data(query, QUERY_FILTER)
+    model_df = pd.DataFrame(body)
 
     # Set scenario dat to UTC
-    scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-    replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
+    if not model_df.empty:
+        scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
+        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
+        if not replacement_df.empty:
+            unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
+            for unique_tso in unique_tsos_list:
+                sample_tso = replacement_df.loc[(replacement_df["pmd:TSO"] == unique_tso)]
+                sample_tso = sample_tso.loc[(sample_tso["priority_day"] == sample_tso["priority_day"].min())]
+                sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
+                sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
+                sample_tso_min = sample_tso.loc[(sample_tso["pmd:versionNumber"] == sample_tso["pmd:versionNumber"].max())]
+                replacements = pd.concat([replacements, sample_tso_min])
 
-    if not replacement_df.empty:
-        unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
-        for unique_tso in unique_tsos_list:
-            sample_tso = replacement_df.loc[(replacement_df["pmd:TSO"] == unique_tso)]
-            sample_tso = sample_tso.loc[(sample_tso["priority_day"] == sample_tso["priority_day"].min())]
-            sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
-            sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
-            sample_tso_min = sample_tso.loc[(sample_tso["pmd:versionNumber"] == sample_tso["pmd:versionNumber"].max())]
-            replacements = pd.concat([replacements, sample_tso_min])
+            replacement_models = replacements.to_dict(orient='records') if not replacements.empty else None
+            for num, model in enumerate(replacement_models):
+                replacement_models[num] = get_content(model)
 
-        replacement_models = replacements.to_dict(orient='records') if not replacements.empty else None
-        for num, model in enumerate(replacement_models):
-            replacement_models[num] = get_content(model)
+            replaced_tso = replacements['pmd:TSO'].unique().tolist()
+            not_replaced = [model for model in unique_tsos_list if model not in replaced_tso]
+            if not_replaced:
+                logger.error(f"Unable to find replacements within given replacement logic for TSO's: {not_replaced}")
+
+            tso_missing = [model for model in tso_list if model not in unique_tsos_list]
+            if tso_missing:
+                logger.info(f"No replacement models found for TSO(s): {tso_missing}")
+        else:
+            logger.error(f"No replacement models found, replacement list is empty")
+    else:
+        logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
 
     return replacement_models
 
@@ -112,6 +123,13 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     valid_models_df = valid_models_df.dropna(subset=["priority_hour", "priority_day", "priority_business"])
 
     return valid_models_df
+
+
+def get_available_tsos():
+    query = {"opde:Object-Type": "IGM", "valid": True}
+    body = query_data(query, QUERY_FILTER)
+    key = 'pmd:TSO'
+    return list({item[key] for item in body if key in item})
 
 
 if __name__ == "__main__":
