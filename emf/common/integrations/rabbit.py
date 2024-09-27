@@ -401,80 +401,81 @@ class RMQConsumer:
 
         # Convert if needed
         if self.message_converter:
-            with ThreadPoolExecutor() as converter_executor:
-                converter_task = converter_executor.submit(self.message_converter.convert, body)
+            # with ThreadPoolExecutor() as converter_executor:
+            #     converter_task = converter_executor.submit(self.message_converter.convert, body)
+            #
+            #     while not converter_task.done():
+            #         logger.info("Waiting for converter")
+            #         #self._connection.process_data_events(time_limit=1)
+            #         self._connection._heartbeat_checker._send_heartbeat()
+            #         time.sleep(10)
+            #
+            #     try:
+            #         body, content_type = converter_task.result()
+            #
+            #     except Exception as error:
+            #         logger.error(f"Message conversion failed: {error}", exc_info=True)
+            #         ack = False
 
-                while not converter_task.done():
-                    logger.info("Waiting for converter")
-                    #self._connection.process_data_events(time_limit=1)
-                    self._connection._heartbeat_checker._send_heartbeat()
-                    time.sleep(10)
+            try:
+                body, content_type = self.message_converter.convert(body)
+                properties.content_type = content_type
+                logger.info(f"Message converted")
+            except Exception as error:
+                logger.error(f"Message conversion failed: {error}", exc_info=True)
+                ack = False
+                self.stop()
 
+        if self.message_handlers:
+            # with ThreadPoolExecutor() as handler_executor:
+            #
+            #     for message_handler in self.message_handlers:
+            #         logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
+            #         handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
+            #
+            #         while not handler_task.done():
+            #
+            #             try:
+            #                 # TODO - set to debug when rabbit issue solved
+            #                 logger.info("Waiting for handler")
+            #                 #logger.info(self._connection.ioloop.is_running())
+            #                 #logger.info(asyncio.current_task(self._connection.ioloop))
+            #                 #logger.info(asyncio.all_tasks(self._connection.ioloop))
+            #                 #logger.info(self._connection.ioloop._scheduled)
+            #                 #loop_time = self._connection.ioloop.time()
+            #                 #logger.info([task.when() - loop_time for task in self._connection.ioloop._scheduled])
+            #                 #logger.info(self._connection.ioloop.time())
+            #                 self._connection._heartbeat_checker._send_heartbeat()
+            #                 #self._connection.ioloop.poll()
+            #                 #self._connection.process_data_events(time_limit=1)
+            #                 #self._connection._heartbeat_checker.send_heartbeat()
+            #                 time.sleep(10)
+            #
+            #             except Exception as error:
+            #                 logger.info(error)
+            #
+            #
+            #         try:
+            #             body = handler_task.result()
+            #
+            #         except Exception as error:
+            #             logger.error(f"Message handling failed: {error}", exc_info=True)
+            #             ack = False
+            #             # In case of failure, stop message processing and close the thread
+            #             handler_executor.shutdown(wait=False)
+            #             break
+
+            for message_handler in self.message_handlers:
                 try:
-                    body, content_type = converter_task.result()
-
+                    logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
+                    body = message_handler.handle(body, properties=properties)
                 except Exception as error:
-                    logger.error(f"Message conversion failed: {error}", exc_info=True)
+                    logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
                     converter_executor.shutdown(wait=False)
                     self.stop()
-
-            # try:
-            #     body, content_type = self.message_converter.convert(body)
-            #     properties.content_type = content_type
-            #     logger.info(f"Message converted")
-            # except Exception as error:
-            #     logger.error(f"Message conversion failed: {error}", exc_info=True)
-            #     # ack = False
-
-        if self.message_handlers:
-            with ThreadPoolExecutor() as handler_executor:
-
-                for message_handler in self.message_handlers:
-                    logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-                    handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
-
-                    while not handler_task.done():
-
-                        try:
-                            # TODO - set to debug when rabbit issue solved
-                            logger.info("Waiting for handler")
-                            #logger.info(self._connection.ioloop.is_running())
-                            #logger.info(asyncio.current_task(self._connection.ioloop))
-                            #logger.info(asyncio.all_tasks(self._connection.ioloop))
-                            #logger.info(self._connection.ioloop._scheduled)
-                            #loop_time = self._connection.ioloop.time()
-                            #logger.info([task.when() - loop_time for task in self._connection.ioloop._scheduled])
-                            #logger.info(self._connection.ioloop.time())
-                            self._connection._heartbeat_checker._send_heartbeat()
-                            #self._connection.ioloop.poll()
-                            #self._connection.process_data_events(time_limit=1)
-                            #self._connection._heartbeat_checker.send_heartbeat()
-                            time.sleep(10)
-
-                        except Exception as error:
-                            logger.info(error)
-
-
-                    try:
-                        body = handler_task.result()
-
-                    except Exception as error:
-                        logger.error(f"Message handling failed: {error}", exc_info=True)
-                        ack = False
-                        # In case of failure, stop message processing and close the thread
-                        handler_executor.shutdown(wait=False)
-                        self.stop()
-                        break
-
-            # for message_handler in self.message_handlers:
-            #     try:
-            #         logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-            #         body = message_handler.handle(body, properties=properties)
-            #     except Exception as error:
-            #         logger.error(f"Message handling failed: {error}", exc_info=True)
-            #         # ack = False
-
+                    break
+                    
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
 

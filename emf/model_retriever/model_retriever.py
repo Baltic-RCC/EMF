@@ -126,8 +126,12 @@ class HandlerModelsValidator:
 
         # Run network model validation
         for opdm_object in opdm_objects:
-            response = validate_model(opdm_objects=[opdm_object, latest_boundary])
-            opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+            try:
+                response = validate_model(opdm_objects=[opdm_object, latest_boundary])
+                opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+            except Exception as error:
+                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
+                opdm_object["valid"] = False
 
         return opdm_objects
 

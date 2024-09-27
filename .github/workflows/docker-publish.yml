@@ -4,9 +4,11 @@ name: Build and Publish Docker Image
 on:
   push:
     branches:
+      - main
       - dev
   pull_request:
     branches:
+      - main
       - dev
 
 jobs:
@@ -20,7 +22,7 @@ jobs:
       - name: Set Docker image tag and other variables
         run: |
           echo "WORKER_NAME=emfos-model-retriever" >> $GITHUB_ENV
-          echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+          echo "BRANCH_NAME=$GITHUB_REF_NAME" >> $GITHUB_ENV
           echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
           echo "LATEST_TAG=latest" >> $GITHUB_ENV
 
