@@ -1,5 +1,5 @@
 import pypowsybl
-from helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model
 from emf.loadflow_tool.model_validator.validator import validate_model
 import logging
 import json
