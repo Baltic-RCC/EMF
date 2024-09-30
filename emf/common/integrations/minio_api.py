@@ -11,7 +11,7 @@ import functools
 from typing import List
 from io import BytesIO
 from zipfile import ZipFile
-from datetime import datetime
+from datetime import datetime, timedelta
 from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
 from emf.loadflow_tool.helper import metadata_from_filename
@@ -25,8 +25,8 @@ parse_app_properties(globals(), config.paths.integrations.minio)
 def renew_authentication_token(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if datetime.utcnow() >= self.token_expiration:
-            logger.warning("Authentication token expired, renewing token")
+        if datetime.utcnow() >= self.token_expiration - timedelta(seconds=TOKEN_RENEW_MARGIN):  # 120s margin before token expiration
+            logger.warning("Authentication token going to expire soon, renewing token")
             self._create_client()
         return func(self, *args, **kwargs)
 
