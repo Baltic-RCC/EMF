@@ -5,7 +5,7 @@ import time
 import math
 import config
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
@@ -68,6 +68,10 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+    try:
+        model_data['outages'] = get_model_outages(network)
+    except Exception as e:
+        logger.error(f'Failed to log model outages: {e}')
 
     # Pop out pypowsybl network object
     model_data.pop('network')
