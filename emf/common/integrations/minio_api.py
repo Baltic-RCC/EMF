@@ -25,7 +25,7 @@ parse_app_properties(globals(), config.paths.integrations.minio)
 def renew_authentication_token(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if datetime.utcnow() >= self.token_expiration - timedelta(seconds=TOKEN_RENEW_MARGIN):  # 120s margin before token expiration
+        if datetime.utcnow() >= self.token_expiration - timedelta(seconds=int(TOKEN_RENEW_MARGIN)):  # 120s margin before token expiration
             logger.warning("Authentication token going to expire soon, renewing token")
             self._create_client()
         return func(self, *args, **kwargs)
