@@ -68,10 +68,21 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+
     try:
         model_data['outages'] = get_model_outages(network)
     except Exception as e:
         logger.error(f'Failed to log model outages: {e}')
+
+    try:
+        model_metadata = next(d for d in opdm_objects if d.get('opde:Object-Type') == 'IGM')
+    except:
+        logger.error("Failed to get model metadata")
+        model_metadata = {'pmd:scenarioDate': '', 'pmd:timeHorizon': '', 'pmd:versionNumber': ''}
+
+    model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
+    model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
+    model_data['@version'] = model_metadata['pmd:versionNumber']
 
     # Pop out pypowsybl network object
     model_data.pop('network')
