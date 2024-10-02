@@ -63,6 +63,7 @@ WORKDIR /src
 # Copy files to container
 COPY emf/loadflow_tool/ ./emf/loadflow_tool/
 COPY emf/common/ ./emf/common/
+COPY emf/task_generator/ ./emf/task_generator/
 COPY config/ ./config/
 
 # Start process
