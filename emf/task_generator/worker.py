@@ -20,11 +20,20 @@ for runs in process_config_json[0]['runs']:
     runs['properties']['included'] = CGM_INCLUDED_TSO.split(',') if CGM_INCLUDED_TSO else []
     runs['properties']['excluded'] = CGM_EXCLUDED_TSO.split(',') if CGM_EXCLUDED_TSO else []
     runs['properties']['replacement'] = RUN_REPLACEMENT_CGM
+    runs['properties']['scaling'] = RUN_SCALING_CGM
+    runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_CGM
+    runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_CGM
+    runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_CGM
 for runs in process_config_json[1]['runs']:
     runs['properties']['included'] = RMM_INCLUDED_TSO.split(',') if RMM_INCLUDED_TSO else []
     runs['properties']['excluded'] = RMM_EXCLUDED_TSO.split(',') if RMM_EXCLUDED_TSO else []
     runs['properties']['local_import'] = RMM_LOCAL_IMPORT.split(',') if RMM_LOCAL_IMPORT else []
     runs['properties']['replacement'] = RUN_REPLACEMENT_RMM
+    runs['properties']['scaling'] = RUN_SCALING_RMM
+    runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_RMM
+    runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_RMM
+    runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_RMM
+
 
 with open(process_conf, 'w') as file:
     json.dump(process_config_json, file, indent=1)
