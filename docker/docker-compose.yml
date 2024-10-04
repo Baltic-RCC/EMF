@@ -9,7 +9,7 @@ services:
     container_name: pypowsybl
     build:
       context: ../
-      dockerfile: ./docker/base/Dockerfile
+      dockerfile: Dockerfile
     volumes:
       - ../:/code
     tty: true
