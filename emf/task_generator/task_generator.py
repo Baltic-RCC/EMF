@@ -264,7 +264,8 @@ def set_task_version(task, elk_index='emfos-tasks*'):
     if task_list:
         try:
             latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
-            task['task_properties']['version'] = str(int(latest_version) + 1)
+            if str(int(latest_version)) == task['task_properties']['version']:
+                task['task_properties']['version'] = str(int(latest_version) + 1)
         except:
             logger.warning(f"Failed to find latest task version, task versio set to: {task['task_properties']['version']}")
 
