@@ -420,8 +420,6 @@ def generate_merge_report(merged_model, input_models, merge_data):
                          '@time_horizon': task_properties.get('time_horizon'),
                          '@scenario_timestamp': task_properties.get('timestamp_utc'),
                          '@version': task_properties.get('version'),
-                         'merge_type': task_properties.get('merge_type'),
-                         'merge_entity': task_properties.get('merging_entity'),
                          })
 
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
@@ -437,13 +435,12 @@ def generate_merge_report(merged_model, input_models, merge_data):
             merge_report['loadflow']['island'].append(combined)
 
     for island in merge_report['loadflow']['island']:
-        island['Scenario_date'] = task_properties.get('timestamp_utc')
-        island['Slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
-        island['Slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
-        network_balance = {"active_generation_MW": float(island['Network balance']['active generation'].split()[0]),
-                           "active_load_MW": float(island['Network balance']['active load'].split()[0]),
-                           "reactive_generation_MVar": float(island['Network balance']['reactive generation'].split()[0]),
-                           "reactive_load_MVar": float(island['Network balance']['reactive load'].split()[0])}
+        island['slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
+        island['slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
+        network_balance = {"active_generation": float(island['Network balance']['active generation'].split()[0]),
+                           "active_load": float(island['Network balance']['active load'].split()[0]),
+                           "reactive_generation": float(island['Network balance']['reactive generation'].split()[0]),
+                           "reactive_load": float(island['Network balance']['reactive load'].split()[0])}
         island.update({k: v for k, v in network_balance.items()})
         island.pop('Network balance')
     merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']), "loadflow_parameters": merge_data.get('loadflow_settings')})
@@ -452,11 +449,13 @@ def generate_merge_report(merged_model, input_models, merge_data):
     merge_report['network'].update({'name': merge_data.get('cgm_name')})
 
     merge_report['merge'].update({
+        "type": task_properties.get('merge_type'),
+        "entity": task_properties.get('merging_entity'),
         "status": [pp_results[0]['status']],
         "included": [model['pmd:TSO'] for model in input_models if model['pmd:TSO']],
         "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
         "exclusion_reason": merge_data.get('exclusion_reason'),
-        "merge_duration_s": merge_data.get('merge_duration'),
+        "duration_s": merge_data.get('merge_duration'),
         "scaled": merge_data.get('scaled'),
         "replaced": merge_data.get('replacement'),
         "replaced_entity": merge_data.get('replaced_entity'),
