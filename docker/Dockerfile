@@ -35,7 +35,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM python:3.11 as emfos-rmm-merger
+FROM python:3.11 as emfos-model-merger
 #FROM --platform=linux/amd64 python:3.11
 
 # Install tools to set up python environment
@@ -68,5 +68,5 @@ COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/workers/rmm_worker.py"]
+ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/merge_worker.py"]
 #ENTRYPOINT ["/bin/bash"]
