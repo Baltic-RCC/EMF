@@ -762,13 +762,14 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                     profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
         if repackage_needed:
             profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
-            serialized_data = merge_functions.export_to_cgmes_zip([profile])
+            serialized_data = export_to_cgmes_zip([profile])
             if len(serialized_data) == 1:
                 serialized = serialized_data[0]
                 serialized.seek(0)
                 for model_profile in model.get('opde:Component', []):
                     if model_profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') == profile_to_change:
                         model_profile['opdm:Profile']['DATA'] = serialized.read()
+
     return opdm_models
 
 
