@@ -21,16 +21,24 @@ SV_INJECTION_LIMIT = 0.1
 
 def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
 
-    loadflow_report = pypowsybl.report.Reporter()
-
-    loadflow_result = pypowsybl.loadflow.run_ac(network=merged_model["network"],
+    # report = pypowsybl.report.Reporter()
+    result = pypowsybl.loadflow.run_ac(network=merged_model["network"],
                                                 parameters=loadflow_settings,
-                                                reporter=loadflow_report)
+                                                # reporter=loadflow_report,
+                                                )
 
-    loadflow_result_dict = [attr_to_dict(island) for island in loadflow_result]
+    result_dict = [attr_to_dict(island) for island in result]
+    # Modify all nested objects to native data types
+    for island in result_dict:
+        island['status'] = island['status'].name
+        # Extract only first slack bus from internal pypowsybl object
+        slack_bus_results = island.pop('slack_bus_results')
+        island['slack_bus_id'] = slack_bus_results[0].id
+        island['active_power_mismatch'] = slack_bus_results[0].active_power_mismatch
+
     # merged_model["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
-    merged_model["LOADFLOW_REPORT"] = str(loadflow_report)
-    merged_model["LOADFLOW_RESULTS"] = loadflow_result_dict
+    # merged_model["LOADFLOW_REPORT"] = str(loadflow_report)
+    merged_model["LOADFLOW_RESULTS"] = result_dict
 
     return merged_model
 
@@ -408,7 +416,6 @@ def generate_merge_report(merged_model, input_models, merge_data):
     Returns:
         dict: report of merge results
     """
-    model_elements = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
     task_properties = merge_data.get('task')['task_properties']
     merge_report = {'loadflow': {'island': []}, 'merge': {}}
 
@@ -423,28 +430,43 @@ def generate_merge_report(merged_model, input_models, merge_data):
                          })
 
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
-    pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])
+    # pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])  # TODO backup if string report will be needed
 
+    # Store islands loadflow results
     for island in pp_results:
-        island['status'] = island.get('status').name
-        island['active_power_mismatch'] = island.pop('slack_bus_results')[0].active_power_mismatch
+        merge_report['loadflow']['island'].append(island)
 
-    for dict1, dict2 in zip(pp_report, pp_results):
-        combined = {**dict1, **dict2}
-        if int(dict1['buses']) > int(merge_data.get('small_island_size')):
-            merge_report['loadflow']['island'].append(combined)
+    # for dict1, dict2 in zip(pp_report, pp_results):
+    #     combined = {**dict1, **dict2}
+    #     if int(dict1['buses']) > int(merge_data.get('small_island_size')):
+    #         merge_report['loadflow']['island'].append(combined)
 
+    # Store network balance results
+    buses = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
+    generators = merged_model['network'].get_generators().merge(buses, left_on='bus_id', right_index=True)
+    loads = merged_model['network'].get_loads().merge(buses, left_on='bus_id', right_index=True)
+    generation_by_component = generators.groupby('connected_component')[['p', 'q']].sum()
+    load_by_component = loads.groupby('connected_component')[['p', 'q']].sum()
     for island in merge_report['loadflow']['island']:
-        island['slack_bus_name'] = model_elements.loc[island['Slack bus']]['name']
-        island['slack_bus_region'] = model_elements.loc[island['Slack bus']]['country']
-        network_balance = {"active_generation": float(island['Network balance']['active generation'].split()[0]),
-                           "active_load": float(island['Network balance']['active load'].split()[0]),
-                           "reactive_generation": float(island['Network balance']['reactive generation'].split()[0]),
-                           "reactive_load": float(island['Network balance']['reactive load'].split()[0])}
-        island.update({k: v for k, v in network_balance.items()})
-        island.pop('Network balance')
-    merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']), "loadflow_parameters": merge_data.get('loadflow_settings')})
+        try:
+            island['slack_bus_name'] = buses.loc[island['slack_bus_id']]['name']
+            island['slack_bus_region'] = buses.loc[island['slack_bus_id']]['country']
+        except Exception as e:
+            logger.warning(f"Unable to find name or country of slack bus id: {island['slack_bus_id']} [err: {e}]")
+            island['slack_bus_name'] = ''
+            island['slack_bus_region'] = ''
 
+        network_balance = {"generation_p": generation_by_component.loc[island['connected_component_num']].p,
+                           "load_p": load_by_component.loc[island['connected_component_num']].p,
+                           "generation_q": generation_by_component.loc[island['connected_component_num']].q,
+                           "load_q": load_by_component.loc[island['connected_component_num']].q}
+
+        island.update({k: v for k, v in network_balance.items()})
+        # island.pop('Network balance')
+
+    merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']),
+                                     "parameters": merge_data.get('loadflow_settings'),
+                                     })
     merge_report['network'] = merged_model['network_meta']
     merge_report['network'].update({'name': merge_data.get('cgm_name')})
 
@@ -740,13 +762,14 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                     profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
         if repackage_needed:
             profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
-            serialized_data = merge_functions.export_to_cgmes_zip([profile])
+            serialized_data = export_to_cgmes_zip([profile])
             if len(serialized_data) == 1:
                 serialized = serialized_data[0]
                 serialized.seek(0)
                 for model_profile in model.get('opde:Component', []):
                     if model_profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') == profile_to_change:
                         model_profile['opdm:Profile']['DATA'] = serialized.read()
+
     return opdm_models
 
 

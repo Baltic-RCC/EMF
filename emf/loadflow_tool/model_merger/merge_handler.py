@@ -137,9 +137,9 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
 
-        # Run Process only if you find some models to merge, otherwise return None
+        # Run process only if you find some models to merge, otherwise return None
         if not valid_models:
-            logger.warning("Found no valid models to merge, Returning NONE")
+            logger.warning("Found no valid models to merge, returning None")
             return None
         else:
             # Load all selected models
@@ -148,7 +148,7 @@ class HandlerMergeModels:
             if merging_area == 'BA':
                 input_models = merge_functions.set_brell_lines_to_zero_in_models(input_models)
             if len(input_models) < 2:
-                logger.warning("Found no Models To Merge, Returning NONE")
+                logger.warning("Found no models to merge, returning None")
                 return None
             assembeled_data = merge_functions.load_opdm_data(input_models)
             assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
@@ -167,9 +167,9 @@ class HandlerMergeModels:
             merged_model = merge_functions.load_model(input_models)
 
             # TODO - run other LF if default fails
-            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))#getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
             merge_end = datetime.datetime.utcnow()
-            logger.info(f"Loadflow status of main island - {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
+            logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
             # Update time_horizon in case of generic ID process type
             if time_horizon.upper() == "ID":
@@ -177,7 +177,7 @@ class HandlerMergeModels:
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
 
                 time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds/3600):02d}"
-                logger.info(f"Setting ID TimeHorizon to {time_horizon}")
+                logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
             # TODO - get version dynamically form ELK
             sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
@@ -202,7 +202,7 @@ class HandlerMergeModels:
             if model_upload_to_opdm == 'True':
                 try:
                     for item in serialized_data:
-                        logger.info(f"Uploading to OPDM -> {item.name}")
+                        logger.info(f"Uploading to OPDM: {item.name}")
                         async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
                         merge_log.update({'uploaded_to_opde': 'True'})
                 except:
@@ -226,10 +226,10 @@ class HandlerMergeModels:
 
             cgm_object = cgm_data
             cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
-            logger.info(f"Uploading CGM to MINO {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
 
             # Send to Object Storage
             if model_upload_to_minio == 'True':
+                logger.info(f"Uploading CGM to MINIO: {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
                 try:
                     response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
                     if response:
@@ -237,7 +237,7 @@ class HandlerMergeModels:
                 except:
                     logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
-                logger.info(f"CGM creation done for {cgm_name}")
+            logger.info(f"CGM creation done for {cgm_name}")
 
             end_time = datetime.datetime.utcnow()
             task_duration = end_time - start_time
@@ -272,7 +272,7 @@ class HandlerMergeModels:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
-            logger.info(f"Merge task finshed for model: '{cgm_name}'")
+            logger.info(f"Merge task finished for model: '{cgm_name}'")
             return task
 
 
@@ -314,7 +314,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-10-03T13:30:00+00:00",
+            "timestamp_utc": "2024-10-07T10:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ['PSE', 'AST'],
