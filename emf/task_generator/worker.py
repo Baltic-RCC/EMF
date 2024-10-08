@@ -19,6 +19,7 @@ process_config_json = json.load(process_conf)
 for runs in process_config_json[0]['runs']:
     runs['properties']['included'] = [tso.strip() for tso in CGM_INCLUDED_TSO.split(',')] if CGM_INCLUDED_TSO else []
     runs['properties']['excluded'] = [tso.strip() for tso in CGM_EXCLUDED_TSO.split(',')] if CGM_EXCLUDED_TSO else []
+    runs['properties']['local_import'] = [tso.strip() for tso in CGM_LOCAL_IMPORT.split(',')] if CGM_LOCAL_IMPORT else []
     runs['properties']['replacement'] = RUN_REPLACEMENT_CGM
     runs['properties']['scaling'] = RUN_SCALING_CGM
     runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_CGM
