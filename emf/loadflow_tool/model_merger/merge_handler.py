@@ -150,19 +150,19 @@ class HandlerMergeModels:
             if len(input_models) < 2:
                 logger.warning("Found no models to merge, returning None")
                 return None
-            assembeled_data = merge_functions.load_opdm_data(input_models)
-            assembeled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembeled_data)
-            assembeled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembeled_data)
-            escape_upper_xml = assembeled_data[assembeled_data['VALUE'].astype(str).str.contains('.XML')]
+            assembled_data = merge_functions.load_opdm_data(input_models)
+            assembled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembled_data)
+            assembled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembled_data)
+            escape_upper_xml = assembled_data[assembled_data['VALUE'].astype(str).str.contains('.XML')]
             if not escape_upper_xml.empty:
                 escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
-                assembeled_data = triplets.rdf_parser.update_triplet_from_triplet(assembeled_data, escape_upper_xml,
+                assembled_data = triplets.rdf_parser.update_triplet_from_triplet(assembled_data, escape_upper_xml,
                                                                                   update=True,
                                                                                   add=False)
-            input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembeled_data])])
-            del assembeled_data
+            input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembled_data])])
+            del assembled_data
 
-            # Load and merge models
+            # Load network model and merge
             merge_start = datetime.datetime.utcnow()
             merged_model = merge_functions.load_model(input_models)
 

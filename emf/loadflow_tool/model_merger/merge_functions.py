@@ -33,8 +33,12 @@ def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
         island['status'] = island['status'].name
         # Extract only first slack bus from internal pypowsybl object
         slack_bus_results = island.pop('slack_bus_results')
-        island['slack_bus_id'] = slack_bus_results[0].id
-        island['active_power_mismatch'] = slack_bus_results[0].active_power_mismatch
+        if slack_bus_results:
+            island['slack_bus_id'] = getattr(slack_bus_results[0], 'id', 'undefined')
+            island['active_power_mismatch'] = getattr(slack_bus_results[0], 'active_power_mismatch', float())
+        else:
+            island['slack_bus_id'] = 'undefined'
+            island['active_power_mismatch'] = float()
 
     # merged_model["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
     # merged_model["LOADFLOW_REPORT"] = str(loadflow_report)
@@ -432,9 +436,14 @@ def generate_merge_report(merged_model, input_models, merge_data):
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
     # pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])  # TODO backup if string report will be needed
 
+    # Get buses count in each component
+    buses = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
+    buses_by_component = buses.connected_component.value_counts()
+
     # Store islands loadflow results
     for island in pp_results:
-        merge_report['loadflow']['island'].append(island)
+        if buses_by_component.loc[island['connected_component_num']] > int(merge_data.get('small_island_size')):
+            merge_report['loadflow']['island'].append(island)
 
     # for dict1, dict2 in zip(pp_report, pp_results):
     #     combined = {**dict1, **dict2}
@@ -442,11 +451,12 @@ def generate_merge_report(merged_model, input_models, merge_data):
     #         merge_report['loadflow']['island'].append(combined)
 
     # Store network balance results
-    buses = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
     generators = merged_model['network'].get_generators().merge(buses, left_on='bus_id', right_index=True)
     loads = merged_model['network'].get_loads().merge(buses, left_on='bus_id', right_index=True)
+    branches = merged_model['network'].get_branches().merge(buses, left_on='bus1_id', right_index=True)
     generation_by_component = generators.groupby('connected_component')[['p', 'q']].sum()
     load_by_component = loads.groupby('connected_component')[['p', 'q']].sum()
+    branches_by_component = branches.connected_component.value_counts()
     for island in merge_report['loadflow']['island']:
         try:
             island['slack_bus_name'] = buses.loc[island['slack_bus_id']]['name']
@@ -459,7 +469,10 @@ def generate_merge_report(merged_model, input_models, merge_data):
         network_balance = {"generation_p": generation_by_component.loc[island['connected_component_num']].p,
                            "load_p": load_by_component.loc[island['connected_component_num']].p,
                            "generation_q": generation_by_component.loc[island['connected_component_num']].q,
-                           "load_q": load_by_component.loc[island['connected_component_num']].q}
+                           "load_q": load_by_component.loc[island['connected_component_num']].q,
+                           "buses": buses_by_component.loc[island['connected_component_num']],
+                           "branches": branches_by_component.loc[island['connected_component_num']],
+                           }
 
         island.update({k: v for k, v in network_balance.items()})
         # island.pop('Network balance')
@@ -752,10 +765,10 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
         repackage_needed = False
         for line, line_id in magic_brell_lines.items():
             if profile.query(f"ID == '{line_id}'").empty:
-                logger.info(f"Skipping Brell line {line} as it was not found in data")
+                logger.info(f"Skipping brell line {line} as it was not found in data")
             else:
                 repackage_needed = True
-                logger.info(f"Setting Brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
+                logger.info(f"Setting brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
                 profile.loc[
                     profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
                 profile.loc[
