@@ -782,6 +782,7 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                 for model_profile in model.get('opde:Component', []):
                     if model_profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') == profile_to_change:
                         model_profile['opdm:Profile']['DATA'] = serialized.read()
+
     return opdm_models
 
 
