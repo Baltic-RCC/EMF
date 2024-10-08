@@ -1,7 +1,8 @@
 import logging
 import config
 from emf.common.logging import custom_logger
-from emf.common.integrations import rabbit
+# from emf.common.integrations import rabbit
+from emf.common.integrations import rabbit_navita as rabbit  # TODO testing new solution by Navita
 from uuid import uuid4
 from emf.common.config_parser import parse_app_properties
 from emf.loadflow_tool.model_merger.merge_handler import HandlerMergeModels
