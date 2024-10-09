@@ -36,6 +36,20 @@ def log_opdm_response(response):
     logger.debug(etree.tostring(response, pretty_print=True).decode())
 
 
+def convert_dict_str_to_bool(data_dict: dict):
+    for key, value in data_dict.items():
+        if isinstance(value, str):
+            if value in ['True', 'true', 'TRUE']:
+                data_dict[key] = True
+            elif value in ['False', 'false', 'FALSE']:
+                data_dict[key] = False
+        elif isinstance(value, dict):
+            # Recursively converter nested dictionaries
+            data_dict[key] = convert_dict_str_to_bool(value)
+
+    return data_dict
+
+
 class HandlerMergeModels:
 
     def __init__(self):
@@ -46,19 +60,21 @@ class HandlerMergeModels:
     def handle(self, task_object: dict, **kwargs):
 
         start_time = datetime.datetime.utcnow()
-        merge_log = {"uploaded_to_opde": 'False',
-                     "uploaded_to_minio": 'False',
-                     "scaled": 'False',
+        merge_log = {"uploaded_to_opde": False,
+                     "uploaded_to_minio": False,
+                     "scaled": False,
                      "exclusion_reason": [],
-                     "replacement": 'False',
+                     "replacement": False,
                      "replaced_entity": [],
                      "replacement_reason": []}
 
         # Parse relevant data from Task
         task = task_object
-
         if not isinstance(task, dict):
             task = json.loads(task_object)
+
+        # Convert task fields to bool where necessary
+        task = convert_dict_str_to_bool(task)
 
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
@@ -96,14 +112,19 @@ class HandlerMergeModels:
 
         # Get additional models directly from Minio
         if local_import_models:
-            additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime, local_import_models, bucket_name=INPUT_MINIO_BUCKET, prefix=INPUT_MINIO_FOLDER)
-            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
-            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
+            additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon, scenario_datetime,
+                                                                                       local_import_models,
+                                                                                       bucket_name=INPUT_MINIO_BUCKET,
+                                                                                       prefix=INPUT_MINIO_FOLDER)
+            missing_local_import = [tso for tso in local_import_models if
+                                    tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            merge_log.get('exclusion_reason').extend(
+                [{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
         else:
             additional_models_data = []
 
         # Check model validity and availability
-        valid_models = [model for model in filtered_models if model['valid'] == 'True' or model['valid'] == True]
+        valid_models = [model for model in filtered_models if model['valid']]
         invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
         if invalid_models:
             merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is not valid'} for tso in invalid_models])
@@ -115,24 +136,26 @@ class HandlerMergeModels:
             if missing_models:
                 merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from OPDM'} for tso in missing_models])
         else:
-            if model_replacement == 'True':
+            if model_replacement:
                 available_tsos = get_available_tsos()
                 missing_models = [model for model in available_tsos if model not in [model['pmd:TSO'] for model in valid_models] + excluded_models]
             else:
                 missing_models = []
 
         # Run replacement on missing/invalid models
-        if model_replacement == 'True' and missing_models:
+        if model_replacement and missing_models:
             try:
                 logger.info(f"Running replacement for missing models")
                 replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
                 if replacement_models:
-                    logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
+                    logger.info(
+                        f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'],
                                                               'replacement_time_horizon': model['pmd:timeHorizon'],
-                                                              'replacement_scenario_date': model['pmd:scenarioDate']} for model in replacement_models])
+                                                              'replacement_scenario_date': model['pmd:scenarioDate']}
+                                                             for model in replacement_models])
                     valid_models = valid_models + replacement_models
-                    merge_log.update({'replacement': 'True'})
+                    merge_log.update({'replacement': True})
                     # TODO put exclusion_reason logging under replacement
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
@@ -157,8 +180,8 @@ class HandlerMergeModels:
             if not escape_upper_xml.empty:
                 escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
                 assembled_data = triplets.rdf_parser.update_triplet_from_triplet(assembled_data, escape_upper_xml,
-                                                                                  update=True,
-                                                                                  add=False)
+                                                                                 update=True,
+                                                                                 add=False)
             input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembled_data])])
             del assembled_data
 
@@ -167,7 +190,8 @@ class HandlerMergeModels:
             merged_model = merge_functions.load_model(input_models)
 
             # TODO - run other LF if default fails
-            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings,
+                                                                                          MERGE_LOAD_FLOW_SETTINGS))
             merge_end = datetime.datetime.utcnow()
             logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
@@ -176,11 +200,13 @@ class HandlerMergeModels:
                 _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
 
-                time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds/3600):02d}"
+                time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
                 logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
             # TODO - get version dynamically form ELK
-            sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime, time_horizon, version, merging_area, merging_entity, mas)
+            sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime,
+                                                                          time_horizon, version, merging_area,
+                                                                          merging_entity, mas)
 
             # Fix SV
             sv_data = merge_functions.fix_sv_shunts(sv_data, input_models)
@@ -188,23 +214,24 @@ class HandlerMergeModels:
             sv_data = merge_functions.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
             models_as_triplets = merge_functions.load_opdm_data(input_models)
             sv_data = merge_functions.remove_duplicate_sv_voltages(cgm_sv_data=sv_data,
-                                                                original_data=models_as_triplets)
+                                                                   original_data=models_as_triplets)
             sv_data = merge_functions.check_and_fix_dependencies(cgm_sv_data=sv_data,
-                                                                cgm_ssh_data=ssh_data,
-                                                                original_data=models_as_triplets)
+                                                                 cgm_ssh_data=ssh_data,
+                                                                 original_data=models_as_triplets)
             sv_data, ssh_data = merge_functions.disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data,
-                                                                                        cgm_ssh_data=ssh_data,
-                                                                                        original_data=models_as_triplets)
+                                                                                          cgm_ssh_data=ssh_data,
+                                                                                          original_data=models_as_triplets)
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
 
             # Upload to OPDM
-            if model_upload_to_opdm == 'True':
+            if model_upload_to_opdm:
                 try:
                     for item in serialized_data:
                         logger.info(f"Uploading to OPDM: {item.name}")
-                        async_call(function=self.opdm_service.publication_request, callback=log_opdm_response, file_path_or_file_object=item)
-                        merge_log.update({'uploaded_to_opde': 'True'})
+                        async_call(function=self.opdm_service.publication_request, callback=log_opdm_response,
+                                   file_path_or_file_object=item)
+                        merge_log.update({'uploaded_to_opde': True})
                 except:
                     logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
@@ -223,20 +250,20 @@ class HandlerMergeModels:
                 # Include original IGM files
                 for object in input_models:
                     for instance in object['opde:Component']:
-                            file_object = opdmprofile_to_bytes(instance)
-                            logging.info(f"Adding file: {file_object.name}")
-                            cgm_zip.writestr(file_object.name, file_object.getvalue())
+                        file_object = opdmprofile_to_bytes(instance)
+                        logging.info(f"Adding file: {file_object.name}")
+                        cgm_zip.writestr(file_object.name, file_object.getvalue())
 
             cgm_object = cgm_data
             cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
 
             # Send to Object Storage
-            if model_upload_to_minio == 'True':
+            if model_upload_to_minio:
                 logger.info(f"Uploading CGM to MINIO: {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
                 try:
                     response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
                     if response:
-                        merge_log.update({'uploaded_to_minio': 'True'})
+                        merge_log.update({'uploaded_to_minio': True})
                 except:
                     logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
 
@@ -246,8 +273,8 @@ class HandlerMergeModels:
             task_duration = end_time - start_time
             logger.info(f"Task ended at {end_time}, total run time {task_duration}",
                         extra={"task_duration": task_duration.total_seconds(),
-                            "task_start_time": start_time.isoformat(),
-                            "task_end_time": end_time.isoformat()})
+                               "task_start_time": start_time.isoformat(),
+                               "task_end_time": end_time.isoformat()})
 
             # Set task to finished
             update_task_status(task, "finished")
@@ -255,18 +282,19 @@ class HandlerMergeModels:
 
             # Update merge log
             merge_log.update({'task': task,
-                               'small_island_size': SMALL_ISLAND_SIZE,
-                               'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
-                               'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
-                               'content_reference': cgm_object.name,
-                               'cgm_name': cgm_name})
+                              'small_island_size': SMALL_ISLAND_SIZE,
+                              'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
+                              'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
+                              'content_reference': cgm_object.name,
+                              'cgm_name': cgm_name})
 
             # Send merge report to Elastic
-            if model_merge_report_send_to_elk == 'True':
+            if model_merge_report_send_to_elk:
                 try:
                     merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
                     try:
-                        response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
+                        response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX,
+                                                                   json_message=merge_report)
                     except Exception as error:
                         logger.error(f"Merge report sending to Elastic failed: {error}")
                 except Exception as error:
@@ -276,12 +304,13 @@ class HandlerMergeModels:
             self.elk_logging_handler.stop_trace()
 
             logger.info(f"Merge task finished for model: '{cgm_name}'")
+
             return task
 
 
 if __name__ == "__main__":
-
     import sys
+
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
