@@ -209,7 +209,10 @@ class HandlerMergeModels:
                     logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
             # Create zipped model data
-            cgm_name = f"CGM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+            if merging_area == 'BA':
+                cgm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+            else:
+                cgm_name = f"CGM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
             cgm_data = BytesIO()
             with ZipFile(cgm_data, "w") as cgm_zip:
 
