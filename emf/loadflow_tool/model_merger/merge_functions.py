@@ -430,7 +430,7 @@ def generate_merge_report(merged_model, input_models, merge_data):
                          '@task_id': merge_data['task'].get('@id'),
                          '@time_horizon': task_properties.get('time_horizon'),
                          '@scenario_timestamp': task_properties.get('timestamp_utc'),
-                         '@version': task_properties.get('version'),
+                         '@version': int(task_properties.get('version')),
                          })
 
     pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
@@ -466,12 +466,12 @@ def generate_merge_report(merged_model, input_models, merge_data):
             island['slack_bus_name'] = ''
             island['slack_bus_region'] = ''
 
-        network_balance = {"generation_p": generation_by_component.loc[island['connected_component_num']].p,
-                           "load_p": load_by_component.loc[island['connected_component_num']].p,
-                           "generation_q": generation_by_component.loc[island['connected_component_num']].q,
-                           "load_q": load_by_component.loc[island['connected_component_num']].q,
-                           "buses": buses_by_component.loc[island['connected_component_num']],
-                           "branches": branches_by_component.loc[island['connected_component_num']],
+        network_balance = {"generation_p": float(generation_by_component.loc[island['connected_component_num']].p),
+                           "load_p": float(load_by_component.loc[island['connected_component_num']].p),
+                           "generation_q": float(generation_by_component.loc[island['connected_component_num']].q),
+                           "load_q": float(load_by_component.loc[island['connected_component_num']].q),
+                           "buses": int(buses_by_component.loc[island['connected_component_num']]),
+                           "branches": int(branches_by_component.loc[island['connected_component_num']]),
                            }
 
         island.update({k: v for k, v in network_balance.items()})
@@ -490,7 +490,7 @@ def generate_merge_report(merged_model, input_models, merge_data):
         "included": [model['pmd:TSO'] for model in input_models if model['pmd:TSO']],
         "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
         "exclusion_reason": merge_data.get('exclusion_reason'),
-        "duration_s": merge_data.get('merge_duration'),
+        "duration_s": float(merge_data.get('merge_duration')),
         "scaled": merge_data.get('scaled'),
         "replaced": merge_data.get('replacement'),
         "replaced_entity": merge_data.get('replaced_entity'),
