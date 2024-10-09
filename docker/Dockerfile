@@ -68,5 +68,5 @@ COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/merge_worker.py"]
+ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
