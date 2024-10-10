@@ -250,9 +250,10 @@ class HandlerMergeModels:
                 # Include original IGM files
                 for object in input_models:
                     for instance in object['opde:Component']:
-                        file_object = opdmprofile_to_bytes(instance)
-                        logging.info(f"Adding file: {file_object.name}")
-                        cgm_zip.writestr(file_object.name, file_object.getvalue())
+                        if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
+                            file_object = opdmprofile_to_bytes(instance)
+                            logging.info(f"Adding file: {file_object.name}")
+                            cgm_zip.writestr(file_object.name, file_object.getvalue())
 
             cgm_object = cgm_data
             cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
