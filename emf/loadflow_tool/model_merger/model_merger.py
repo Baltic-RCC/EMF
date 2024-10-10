@@ -10,15 +10,15 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import opdmprofile_to_bytes, create_opdm_objects
+from emf.loadflow_tool.helper import opdmprofile_to_bytes
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
 from emf.loadflow_tool.replacement import run_replacement, get_available_tsos
-import triplets
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
+from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -59,7 +59,7 @@ class HandlerMergeModels:
 
     def handle(self, task_object: dict, **kwargs):
 
-        start_time = datetime.datetime.utcnow()
+        start_time = datetime.datetime.now(datetime.UTC)
         merge_log = {"uploaded_to_opde": False,
                      "uploaded_to_minio": False,
                      "scaled": False,
@@ -102,6 +102,8 @@ class HandlerMergeModels:
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
+        pre_temp_fixes = task_properties['pre_temp_fixes']
+        post_temp_fixes = task_properties['post_temp_fixes']
 
         # Collect valid models from ObjectStorage
         downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False)
@@ -167,32 +169,24 @@ class HandlerMergeModels:
         else:
             # Load all selected models
             input_models = valid_models + [latest_boundary]
-            # SET BRELL LINE VALUES
-            if merging_area == 'BA':
-                input_models = merge_functions.set_brell_lines_to_zero_in_models(input_models)
+
             if len(input_models) < 2:
                 logger.warning("Found no models to merge, returning None")
                 return None
-            assembled_data = merge_functions.load_opdm_data(input_models)
-            assembled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembled_data)
-            assembled_data = merge_functions.configure_paired_boundarypoint_injections_by_nodes(assembled_data)
-            escape_upper_xml = assembled_data[assembled_data['VALUE'].astype(str).str.contains('.XML')]
-            if not escape_upper_xml.empty:
-                escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
-                assembled_data = triplets.rdf_parser.update_triplet_from_triplet(assembled_data, escape_upper_xml,
-                                                                                 update=True,
-                                                                                 add=False)
-            input_models = create_opdm_objects([merge_functions.export_to_cgmes_zip([assembled_data])])
-            del assembled_data
+
+            # Run pre-processing
+            pre_p_start = datetime.datetime.now(datetime.UTC)
+            if pre_temp_fixes:
+                input_models = run_pre_merge_processing(input_models, merging_area)
+            pre_p_end = datetime.datetime.now(datetime.UTC)
+            logger.error(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
 
             # Load network model and merge
-            merge_start = datetime.datetime.utcnow()
+            merge_start = datetime.datetime.now(datetime.UTC)
             merged_model = merge_functions.load_model(input_models)
-
             # TODO - run other LF if default fails
-            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings,
-                                                                                          MERGE_LOAD_FLOW_SETTINGS))
-            merge_end = datetime.datetime.utcnow()
+            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+            merge_end = datetime.datetime.now(datetime.UTC)
             logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
             # Update time_horizon in case of generic ID process type
@@ -203,26 +197,16 @@ class HandlerMergeModels:
                 time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
                 logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
-            # TODO - get version dynamically form ELK
-            sv_data, ssh_data = merge_functions.create_sv_and_updated_ssh(solved_model, input_models, scenario_datetime,
-                                                                          time_horizon, version, merging_area,
-                                                                          merging_entity, mas)
+            # Run post-processing
+            post_p_start = datetime.datetime.now(datetime.UTC)
+            sv_data, ssh_data = run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE,
+                                                          apply_temp_fixes=post_temp_fixes)
 
-            # Fix SV
-            sv_data = merge_functions.fix_sv_shunts(sv_data, input_models)
-            sv_data = merge_functions.fix_sv_tapsteps(sv_data, ssh_data)
-            sv_data = merge_functions.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
-            models_as_triplets = merge_functions.load_opdm_data(input_models)
-            sv_data = merge_functions.remove_duplicate_sv_voltages(cgm_sv_data=sv_data,
-                                                                   original_data=models_as_triplets)
-            sv_data = merge_functions.check_and_fix_dependencies(cgm_sv_data=sv_data,
-                                                                 cgm_ssh_data=ssh_data,
-                                                                 original_data=models_as_triplets)
-            sv_data, ssh_data = merge_functions.disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data,
-                                                                                          cgm_ssh_data=ssh_data,
-                                                                                          original_data=models_as_triplets)
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
+            post_p_end = datetime.datetime.now(datetime.UTC)
+            logger.error(f"Post proocessing took: {(post_p_end - post_p_start).total_seconds()} seconds")
+            logger.error(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
             # Upload to OPDM
             if model_upload_to_opdm:
@@ -270,7 +254,7 @@ class HandlerMergeModels:
 
             logger.info(f"CGM creation done for {cgm_name}")
 
-            end_time = datetime.datetime.utcnow()
+            end_time = datetime.datetime.now(datetime.UTC)
             task_duration = end_time - start_time
             logger.info(f"Task ended at {end_time}, total run time {task_duration}",
                         extra={"task_duration": task_duration.total_seconds(),
@@ -350,12 +334,14 @@ if __name__ == "__main__":
             "timestamp_utc": "2024-10-11T06:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": [],
+            "included": ['PSE', 'AST'],
             "excluded": [],
             "local_import": [],
-            "time_horizon": "ID",
+            "time_horizon": "1D",
             "version": "99",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
+            "pre_temp_fixes": "True",
+            "post_temp_fixes": "True",
             "replacement": "True",
             "scaling": "False",
             "upload_to_opdm": "False",
