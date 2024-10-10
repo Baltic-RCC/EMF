@@ -97,7 +97,7 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
     })
 
 
-def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
+def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
     ### SV ###
     # Set Metadata
@@ -139,8 +139,8 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
 
     # Load full original data to fix issues
-    data = load_opdm_data(original_models)
-    terminals = data.type_tableview("Terminal")
+    # data = load_opdm_data(original_models)
+    # terminals = data.type_tableview("Terminal")
 
     # Update SSH data from SV
     ssh_update_map = [
@@ -182,11 +182,11 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
         }
     ]
     # Load terminal from original data
-    terminals = load_opdm_data(original_models).type_tableview("Terminal")
+    terminals = models_as_triplets.type_tableview("Terminal")
 
     # Update
     for update in ssh_update_map:
-        logger.info(f"Updating: {update['from_attribute']} -> {update['to_attribute']}")
+        # logger.info(f"Updating: {update['from_attribute']} -> {update['to_attribute']}")
         source_data = sv_data.type_tableview(update['from_class']).reset_index(drop=True)
 
         # Merge with terminal, if needed
@@ -227,10 +227,10 @@ def create_sv_and_updated_ssh(merged_model, original_models, scenario_date, time
     return sv_data, ssh_data
 
 
-def fix_sv_shunts(sv_data, original_data):
+def fix_sv_shunts(sv_data, models_as_triplets):
     """Remove Shunt Sections for EQV Shunts"""
 
-    equiv_shunt = load_opdm_data(original_data, "EQ").query("KEY == 'Type' and VALUE == 'EquivalentShunt'")
+    equiv_shunt = models_as_triplets.query("KEY == 'Type' and VALUE == 'EquivalentShunt'")
     if len(equiv_shunt) > 0:
         shunts_to_remove = sv_data.merge(
             sv_data.query("KEY == 'SvShuntCompensatorSections.ShuntCompensator'").merge(equiv_shunt.ID, left_on='VALUE',
@@ -784,6 +784,40 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                         model_profile['opdm:Profile']['DATA'] = serialized.read()
 
     return opdm_models
+
+
+def set_brell_lines_to_zero_in_models_new(assembled_data, magic_brell_lines: dict = None, profile_to_change: str = "SSH"):
+    """
+    Sets p and q of given  (BRELL) lines to zero
+    Copied from emf_python as is
+    Workflow:
+    1) Take models (in cgmes format)
+    2) parse profile ("SSH") to triplets
+    3) Check and set the BRELL lines
+    4) if lines were set, repackage from triplets to CGMES and replace it in given profile
+    5) return models (losses: ""->'' in header, tab -> double space, closing tags -> self-closing tags if empty)
+    Note that in test run only one of them: L309 was present in AST
+    :param opdm_models: list of opdm models
+    :param magic_brell_lines: dictionary of brell lines
+    :param profile_to_change: profile to change
+    """
+    if not magic_brell_lines:
+        magic_brell_lines = {'L373': 'cf3af93a-ad15-4db9-adc2-4e4454bb843f',
+                             'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
+                             'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
+                             'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
+
+    for line, line_id in magic_brell_lines.items():
+        if assembled_data.query(f"ID == '{line_id}'").empty:
+            logger.info(f"Skipping brell line {line} as it was not found in data")
+        else:
+            logger.info(f"Setting brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
+            assembled_data.loc[
+                assembled_data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
+            assembled_data.loc[
+                assembled_data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
+
+    return assembled_data
 
 
 if __name__ == "__main__":
