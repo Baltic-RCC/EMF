@@ -145,7 +145,7 @@ class HandlerMergeModels:
         # Run replacement on missing/invalid models
         if model_replacement and missing_models:
             try:
-                logger.info(f"Running replacement for missing models")
+                logger.info(f"Running replacement for missing models: {missing_models}")
                 replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
                 if replacement_models:
                     logger.info(
@@ -347,14 +347,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-10-07T10:30:00+00:00",
+            "timestamp_utc": "2024-10-11T06:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
-            "included": ['PSE', 'AST'],
+            "included": [],
             "excluded": [],
             "local_import": [],
-            "time_horizon": "1D",
-            "version": "101",
+            "time_horizon": "ID",
+            "version": "99",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "replacement": "True",
             "scaling": "False",
