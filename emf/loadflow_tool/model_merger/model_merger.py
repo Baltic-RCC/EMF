@@ -200,7 +200,7 @@ class HandlerMergeModels:
             # Run post-processing
             post_p_start = datetime.datetime.now(datetime.UTC)
             sv_data, ssh_data = run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE,
-                                                          apply_temp_fixes=post_temp_fixes)
+                                                          enable_temp_fixes=post_temp_fixes)
 
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
