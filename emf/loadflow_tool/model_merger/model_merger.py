@@ -179,7 +179,7 @@ class HandlerMergeModels:
             if pre_temp_fixes:
                 input_models = run_pre_merge_processing(input_models, merging_area)
             pre_p_end = datetime.datetime.now(datetime.UTC)
-            logger.error(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
+            logger.debug(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
 
             # Load network model and merge
             merge_start = datetime.datetime.now(datetime.UTC)
@@ -205,8 +205,8 @@ class HandlerMergeModels:
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
             post_p_end = datetime.datetime.now(datetime.UTC)
-            logger.error(f"Post proocessing took: {(post_p_end - post_p_start).total_seconds()} seconds")
-            logger.error(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
+            logger.debug(f"Post proocessing took: {(post_p_end - post_p_start).total_seconds()} seconds")
+            logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
             # Upload to OPDM
             if model_upload_to_opdm:
@@ -275,6 +275,7 @@ class HandlerMergeModels:
 
             # Send merge report to Elastic
             if model_merge_report_send_to_elk:
+                logger.info(f"Sending merge report to Elastic")
                 try:
                     merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
                     try:
@@ -288,7 +289,7 @@ class HandlerMergeModels:
             # Stop Trace
             self.elk_logging_handler.stop_trace()
 
-            logger.info(f"Merge task finished for model: '{cgm_name}'")
+            logger.info(f"Merge task finished for model: {cgm_name}")
 
             return task
 
@@ -331,7 +332,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-10-11T06:30:00+00:00",
+            "timestamp_utc": "2024-10-14T06:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRSC",
             "included": ['PSE', 'AST'],
@@ -346,7 +347,7 @@ if __name__ == "__main__":
             "scaling": "False",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
-            "send_merge_report": "False",
+            "send_merge_report": "True",
         }
     }
 
