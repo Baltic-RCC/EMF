@@ -467,9 +467,9 @@ def generate_merge_report(merged_model, input_models, merge_data):
             island['slack_bus_region'] = ''
 
         network_balance = {"generation_p": float(generation_by_component.loc[island['connected_component_num']].p),
-                           "load_p": float(load_by_component.loc[island['connected_component_num']].p),
+                           "load_p": float(load_by_component.loc[island['connected_component_num']].p) if island['connected_component_num'] in load_by_component.index else float(0),
                            "generation_q": float(generation_by_component.loc[island['connected_component_num']].q),
-                           "load_q": float(load_by_component.loc[island['connected_component_num']].q),
+                           "load_q": float(load_by_component.loc[island['connected_component_num']].q) if island['connected_component_num'] in load_by_component.index else float(0),
                            "buses": int(buses_by_component.loc[island['connected_component_num']]),
                            "branches": int(branches_by_component.loc[island['connected_component_num']]),
                            }
