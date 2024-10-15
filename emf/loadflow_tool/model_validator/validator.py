@@ -20,7 +20,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.vali
 # note - multiple islands wo load or generation can be an issue
 
 
-def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS), run_element_validations=True):
+def validate_model(opdm_objects, loadflow_parameters=VALIDATION_LOAD_FLOW_SETTINGS, run_element_validations=True):
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
@@ -45,29 +45,36 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
 
     # Validate if loadflow can be run
     logger.info(f"Solving load flow")
-    loadflow_report = pypowsybl.report.Reporter()
-    loadflow_result = pypowsybl.loadflow.run_ac(network=network,
-                                                parameters=loadflow_parameters,
-                                                reporter=loadflow_report)
+    parameter_list = [param.strip() for param in VALIDATION_SETTINGS_PRIORITY.split(',')]
+    parameter_priority = next((i for i, value in enumerate(parameter_list) if value == loadflow_parameters), None)
+    parameter_list = parameter_list[parameter_priority:]
+    for lf_settings in parameter_list:
+        loadflow_parameters = getattr(loadflow_settings, lf_settings)
+        loadflow_report = pypowsybl.report.Reporter()
+        loadflow_result = pypowsybl.loadflow.run_ac(network=network,
+                                                    parameters=loadflow_parameters,
+                                                    reporter=loadflow_report)
 
-    # Parsing loadflow results
-    # TODO move sanitization to Elastic integration
-    loadflow_result_dict = {}
-    for island in loadflow_result:
-        island_results = attr_to_dict(island)
-        island_results['status'] = island_results.get('status').name
-        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
-        loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
-    model_data["loadflow_results"] = loadflow_result_dict
-    # model_data["loadflow_report"] = json.loads(loadflow_report.to_json())
-    # model_data["loadflow_report_str"] = str(loadflow_report)
+        # Parsing loadflow results
+        # TODO move sanitization to Elastic integration
+        loadflow_result_dict = {}
+        for island in loadflow_result:
+            island_results = attr_to_dict(island)
+            island_results['status'] = island_results.get('status').name
+            island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
+            loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
+        model_data["loadflow_results"] = loadflow_result_dict
+        # model_data["loadflow_report"] = json.loads(loadflow_report.to_json())
+        # model_data["loadflow_report_str"] = str(loadflow_report)
 
-    # Validation status and duration
-    # TODO check only main island component 0?
-    model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
-    model_data["valid"] = model_valid
-    model_data["validation_duration_s"] = round(time.time() - start_time, 3)
-    logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+        # Validation status and duration
+        # TODO check only main island component 0?
+        model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
+        model_data["valid"] = model_valid
+        model_data["validation_duration_s"] = round(time.time() - start_time, 3)
+        if model_valid:
+            break
+    logger.info(f"Load flow validation status: '{model_valid}' [duration {model_data['validation_duration_s']}s] with parameters '{lf_settings}'")
 
     try:
         model_data['outages'] = get_model_outages(network)
@@ -83,6 +90,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
     model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
     model_data['@version'] = model_metadata['pmd:versionNumber']
+    model_data['loadflow_settings'] = lf_settings
 
     # Pop out pypowsybl network object
     model_data.pop('network')
@@ -101,6 +109,7 @@ if __name__ == "__main__":
 
     import sys
     from emf.common.integrations.opdm import OPDM
+    from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -111,8 +120,8 @@ if __name__ == "__main__":
 
     opdm = OPDM()
 
-    latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-08-16T09:30")#, tso="ELERING")
+    latest_boundary = get_latest_boundary()
+    available_models = get_latest_models_and_download(time_horizon='1D', scenario_date="2024-10-07T07:30:00+00:00", tso='APG')
 
     validated_models = []
 
