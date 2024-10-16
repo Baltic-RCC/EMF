@@ -76,9 +76,9 @@
         "@id": "https://example.com/timeHorizons/W-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current week for next week",
-        "period_duration": "P1W",
-        "period_start": "P1W",
-        "reference_time": "currentWeekStart"
+        "period_duration": "P3D",
+        "period_start": "P9D",
+        "reference_time": "currentDayStart"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
