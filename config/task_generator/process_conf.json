@@ -342,7 +342,7 @@
      "upload_to_opdm": "False",
      "upload_to_minio": "True",
      "send_merge_report": "True"
-    },
+    }},
    {
     "@context": "https://example.com/schemas/run.jsonld",
     "@id": "https://example.com/runs/WeekAheadRMM",
