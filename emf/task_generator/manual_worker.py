@@ -36,6 +36,11 @@ elif TIME_HORIZON == 'ID':
     process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/IntraDay{merge_type}/1'
     process_config_json[0]['runs'][0]['time_frame'] = 'D-1'
     timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/D-1"
+elif TIME_HORIZON == 'WK':
+    process_config_json[0]['runs'][0]['@id'] = f'https://example.com/runs/WeekAhead{merge_type}'
+    process_config_json[0]['runs'][0]['time_frame'] = 'W-1'
+    timeframe_config_json[0]['@id'] = "https://example.com/timeHorizons/W-1"
+
 
 process_config_json[0]['runs'][0]['properties']['merge_type'] = MERGE_TYPE
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
