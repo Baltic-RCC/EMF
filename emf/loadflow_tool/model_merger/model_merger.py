@@ -1,6 +1,7 @@
 import logging
 import config
 import json
+import time
 from uuid import uuid4
 import datetime
 from emf.task_generator.time_helper import parse_datetime
@@ -213,6 +214,7 @@ class HandlerMergeModels:
                 try:
                     for item in serialized_data:
                         logger.info(f"Uploading to OPDM: {item.name}")
+                        time.sleep(2)
                         async_call(function=self.opdm_service.publication_request, callback=log_opdm_response,
                                    file_path_or_file_object=item)
                         merge_log.update({'uploaded_to_opde': True})
