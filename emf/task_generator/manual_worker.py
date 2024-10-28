@@ -58,8 +58,9 @@ process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_F
 
 if PROCESS_TIME_SHIFT:
     timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
-    #timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
-    #timeframe_config_json[0]['reference_time'] = TASK_REFERENCE_TIME
+if TIMETRAVEL:
+    timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
+    timeframe_config_json[0]['reference_time'] = TASK_REFERENCE_TIME
 
 
 with open(process_conf, 'w') as file:
