@@ -14,9 +14,6 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(globals(), config.paths.integrations.rabbit)
 
-pika_logger = logging.getLogger("pika")
-pika_logger.setLevel(logging.DEBUG)
-
 
 class BlockingClient:
 
