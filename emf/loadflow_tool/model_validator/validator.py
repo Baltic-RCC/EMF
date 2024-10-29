@@ -9,6 +9,7 @@ from emf.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
+from emf.loadflow_tool.model_merger.merge_functions import handle_not_retained_switches_between_nodes
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
@@ -24,6 +25,8 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
+    # Check for switches that are not retained, are closed and connect different TNs
+    not_retained_switches_present = handle_not_retained_switches_between_nodes(opdm_objects)[1]
     network = model_data["network"]
 
     # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
@@ -66,6 +69,12 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Validation status and duration
     # TODO check only main island component 0?
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
+    # Do something useful with these non retained switches
+    # Ver 1 call model invalid if they are present
+    # model_valid = model_valid and (not not_retained_switches_present)
+    # Ver 2 save it as additional parameter to elastic report
+    model_data["non_retained_switches_between_tn"] = not_retained_switches_present
+
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
