@@ -1,0 +1,41 @@
+-i https://pypi.org/simple
+aniso8601==9.0.1
+argon2-cffi==23.1.0; python_version >= '3.7'
+argon2-cffi-bindings==21.2.0; python_version >= '3.6'
+attrs==24.2.0; python_version >= '3.7'
+certifi==2024.8.30; python_version >= '3.6'
+cffi==1.17.0; python_version >= '3.8'
+charset-normalizer==3.3.2; python_full_version >= '3.7.0'
+croniter==3.0.3; python_version >= '2.6' and python_version not in '3.0, 3.1, 3.2, 3.3'
+edx==0.0.16
+elastic-transport==8.15.0; python_version >= '3.8'
+elasticsearch==8.15.0; python_version >= '3.8'
+idna==3.8; python_version >= '3.6'
+isodate==0.6.1
+lxml==5.3.0; python_version >= '3.6'
+minio==7.2.8; python_version >= '3.9'
+ndjson==0.3.1
+networkx==3.3; python_version >= '3.10'
+numpy==2.0.0; python_version >= '3.9'
+opdm-api==0.1.0
+pandas==2.2.2; python_version >= '3.9'
+pika==1.3.2; python_version >= '3.7'
+platformdirs==4.2.2; python_version >= '3.8'
+prettytable==3.11.0; python_version >= '3.8'
+pycparser==2.22; python_version >= '3.8'
+pycryptodome==3.20.0; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4'
+pypowsybl==1.6.1; python_version >= '3.8'
+python-dateutil==2.9.0.post0; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
+pytz==2024.1
+requests==2.32.3; python_version >= '3.8'
+requests-file==2.1.0
+requests-toolbelt==1.0.0; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
+saxonche==12.5.0; python_version >= '3.8'
+six==1.16.0; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
+triplets==0.0.7
+typing-extensions==4.12.2; python_version >= '3.8'
+tzdata==2024.1; python_version >= '2'
+urllib3==2.2.2; python_version >= '3.8'
+wcwidth==0.2.13
+xmltodict==0.13.0; python_version >= '3.4'
+zeep==4.2.1; python_version >= '3.7'

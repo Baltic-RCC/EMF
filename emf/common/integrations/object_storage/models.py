@@ -6,12 +6,14 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-def query_data(metadata_query: dict, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None):
+
+def query_data(metadata_query: dict, query_filter: str = None, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None, scroll: str='1m'):
     """
     Queries Elasticsearch based on provided metadata queries.
 
     Args:
         metadata_query (dict): A dictionary containing metadata fields and their values to be queried.
+        query_filter (dict): Optional. A dictionary specifying parameters by which to filter the query.
         index (str): The index to query data from. Defaults to ELASTIC_QUERY_INDEX from config variables.
         return_payload (bool): Optional. If True, retrieves the full content for each hit.
             Defaults to False.
@@ -46,17 +48,28 @@ def query_data(metadata_query: dict, index: str = ELASTIC_QUERY_INDEX, return_pa
         else:
             match_and_term_list.append({"match": {key: value}})
 
-    query = {"bool": {"must": match_and_term_list}}
+    if query_filter:
+        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:creationDate": {"gte": query_filter}}}}}
+    else:
+        query = {"bool": {"must": match_and_term_list}}
 
     # Return query results
-    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort)
-    content_list = [content["_source"] for content in response["hits"]["hits"]]
+    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort, scroll=scroll)
+    scroll_id = response['_scroll_id']
+    hits = response["hits"]["hits"]
+    content_list = [content["_source"] for content in hits]
+    while len(hits) > 0:
+        response = elastic_service.client.scroll(scroll_id=scroll_id, scroll=scroll)
+        hits = response["hits"]["hits"]
+        if hits:
+            content_list.extend([content["_source"] for content in hits])
 
     if return_payload:
         for num, item in enumerate(content_list):
             content_list[num] = get_content(item)
 
     return content_list
+
 
 def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
     """
@@ -151,9 +164,8 @@ if __name__ == "__main__":
                   "pmd:timeHorizon": "2D",
                   "pmd:scenarioDate": "2024-02-15T22:30:00Z",
                   }
-
-    test_response = query_data(test_query, return_payload=True)
-
+    test_filter = "now-2w"
+    test_response = query_data(test_query, query_filter=test_filter, return_payload=True)
 
     #models = get_latest_models_and_download("1D", '20240526T1530Z', valid=False)
     models = get_latest_models_and_download("ID", '20240522T1530Z', valid=True)

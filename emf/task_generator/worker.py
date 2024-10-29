@@ -14,6 +14,34 @@ parse_app_properties(globals(), config.paths.task_generator.task_generator)
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
+process_config_json = json.load(process_conf)
+
+for runs in process_config_json[0]['runs']:
+    runs['properties']['included'] = [tso.strip() for tso in CGM_INCLUDED_TSO.split(',')] if CGM_INCLUDED_TSO else []
+    runs['properties']['excluded'] = [tso.strip() for tso in CGM_EXCLUDED_TSO.split(',')] if CGM_EXCLUDED_TSO else []
+    runs['properties']['local_import'] = [tso.strip() for tso in CGM_LOCAL_IMPORT.split(',')] if CGM_LOCAL_IMPORT else []
+    runs['properties']['replacement'] = RUN_REPLACEMENT_CGM
+    runs['properties']['scaling'] = RUN_SCALING_CGM
+    runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_CGM
+    runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_CGM
+    runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_CGM
+    runs['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
+    runs['properties']['post_temp_fixes'] = POST_TEMP_FIXES
+for runs in process_config_json[1]['runs']:
+    runs['properties']['included'] = [tso.strip() for tso in RMM_INCLUDED_TSO.split(',')] if RMM_INCLUDED_TSO else []
+    runs['properties']['excluded'] = [tso.strip() for tso in RMM_EXCLUDED_TSO.split(',')] if RMM_EXCLUDED_TSO else []
+    runs['properties']['local_import'] = [tso.strip() for tso in RMM_LOCAL_IMPORT.split(',')] if RMM_LOCAL_IMPORT else []
+    runs['properties']['replacement'] = RUN_REPLACEMENT_RMM
+    runs['properties']['scaling'] = RUN_SCALING_RMM
+    runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_RMM
+    runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_RMM
+    runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_RMM
+    runs['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
+    runs['properties']['post_temp_fixes'] = POST_TEMP_FIXES
+
+with open(process_conf, 'w') as file:
+    json.dump(process_config_json, file, indent=1)
+
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
 
 if tasks:

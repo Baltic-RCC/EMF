@@ -5,7 +5,7 @@ import time
 import math
 import config
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
@@ -29,10 +29,9 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     not_retained_switches_present = handle_not_retained_switches_between_nodes(opdm_objects)[1]
     network = model_data["network"]
 
-    # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
+    # Run all validations
     if run_element_validations:
-        validations = list(
-            set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value", "SHUNTS"]))
+        validations = list(set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
 
         model_data["validations"] = {}
 
@@ -41,9 +40,10 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
-                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network, validation_types=[validation_type])._valid.__bool__()
+                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
+                                                                                          validation_types=[validation_type])._valid.__bool__()
             except Exception as error:
-                logger.error(f"Failed {validation_type} validation with error: {error}")
+                logger.warning(f"Failed {validation_type} validation with error: {error}")
                 continue
 
     # Validate if loadflow can be run
@@ -52,7 +52,6 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
-
 
     # Parsing loadflow results
     # TODO move sanitization to Elastic integration
@@ -78,6 +77,21 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+
+    try:
+        model_data['outages'] = get_model_outages(network)
+    except Exception as e:
+        logger.error(f'Failed to log model outages: {e}')
+
+    try:
+        model_metadata = next(d for d in opdm_objects if d.get('opde:Object-Type') == 'IGM')
+    except:
+        logger.error("Failed to get model metadata")
+        model_metadata = {'pmd:scenarioDate': '', 'pmd:timeHorizon': '', 'pmd:versionNumber': ''}
+
+    model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
+    model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
+    model_data['@version'] = model_metadata['pmd:versionNumber']
 
     # Pop out pypowsybl network object
     model_data.pop('network')
