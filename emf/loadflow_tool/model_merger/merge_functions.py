@@ -600,13 +600,13 @@ def handle_not_retained_switches_between_nodes(original_data, open_not_retained_
                   .reset_index(name='same_TN'))
     between_tn = between_tn[between_tn['same_TN']]
     if not between_tn.empty:
+        updated_switches = True
         logger.warning(f"Found {len(between_tn.index)} not retained switches between topological nodes")
         if open_not_retained_switches:
             logger.warning(f"Opening not retained switches")
             open_switches = closed_switches.merge(between_tn[['ID']], on='ID')
             open_switches.loc[:, 'VALUE'] = 'true'
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
-            updated_switches = True
     return original_data, updated_switches
 
 
