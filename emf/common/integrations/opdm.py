@@ -70,7 +70,7 @@ class OPDM(opdm_api.create_client):
                 # More optimal, downloads whole model first (4 files)
                 if not content_data:
                     logger.warning("File not present on local client, requesting from OPDM service the whole Model")
-                    content_meta = self.get_content(model_meta['opde:Id'], content_type="model")
+                    content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
                     content_data = self.get_file(model_part_name)
 
                 # Less optimal, downloads each file separately
