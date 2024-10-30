@@ -621,10 +621,12 @@ def remove_duplicate_sv_voltages(cgm_sv_data, original_data):
     # Just in case convert the values to numeric
     sv_voltage_values[['SvVoltage.v']] = (sv_voltage_values[['SvVoltage.v']].apply(lambda x: x.apply(Decimal)))
     # Group by topological node id and by some logic take SvVoltage that will be dropped
-    voltages_to_discard = (sv_voltage_values.groupby(['SvVoltage.SvTopologicalNode']).
-                           apply(lambda x: take_best_match_for_sv_voltage(input_data=x,
-                                                                          column_name='SvVoltage.v',
-                                                                          to_keep=False), include_groups=False))
+    voltages_to_keep = (sv_voltage_values.groupby(['SvVoltage.SvTopologicalNode']).
+                        apply(lambda x: take_best_match_for_sv_voltage(input_data=x,
+                                                                       column_name='SvVoltage.v',
+                                                                       to_keep=True), include_groups=False))
+    voltages_to_discard = sv_voltage_values.merge(voltages_to_keep['ID'], on='ID', how='left', indicator=True)
+    voltages_to_discard = voltages_to_discard[voltages_to_discard['_merge'] == 'left_only']
     if not voltages_to_discard.empty:
         logger.info(f"Removing {len(voltages_to_discard.index)} duplicate voltage levels from boundary nodes")
         sv_voltages_to_remove = pandas.merge(cgm_sv_data, voltages_to_discard['ID'].to_frame(), on='ID')
