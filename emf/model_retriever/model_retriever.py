@@ -128,9 +128,11 @@ class HandlerModelsValidator:
             try:
                 response = validate_model(opdm_objects=[opdm_object, latest_boundary])
                 opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+                opdm_object["validation_settings"] = response["loadflow_settings"]
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
                 opdm_object["valid"] = False
+                opdm_object["validation_settings"] = 'None'
 
         return opdm_objects
 
