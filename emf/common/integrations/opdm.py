@@ -65,12 +65,21 @@ class OPDM(opdm_api.create_client):
                 # Maybe the file is all ready there (if OPDM subscription is enabled)
                 content_data = self.get_file(model_part_name)
 
-                # If file is not available on local client, lets request it and download it
+                # If file is not available on local client, lets request it from OPDM and download it
+
+                # More optimal, downloads whole model first (4 files)
                 if not content_data:
-                    logger.warning("File not present on local client, requesting from OPDM service")
+                    logger.warning("File not present on local client, requesting from OPDM service the whole Model")
+                    content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
+                    content_data = self.get_file(model_part_name)
+
+                # Less optimal, downloads each file separately
+                if not content_data:
+                    logger.warning("File not present on local client, requesting from OPDM service the specific File")
                     content_meta = self.get_content(model_part_meta['opde:Id'])
                     content_data = self.get_file(model_part_name)
 
+                # If no data available set to None
                 if not content_data:
                     logger.error(f"{model_part_name} not available on webdav")
                     opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
