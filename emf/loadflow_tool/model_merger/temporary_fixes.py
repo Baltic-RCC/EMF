@@ -35,9 +35,10 @@ def run_pre_merge_processing(input_models, merging_area):
     return input_models
 
 
-def run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE, enable_temp_fixes):
+def run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE, enable_temp_fixes,
+                              time_horizon: str=None):
 
-    time_horizon = task_properties["time_horizon"]
+    time_horizon = time_horizon or task_properties["time_horizon"]
     scenario_datetime = task_properties["timestamp_utc"]
     merging_area = task_properties["merge_type"]
     merging_entity = task_properties["merging_entity"]
