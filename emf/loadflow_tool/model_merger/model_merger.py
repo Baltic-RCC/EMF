@@ -191,17 +191,25 @@ class HandlerMergeModels:
             logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
             # Update time_horizon in case of generic ID process type
+            new_time_horizon = None
             if time_horizon.upper() == "ID":
                 _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
 
                 time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                new_time_horizon = time_horizon
+                # Check this, is it correct to  update the value here or it should be given to post processing"
+                # task_properties["time_horizon"] = time_horizon
                 logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
             # Run post-processing
             post_p_start = datetime.datetime.now(datetime.UTC)
-            sv_data, ssh_data = run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE,
-                                                          enable_temp_fixes=post_temp_fixes)
+            sv_data, ssh_data = run_post_merge_processing(input_models,
+                                                          solved_model,
+                                                          task_properties,
+                                                          SMALL_ISLAND_SIZE,
+                                                          enable_temp_fixes=post_temp_fixes,
+                                                          time_horizon=new_time_horizon)
 
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
