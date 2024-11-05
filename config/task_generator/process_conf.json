@@ -24,7 +24,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -53,7 +53,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -82,7 +82,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -111,7 +111,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -140,7 +140,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -180,7 +180,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -216,7 +216,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -252,7 +252,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -288,7 +288,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -324,7 +324,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -359,7 +359,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
