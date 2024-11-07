@@ -1,4 +1,6 @@
 import logging
+import math
+
 import config
 import json
 import time
@@ -195,8 +197,16 @@ class HandlerMergeModels:
             if time_horizon.upper() == "ID":
                 _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
-
-                time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
+                time_diff = _scenario_datetime - _task_creation_time
+                if time_diff.days == 0:
+                    # time_horizon_actual = int(time_diff.seconds / 3600)
+                    time_horizon_actual = math.ceil(time_diff.seconds / 3600)
+                    # if negative or zero, cut to 1
+                    # time_horizon_actual = max(time_horizon_actual, 1)
+                    # if time horizon got bigger than some random value, cut it back to 1
+                    time_horizon = f"{time_horizon_actual:02d}"
                 new_time_horizon = time_horizon
                 # Check this, is it correct to  update the value here or it should be given to post processing"
                 # task_properties["time_horizon"] = time_horizon
