@@ -8,7 +8,7 @@ import time
 import math
 import config
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages, export_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
