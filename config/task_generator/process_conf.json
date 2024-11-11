@@ -354,7 +354,7 @@
     "gate_open": "P1DT5H",
     "gate_close": "P1DT4H",
     "run_at": "0 4 1 9 *",
-    "time_frame": "YR",
+    "time_frame": "Y-1",
     "data_timestamps": "30 * * * *",
     "data_resolution": "PT1H",
     "tags": [],
