@@ -1,3 +1,6 @@
+import triplets
+import pandas
+import uuid
 import pypowsybl
 import logging
 import json
@@ -5,11 +8,11 @@ import time
 import math
 import config
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages, export_model
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
-from emf.loadflow_tool.model_merger.merge_functions import get_nodes_against_kirchhoff_first_law
+from emf.loadflow_tool.model_merger.merge_functions import get_nodes_against_kirchhoff_first_law, get_opdm_data_from_models, revert_ids_back
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
@@ -25,8 +28,10 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
-    violated_nodes = merge_functions.get_nodes_against_kirchhoff_first_law(original_models=opdm_objects)
-    kirchhoff_first_law_detected = False if violated_nodes.empty else True
+    # Pre check
+    opdm_model_triplets = get_opdm_data_from_models(model_data=opdm_objects)
+    violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets)
+    kirchhoff_first_law_detected = False if violated_nodes_pre.empty else True
 
     network = model_data["network"]
 
@@ -53,6 +58,23 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     loadflow_result = pypowsybl.loadflow.run_ac(network=network,
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
+
+    # Export sv profile and check it for Kirchhoff 1st law
+    export_parameters = {"iidm.export.cgmes.profiles": 'SV',
+                         "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+    bytes_object = network.save_to_binary_buffer(format="CGMES",
+                                                 parameters=export_parameters)
+    bytes_object.name = f"{uuid.uuid4()}.zip"
+    # Load SV data
+    sv_data = pandas.read_RDF([bytes_object])
+    # Fix naming
+    sv_data = revert_ids_back(exported_model=bytes_object, triplets_data=sv_data)
+    # Check violations after loadflow
+    violated_nodes_post = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets,
+                                                                cgm_sv_data=sv_data,
+                                                                consider_sv_injection=True)
+    kirchhoff_first_law_detected = kirchhoff_first_law_detected or (False if violated_nodes_post.empty else True)
+    # End of post check
 
     # Parsing loadflow results
     # TODO move sanitization to Elastic integration

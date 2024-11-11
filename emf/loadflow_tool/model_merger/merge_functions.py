@@ -1,3 +1,4 @@
+import zipfile
 import config
 from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, parse_pypowsybl_report, get_network_elements
 from emf.loadflow_tool import loadflow_settings
@@ -97,6 +98,37 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
     })
 
 
+def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
+    """
+    As pypowsybl creates its own unique uuids for the cases when the originals do not match the criteria then this
+    takes the naming_strategy.csv provided by the pypowsybl and reverts those ids back if it is applicable
+    :param exported_model: binary object from pypowsybl
+    :param triplets_data: profile(s) converted to triplets
+    :param revert_ids: True = fix, False=report only
+    :return (updated) triplets data
+    """
+
+    contents = zipfile.ZipFile(exported_model)
+    naming_strategy = pandas.DataFrame()
+
+    for file_name in contents.namelist():
+        if 'naming_strategy' in file_name:
+            naming_strategy = pandas.read_csv(filepath_or_buffer=BytesIO(contents.read(file_name)), sep=';')
+            break
+    if not naming_strategy.empty:
+        existing_values = triplets_data.merge(naming_strategy, left_on='VALUE', right_on='CgmesUuid')
+        existing_values = existing_values[existing_values['IidmId'] != 'unknown']
+        if not existing_values.empty:
+            if not revert_ids:
+                logger.error(f"Found {len(existing_values.index)} changed ids, consider dangling reference errors")
+                return triplets_data
+            logger.warning(f"Mapping {len(existing_values.index)} ids back")
+            existing_values['VALUE'] = existing_values['IidmId']
+            new_existing_values = existing_values[['ID', 'KEY', 'VALUE', 'INSTANCE_ID']]
+            triplets_data = triplets.rdf_parser.update_triplet_from_triplet(triplets_data, new_existing_values)
+    return triplets_data
+
+
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
     ### SV ###
@@ -118,6 +150,8 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Load SV data
     sv_data = pandas.read_RDF([exported_model])
+    # Fix naming
+    sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data, revert_ids=False)
 
     # Update
     sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
@@ -825,21 +859,31 @@ def set_brell_lines_to_zero_in_models_new(assembled_data, magic_brell_lines: dic
 def get_nodes_against_kirchhoff_first_law(original_models,
                                           cgm_sv_data: pandas.DataFrame = None,
                                           sv_injection_limit: float = SV_INJECTION_LIMIT,
+                                          consider_sv_injection: bool = False,
                                           nodes_only: bool = True):
     """
     Gets dataframe of nodes in which the sum of flows exceeds the limit
     :param cgm_sv_data: merged SV profile (needed to set the flows for terminals)
     :param original_models: IGMs (triplets, dictionary)
+    :param consider_sv_injection: whether to consider the sv injections
     :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
     :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
     """
     original_models = get_opdm_data_from_models(model_data=original_models)
-    if isinstance(cgm_sv_data, pandas.DataFrame) and not cgm_sv_data.empty:
-        # Get power flow after lf
-        power_flow = cgm_sv_data.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
-    else:
-        # Get power flow before lf or as is
-        power_flow = original_models.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+    sv_injections = pandas.DataFrame()
+    if cgm_sv_data is None:
+        cgm_sv_data = original_models
+    power_flow = cgm_sv_data.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+    if consider_sv_injection:
+        try:
+            sv_injections = (cgm_sv_data.type_tableview('SvInjection')
+                            .rename_axis('SvInjection')
+                            .rename(columns={'SvInjection.TopologicalNode': 'Terminal.TopologicalNode',
+                                            'SvInjection.pInjection': 'SvPowerFlow.p',
+                                            'SvInjection.qInjection': 'SvPowerFlow.q'})
+                            .reset_index())[['Terminal.TopologicalNode', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+        except Exception:
+            sv_injections = pandas.DataFrame()
     # Get terminals
     terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
     terminals = terminals[['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
@@ -848,6 +892,9 @@ def get_nodes_against_kirchhoff_first_law(original_models,
                      .groupby('Terminal.TopologicalNode')[['SvPowerFlow.p', 'SvPowerFlow.q']]
                      .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
                     .rename_axis('Terminal.TopologicalNode').reset_index())
+    if not sv_injections.empty:
+        flows_summed = (pandas.concat([flows_summed, sv_injections]).groupby('Terminal.TopologicalNode').sum()
+                        .reset_index())
     # Get topological nodes that have mismatch
     nok_nodes = flows_summed[(abs(flows_summed['SvPowerFlow.p']) > sv_injection_limit) |
                              (abs(flows_summed['SvPowerFlow.q']) > sv_injection_limit)][['Terminal.TopologicalNode']]
