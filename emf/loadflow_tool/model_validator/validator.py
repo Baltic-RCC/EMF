@@ -30,7 +30,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data = load_model(opdm_objects=opdm_objects)
     # Pre check
     opdm_model_triplets = get_opdm_data_from_models(model_data=opdm_objects)
-    violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets)
+    violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets, consider_sv_injection=True)
     kirchhoff_first_law_detected = False if violated_nodes_pre.empty else True
 
     network = model_data["network"]
