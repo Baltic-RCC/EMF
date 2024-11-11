@@ -195,18 +195,19 @@ class HandlerMergeModels:
             # Update time_horizon in case of generic ID process type
             new_time_horizon = None
             if time_horizon.upper() == "ID":
+                max_time_horizon_value = 36
                 _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
                 # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
                 time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
                 time_diff = _scenario_datetime - _task_creation_time
-                if time_diff.days == 0:
+                if time_diff.days >= 0 and time_diff.days <= 1:
                     # time_horizon_actual = int(time_diff.seconds / 3600)
-                    time_horizon_actual = math.ceil(time_diff.seconds / 3600)
-                    # if negative or zero, cut to 1
-                    # time_horizon_actual = max(time_horizon_actual, 1)
-                    # if time horizon got bigger than some random value, cut it back to 1
-                    time_horizon = f"{time_horizon_actual:02d}"
+                    time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                    # just in case cut it to bigger than 1 once again
+                    time_horizon_actual = max(time_horizon_actual, 1)
+                    if time_horizon_actual <= max_time_horizon_value:
+                        time_horizon = f"{time_horizon_actual:02d}"
                 new_time_horizon = time_horizon
                 # Check this, is it correct to  update the value here or it should be given to post processing"
                 # task_properties["time_horizon"] = time_horizon
