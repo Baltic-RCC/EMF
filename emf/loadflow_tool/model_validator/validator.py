@@ -9,6 +9,7 @@ from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
+from emf.loadflow_tool.model_merger.merge_functions import get_nodes_against_kirchhoff_first_law
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
@@ -24,6 +25,9 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Load data
     start_time = time.time()
     model_data = load_model(opdm_objects=opdm_objects)
+    violated_nodes = merge_functions.get_nodes_against_kirchhoff_first_law(original_models=opdm_objects)
+    kirchhoff_first_law_detected = False if violated_nodes.empty else True
+
     network = model_data["network"]
 
     # Run all validations
@@ -68,6 +72,12 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+
+    # Test for kirchhoff
+    # Ver 1 call model invalid if they are present
+    # model_valid = model_valid and (not kirchhoff_first_law_detected)
+    # Ver 2 save it as additional parameter to elastic report
+    model_data["Kirchhoff_first_law_error"] = kirchhoff_first_law_detected
 
     try:
         model_data['outages'] = get_model_outages(network)

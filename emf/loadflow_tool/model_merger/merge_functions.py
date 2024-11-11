@@ -822,6 +822,45 @@ def set_brell_lines_to_zero_in_models_new(assembled_data, magic_brell_lines: dic
     return assembled_data
 
 
+def get_nodes_against_kirchhoff_first_law(original_models,
+                                          cgm_sv_data: pandas.DataFrame = None,
+                                          sv_injection_limit: float = SV_INJECTION_LIMIT,
+                                          nodes_only: bool = True):
+    """
+    Gets dataframe of nodes in which the sum of flows exceeds the limit
+    :param cgm_sv_data: merged SV profile (needed to set the flows for terminals)
+    :param original_models: IGMs (triplets, dictionary)
+    :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
+    :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
+    """
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    if isinstance(cgm_sv_data, pandas.DataFrame) and not cgm_sv_data.empty:
+        # Get power flow after lf
+        power_flow = cgm_sv_data.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+    else:
+        # Get power flow before lf or as is
+        power_flow = original_models.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+    # Get terminals
+    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
+    terminals = terminals[['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
+    # Calculate summed flows per topological node
+    flows_summed = ((power_flow.merge(terminals, left_on='SvPowerFlow.Terminal', right_on='Terminal', how='left')
+                     .groupby('Terminal.TopologicalNode')[['SvPowerFlow.p', 'SvPowerFlow.q']]
+                     .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
+                    .rename_axis('Terminal.TopologicalNode').reset_index())
+    # Get topological nodes that have mismatch
+    nok_nodes = flows_summed[(abs(flows_summed['SvPowerFlow.p']) > sv_injection_limit) |
+                             (abs(flows_summed['SvPowerFlow.q']) > sv_injection_limit)][['Terminal.TopologicalNode']]
+    if nodes_only:
+        return nok_nodes
+    try:
+        terminals_nodes = terminals.merge(flows_summed, on='Terminal.TopologicalNode', how='left')
+        terminals_nodes = terminals_nodes.merge(nok_nodes, on='Terminal.TopologicalNode')
+        return terminals_nodes
+    except IndexError:
+        return pandas.DataFrame()
+
+
 if __name__ == "__main__":
 
     from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
