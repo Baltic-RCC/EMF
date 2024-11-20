@@ -1,3 +1,6 @@
+import zipfile
+from io import BytesIO
+
 import config
 from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, parse_pypowsybl_report, get_network_elements
 from emf.loadflow_tool import loadflow_settings
