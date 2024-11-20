@@ -12,7 +12,7 @@ from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
-from emf.loadflow_tool.model_merger.merge_functions import get_opdm_data_from_models, revert_ids_back
+from emf.loadflow_tool.model_merger.merge_functions import get_opdm_data_from_models
 from emf.loadflow_tool.model_validator.validator_functions import check_not_retained_switches_between_nodes, \
     get_nodes_against_kirchhoff_first_law
 
@@ -78,8 +78,6 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
         bytes_object.name = f"{uuid.uuid4()}.zip"
         # Load SV data
         sv_data = pandas.read_RDF([bytes_object])
-        # Fix naming
-        sv_data = revert_ids_back(exported_model=bytes_object, triplets_data=sv_data)
         # Check violations after loadflow
         violated_nodes_post = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets,
                                                                     cgm_sv_data=sv_data,
