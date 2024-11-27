@@ -187,6 +187,21 @@ class ObjectStorage:
 
         return result_list
 
+
+    def get_all_objects_name(self, bucket_name: str, prefix: str = None):
+        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix,recursive=True)
+        list_elements=[]
+        for obj in objects:
+            try:
+                list_elements.append(obj.object_name.split("/")[-1])
+            except:
+                logger.warning(f"Object name not present")
+
+        return list_elements
+
+
+
+
     @renew_authentication_token
     def get_latest_models_and_download(self,
                                        time_horizon: str,
