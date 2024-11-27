@@ -143,7 +143,7 @@ class HandlerMergeModels:
                             additional_models_data_replace["@time_horizon"] = model["pmd:timeHorizon"]
                             additional_models_data_replace["@timestamp"] = model["pmd:scenarioDate"]
                             additional_models_data_replace["pmd:versionNumber"] = model["pmd:versionNumber"]
-                        additional_models_data.append(additional_models_data_replace)
+                            additional_models_data.append(additional_models_data_replace)
 
                         logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
                         merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'], 'replacement_time_horizon': model[
