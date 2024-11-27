@@ -122,13 +122,12 @@ class HandlerMergeModels:
                                                                                        local_import_models,
                                                                                        bucket_name=INPUT_MINIO_BUCKET,
                                                                                        prefix=INPUT_MINIO_FOLDER)
-            missing_local_import = [tso for tso in local_import_models if
-                                    tso not in [model['pmd:TSO'] for model in additional_models_data]]
-            merge_log.get('exclusion_reason').extend(
-                [{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
+
+            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
+
             # local replacement if configured
             if model_replacement_local and missing_local_import:
-
                 try:
                     logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
                     replacement_models_local = run_replacement_local(missing_local_import, time_horizon,
@@ -138,11 +137,19 @@ class HandlerMergeModels:
                             additional_models_data_replace = self.minio_service.get_latest_models_and_download(
                                 model['pmd:timeHorizon'],
                                 model['pmd:scenarioDate'],
-                                model['pmd:TSO'],
+                                [model['pmd:TSO']],
                                 bucket_name=INPUT_MINIO_BUCKET,
-                                prefix=INPUT_MINIO_FOLDER)
+                                prefix=INPUT_MINIO_FOLDER)[0]
+                            additional_models_data_replace["@time_horizon"] = model["pmd:timeHorizon"]
+                            additional_models_data_replace["@timestamp"] = model["pmd:scenarioDate"]
+                            additional_models_data_replace["pmd:versionNumber"] = model["pmd:versionNumber"]
                         additional_models_data.append(additional_models_data_replace)
-                        # TODO put exclusion_reason logging under replacement
+
+                        logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
+                        merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'], 'replacement_time_horizon': model[
+                                                                          'pmd:timeHorizon'], 'replacement_scenario_date': model[
+                                                                          'pmd:scenarioDate']} for model in replacement_models_local])
+
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
@@ -185,7 +192,7 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
 
-
+        valid_models = valid_models + additional_models_data
 
         # Run process only if you find some models to merge, otherwise return None
         if not valid_models:

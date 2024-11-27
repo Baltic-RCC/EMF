@@ -32,7 +32,7 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
     query = {"opde:Object-Type": "IGM", "pmd:TSO.keyword": tso_list, "valid": True}
     body = query_data(query, QUERY_FILTER)
     model_df = pd.DataFrame(body)
-    print(model_df)
+    # print(model_df)
     # Set scenario dat to UTC
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -70,6 +70,7 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
 
     return replacement_models
 
+
 def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG):
     """
         Args:
@@ -85,12 +86,13 @@ def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str,
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
     client = ObjectStorage()
-    list_elements = client.get_all_objects_name(bucket_name='opde-confidential-models', prefix = 'IGM')
+    list_elements = client.get_all_objects_name(bucket_name='opde-confidential-models', prefix='IGM')
     model_df=pd.DataFrame([item.split('-') for item in list_elements], columns=["pmd:scenarioDate","pmd:timeHorizon", "pmd:TSO", "pmd:versionNumber" ])
     model_df["pmd:creationDate"] = datetime.now()
-    model_df["fileName"] = ['IGM/' + item for item in list_elements]
+    model_df["pmd:fileName"] = ['IGM/' + item for item in list_elements]
     model_df["pmd:TSO"] = model_df["pmd:TSO"]
-    print(model_df)
+    model_df["pmd:versionNumber"] = model_df["pmd:versionNumber"].apply(lambda x: x.split('.')[0])
+    # print(model_df)
     # Set scenario dat to UTC
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -104,19 +106,18 @@ def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str,
                 sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
                 sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
                 sample_tso = sample_tso.loc[(sample_tso["pmd:versionNumber"] == sample_tso["pmd:versionNumber"].max())]
-                sample_tso_min = sample_tso.loc[
-                    (sample_tso["pmd:creationDate"] == sample_tso["pmd:creationDate"].max())]
+                sample_tso_min = sample_tso.loc[(sample_tso["pmd:creationDate"] == sample_tso["pmd:creationDate"].max())]
                 if len(sample_tso_min) > 1:
                     logger.warning(f"Replacement filtering unreliable for: '{unique_tso}'")
                     sample_tso_min = sample_tso_min.iloc[:1]
                 replacements = pd.concat([replacements, sample_tso_min])
 
             replacement_models = replacements.to_dict(orient='records') if not replacements.empty else None
-
             for num, model in enumerate(replacement_models):
-                    replacement_models[num] = model
+                replacement_models[num] = model
 
     return replacement_models
+
 
 def make_lists_priority(timestamp, target_timehorizon, conf):
     """
