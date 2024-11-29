@@ -91,10 +91,10 @@ def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str,
     model_df["pmd:creationDate"] = datetime.now()
     model_df["pmd:fileName"] = ['IGM/' + item for item in list_elements]
     model_df["pmd:TSO"] = model_df["pmd:TSO"]
-    model_df["pmd:versionNumber"] = model_df["pmd:versionNumber"].apply(lambda x: x.split('.')[0])
     # print(model_df)
     # Set scenario dat to UTC
     if not model_df.empty:
+        model_df["pmd:versionNumber"] = model_df["pmd:versionNumber"].apply(lambda x: x.split('.')[0])
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
         replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
         if not replacement_df.empty:
