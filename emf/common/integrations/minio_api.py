@@ -193,7 +193,10 @@ class ObjectStorage:
         list_elements=[]
         for obj in objects:
             try:
-                list_elements.append(obj.object_name.split("/")[-1])
+                object_name = obj.object_name.split("/")[-1]
+                #only take models that have metadata in the filename
+                if len(object_name.split('-')) > 3:
+                    list_elements.append(object_name)
             except:
                 logger.warning(f"Object name not present")
 
