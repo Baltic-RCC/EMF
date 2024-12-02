@@ -24,7 +24,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -53,7 +53,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -82,7 +82,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -111,7 +111,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -140,7 +140,7 @@
     "tags": [],
     "properties": {
      "merge_type": "EU",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
      "included": [],
      "excluded": [],
@@ -180,7 +180,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -216,7 +216,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -252,7 +252,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -288,7 +288,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -324,7 +324,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",
@@ -342,7 +342,45 @@
      "upload_to_opdm": "False",
      "upload_to_minio": "True",
      "send_merge_report": "True"
-    }},
+    }
+   },
+   {
+    "@context": "https://example.com/schemas/run.jsonld",
+    "@id": "https://example.com/runs/YearAheadRMM",
+    "@type": "Run",
+    "process_id": "https://example.com/processes/RMM_CREATION",
+    "valid_from": "",
+    "valid_to": "",
+    "gate_open": "P1DT5H",
+    "gate_close": "P1DT4H",
+    "run_at": "0 4 1 9 *",
+    "time_frame": "Y-1",
+    "data_timestamps": "30 * * * *",
+    "data_resolution": "PT1H",
+    "tags": [],
+    "properties": {
+     "merge_type": "BA",
+     "merging_entity": "BALTICRCC",
+     "included": [
+      "AST",
+      "PSE",
+      "ELERING"
+     ],
+     "excluded": [],
+     "local_import": [
+      "LITGRID"
+     ],
+     "time_horizon": "YR",
+     "version": "001",
+     "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
+     "replacement": "True",
+     "scaling": "False",
+     "upload_to_opdm": "False",
+     "upload_to_minio": "True",
+     "send_merge_report": "True"
+    }
+   },   
+   
    {
     "@context": "https://example.com/schemas/run.jsonld",
     "@id": "https://example.com/runs/WeekAheadRMM",
@@ -359,7 +397,7 @@
     "tags": [],
     "properties": {
      "merge_type": "BA",
-     "merging_entity": "BALTICRSC",
+     "merging_entity": "BALTICRCC",
      "included": [
       "AST",
       "PSE",

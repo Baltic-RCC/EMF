@@ -21,6 +21,7 @@ for runs in process_config_json[0]['runs']:
     runs['properties']['excluded'] = [tso.strip() for tso in CGM_EXCLUDED_TSO.split(',')] if CGM_EXCLUDED_TSO else []
     runs['properties']['local_import'] = [tso.strip() for tso in CGM_LOCAL_IMPORT.split(',')] if CGM_LOCAL_IMPORT else []
     runs['properties']['replacement'] = RUN_REPLACEMENT_CGM
+    runs['properties']['replacement_local'] = RUN_REPLACEMENT_LOCAL
     runs['properties']['scaling'] = RUN_SCALING_CGM
     runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_CGM
     runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_CGM
@@ -32,6 +33,7 @@ for runs in process_config_json[1]['runs']:
     runs['properties']['excluded'] = [tso.strip() for tso in RMM_EXCLUDED_TSO.split(',')] if RMM_EXCLUDED_TSO else []
     runs['properties']['local_import'] = [tso.strip() for tso in RMM_LOCAL_IMPORT.split(',')] if RMM_LOCAL_IMPORT else []
     runs['properties']['replacement'] = RUN_REPLACEMENT_RMM
+    runs['properties']['replacement_local'] = RUN_REPLACEMENT_LOCAL
     runs['properties']['scaling'] = RUN_SCALING_RMM
     runs['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM_RMM
     runs['properties']['upload_to_minio'] = UPLOAD_TO_MINIO_RMM

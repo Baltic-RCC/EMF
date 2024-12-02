@@ -1,4 +1,6 @@
 import logging
+import math
+
 import config
 import json
 import time
@@ -15,7 +17,7 @@ from emf.loadflow_tool.helper import opdmprofile_to_bytes
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
-from emf.loadflow_tool.replacement import run_replacement, get_available_tsos
+from emf.loadflow_tool.replacement import run_replacement, get_available_tsos, run_replacement_local
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
@@ -99,6 +101,7 @@ class HandlerMergeModels:
         mas = task_properties["mas"]
         version = task_properties["version"]
         model_replacement = task_properties["replacement"]
+        model_replacement_local= task_properties["replacement_local"]
         model_scaling = task_properties["scaling"]
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
@@ -119,19 +122,45 @@ class HandlerMergeModels:
                                                                                        local_import_models,
                                                                                        bucket_name=INPUT_MINIO_BUCKET,
                                                                                        prefix=INPUT_MINIO_FOLDER)
-            missing_local_import = [tso for tso in local_import_models if
-                                    tso not in [model['pmd:TSO'] for model in additional_models_data]]
-            merge_log.get('exclusion_reason').extend(
-                [{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
+
+            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model missing from PDN'} for tso in missing_local_import])
+
+            # local replacement if configured
+            if model_replacement_local and missing_local_import:
+                try:
+                    logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
+                    replacement_models_local = run_replacement_local(missing_local_import, time_horizon,
+                                                                     scenario_datetime)
+                    if replacement_models_local:
+                        for model in replacement_models_local:
+                            additional_models_data_replace = self.minio_service.get_latest_models_and_download(
+                                model['pmd:timeHorizon'],
+                                model['pmd:scenarioDate'],
+                                [model['pmd:TSO']],
+                                bucket_name=INPUT_MINIO_BUCKET,
+                                prefix=INPUT_MINIO_FOLDER)[0]
+                            additional_models_data_replace["@time_horizon"] = model["pmd:timeHorizon"]
+                            additional_models_data_replace["@timestamp"] = model["pmd:scenarioDate"]
+                            additional_models_data_replace["pmd:versionNumber"] = model["pmd:versionNumber"]
+                            additional_models_data.append(additional_models_data_replace)
+
+                        logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
+                        merge_log.get('replaced_entity').extend([{'tso': model['pmd:TSO'], 'replacement_time_horizon': model[
+                                                                          'pmd:timeHorizon'], 'replacement_scenario_date': model[
+                                                                          'pmd:scenarioDate']} for model in replacement_models_local])
+
+                except Exception as error:
+                    logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
             additional_models_data = []
+
 
         # Check model validity and availability
         valid_models = [model for model in filtered_models if model['valid']]
         invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
         if invalid_models:
             merge_log.get('exclusion_reason').extend([{'tso': tso, 'reason': 'Model is not valid'} for tso in invalid_models])
-        valid_models = valid_models + additional_models_data
 
         # Check missing models for replacement
         if included_models:
@@ -163,6 +192,8 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
 
+        valid_models = valid_models + additional_models_data
+
         # Run process only if you find some models to merge, otherwise return None
         if not valid_models:
             logger.warning("Found no valid models to merge, returning None")
@@ -191,17 +222,43 @@ class HandlerMergeModels:
             logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
             # Update time_horizon in case of generic ID process type
+            new_time_horizon = None
             if time_horizon.upper() == "ID":
+                max_time_horizon_value = 36
                 _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
                 _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
-
-                time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
+                time_diff = _scenario_datetime - _task_creation_time
+                # column B
+                # time_horizon = f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                # column C (original)
+                # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                # column D
+                # time_horizon = f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+                if time_diff.days >= 0 and time_diff.days <= 1:
+                    # column E
+                    # time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                    # column F
+                    # time_horizon_actual = int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                    # column G
+                    time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                    # just in case cut it to bigger than 1 once again
+                    time_horizon_actual = max(time_horizon_actual, 1)
+                    if time_horizon_actual <= max_time_horizon_value:
+                        time_horizon = f"{time_horizon_actual:02d}"
+                new_time_horizon = time_horizon
+                # Check this, is it correct to  update the value here or it should be given to post processing"
+                # task_properties["time_horizon"] = time_horizon
                 logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
             # Run post-processing
             post_p_start = datetime.datetime.now(datetime.UTC)
-            sv_data, ssh_data = run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE,
-                                                          enable_temp_fixes=post_temp_fixes)
+            sv_data, ssh_data = run_post_merge_processing(input_models,
+                                                          solved_model,
+                                                          task_properties,
+                                                          SMALL_ISLAND_SIZE,
+                                                          enable_temp_fixes=post_temp_fixes,
+                                                          time_horizon=new_time_horizon)
 
             # Package both input models and exported CGM profiles to in memory zip files
             serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
@@ -299,6 +356,8 @@ class HandlerMergeModels:
 if __name__ == "__main__":
     import sys
 
+
+
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -316,13 +375,13 @@ if __name__ == "__main__":
         "task_type": "automatic",
         "task_initiator": "cgm_handler_unit_test",
         "task_priority": "normal",
-        "task_creation_time": "2024-05-28T20:39:42.448064",
+        "task_creation_time": "2024-11-28T20:39:42.448064",
         "task_update_time": "",
         "task_status": "created",
         "task_status_trace": [
             {
                 "status": "created",
-                "timestamp": "2024-05-28T20:39:42.448064"
+                "timestamp": "2024-11-28T20:39:42.448064"
             }
         ],
         "task_dependencies": [],
@@ -334,18 +393,19 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-10-14T06:30:00+00:00",
+            "timestamp_utc": "2024-11-21T06:30:00+00:00",
             "merge_type": "EU",
-            "merging_entity": "BALTICRSC",
+            "merging_entity": "BALTICRCC",
             "included": ['PSE', 'AST'],
             "excluded": [],
-            "local_import": [],
+            "local_import": ['LITGRID'],
             "time_horizon": "1D",
             "version": "99",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
             "replacement": "True",
+            "replacement_local": "True",
             "scaling": "False",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",

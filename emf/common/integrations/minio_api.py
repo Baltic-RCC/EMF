@@ -1,3 +1,4 @@
+import pandas as pd
 import requests
 from lxml import etree
 import minio
@@ -186,6 +187,24 @@ class ObjectStorage:
 
         return result_list
 
+
+    def get_all_objects_name(self, bucket_name: str, prefix: str = None):
+        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix,recursive=True)
+        list_elements=[]
+        for obj in objects:
+            try:
+                object_name = obj.object_name.split("/")[-1]
+                #only take models that have metadata in the filename
+                if len(object_name.split('-')) > 3:
+                    list_elements.append(object_name)
+            except:
+                logger.warning(f"Object name not present")
+
+        return list_elements
+
+
+
+
     @renew_authentication_token
     def get_latest_models_and_download(self,
                                        time_horizon: str,
@@ -236,14 +255,16 @@ class ObjectStorage:
 
             # Filter to the latest versions of received network models for each model entity
             logger.info(f"Filtering to latest model version")
-            additional_models_filtered = {}
+            list_of_name_parts = []
             for model in additional_models:
-                parts = model.object_name.split('.')[0].split('-')
-                party, version = parts[-2], parts[-1]
-                # Check if the party already in the filtered dictionary or version is higher
-                if party not in additional_models_filtered or version > additional_models_filtered[party][1]:
-                    additional_models_filtered[party] = (model, version)
-            additional_models_filtered = [model for model, version in additional_models_filtered.values()]
+                name_parts = model.object_name.split('/')[-1].split('.')[0].split('-')
+                name_parts.append(model.object_name)
+                list_of_name_parts.append(name_parts)
+
+            name_parts_df = pd.DataFrame(list_of_name_parts, columns=['timestamp', 'business_type', 'tso', 'version', 'object_name'])
+            name_parts_df = name_parts_df.sort_values(by=['business_type', 'version'], ascending=[True, False])
+            name_parts_df = name_parts_df.drop_duplicates('tso')
+            additional_models_filtered = [model for model in additional_models if model.object_name in name_parts_df['object_name'].values]
 
             # Download relevant models
             for model in additional_models_filtered:

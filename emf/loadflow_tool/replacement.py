@@ -7,6 +7,7 @@ import json
 from dateutil import parser
 from pathlib import Path
 from emf.common.integrations.object_storage.models import query_data, get_content
+from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
     query = {"opde:Object-Type": "IGM", "pmd:TSO.keyword": tso_list, "valid": True}
     body = query_data(query, QUERY_FILTER)
     model_df = pd.DataFrame(body)
-
+    # print(model_df)
     # Set scenario dat to UTC
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -66,6 +67,54 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
             logger.error(f"No replacement models found, replacement list is empty")
     else:
         logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
+
+    return replacement_models
+
+
+def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG):
+    """
+        Args:
+            tso_list: a list of tso's which models are missing models
+            time_horizon: time_horizon of the merging process
+            scenario_date: scenario_date of the merging process
+            conf: model replacement logic configuration
+
+        Returns:  from configuration a list of replaced models
+       """
+    replacement_config = json.loads(Path(__file__).parent.parent.parent.joinpath(conf).read_text())
+    replacement_models = []
+    replacements = pd.DataFrame()
+    # TODO time horizon exclusion logic + exclude available models from query
+    client = ObjectStorage()
+    list_elements = client.get_all_objects_name(bucket_name='opde-confidential-models', prefix='IGM')
+    model_df=pd.DataFrame([item.split('-') for item in list_elements], columns=["pmd:scenarioDate","pmd:timeHorizon", "pmd:TSO", "pmd:versionNumber" ])
+    model_df["pmd:creationDate"] = datetime.now()
+    model_df["pmd:fileName"] = ['IGM/' + item for item in list_elements]
+    model_df["pmd:TSO"] = model_df["pmd:TSO"]
+    # print(model_df)
+    # Set scenario dat to UTC
+    if not model_df.empty:
+        model_df["pmd:versionNumber"] = model_df["pmd:versionNumber"].apply(lambda x: x.split('.')[0])
+        scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
+        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
+        if not replacement_df.empty:
+            unique_tsos_list = tso_list
+
+            for unique_tso in unique_tsos_list:
+                sample_tso = replacement_df.loc[(replacement_df["pmd:TSO"] == unique_tso)]
+                sample_tso = sample_tso.loc[(sample_tso["priority_day"] == sample_tso["priority_day"].min())]
+                sample_tso = sample_tso.loc[(sample_tso["priority_business"] == sample_tso["priority_business"].min())]
+                sample_tso = sample_tso.loc[(sample_tso["priority_hour"] == sample_tso["priority_hour"].min())]
+                sample_tso = sample_tso.loc[(sample_tso["pmd:versionNumber"] == sample_tso["pmd:versionNumber"].max())]
+                sample_tso_min = sample_tso.loc[(sample_tso["pmd:creationDate"] == sample_tso["pmd:creationDate"].max())]
+                if len(sample_tso_min) > 1:
+                    logger.warning(f"Replacement filtering unreliable for: '{unique_tso}'")
+                    sample_tso_min = sample_tso_min.iloc[:1]
+                replacements = pd.concat([replacements, sample_tso_min])
+
+            replacement_models = replacements.to_dict(orient='records') if not replacements.empty else None
+            for num, model in enumerate(replacement_models):
+                replacement_models[num] = model
 
     return replacement_models
 
@@ -138,9 +187,10 @@ def get_available_tsos():
 
 if __name__ == "__main__":
 
-    missing_tso = ['PSE']
-    test_time_horizon = "ID"
-    test_scenario_date = "2024-09-05T19:30:00Z"
+    missing_tso = ['PSE', 'LITGRID']
 
+    test_time_horizon = "ID"
+    test_scenario_date = "2024-11-21T19:30:00Z"
+    print('hello')
     response_list = run_replacement(missing_tso, test_time_horizon, test_scenario_date)
     print('')
