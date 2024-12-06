@@ -113,8 +113,9 @@ def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str,
                 replacements = pd.concat([replacements, sample_tso_min])
 
             replacement_models = replacements.to_dict(orient='records') if not replacements.empty else None
-            for num, model in enumerate(replacement_models):
-                replacement_models[num] = model
+            if replacement_models:
+                for num, model in enumerate(replacement_models):
+                    replacement_models[num] = model
 
     return replacement_models
 
