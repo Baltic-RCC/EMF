@@ -775,9 +775,9 @@ def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = Non
                 repackage_needed = True
                 logger.info(f"Setting brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
                 profile.loc[
-                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
+                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = str(0)
                 profile.loc[
-                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
+                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = str(0)
         if repackage_needed:
             profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
             serialized_data = export_to_cgmes_zip([profile])
