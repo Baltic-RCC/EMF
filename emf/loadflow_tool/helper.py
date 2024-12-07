@@ -13,7 +13,7 @@ from lxml import etree
 import triplets
 import uuid
 from aniso8601 import parse_datetime
-
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,32 @@ def save_opdm_objects(opdm_objects: list) -> list:
 
     return exported_files
 
+def create_opdm_objects(models: list, metadata=None) -> list:
+    """
+    Function to create OPDM object like sturcture in memory
+
+    :return: list of OPDM objects
+    """
+    opdm_objects = []
+
+    for model in models:
+        opdm_object = {'opde:Component': []}
+
+        if metadata:
+            opdm_object.update(metadata)
+
+        for profile_instance in model:
+
+            opdm_profile = metadata_from_filename(profile_instance.name)
+            opdm_profile['pmd:fileName'] = profile_instance.name
+            opdm_profile['DATA'] = profile_instance.getvalue()
+
+            opdm_object['opde:Component'].append({'opdm:Profile': opdm_profile})
+
+        opdm_objects.append(opdm_object)
+
+    return opdm_objects
+
 
 def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     """
@@ -95,6 +121,70 @@ def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
         result_dict = sanitized_dict
 
     return result_dict
+
+
+def parse_pypowsybl_report(report: str):
+    lines = report.replace('+', '').splitlines()
+    all_network_dicts = []
+
+    current_dict = None
+    base_indent = None
+
+    for line in lines:
+        stripped_line = line.strip()
+
+        # Identify "Network info" line and its indentation level
+        if "Network info" in stripped_line:
+            if current_dict is not None:
+                # Save the current dictionary if a new "Network info" block starts
+                all_network_dicts.append(current_dict)
+
+            current_dict = {}
+            base_indent = len(line) - len(stripped_line)
+            continue
+
+        if current_dict is not None:
+            # Calculate the current line's indentation level relative to "Network info"
+            current_indent = len(line) - len(line.lstrip())
+
+            # Check for the specific phrase "Network has x buses and y branches"
+            match = re.match(r"Network has (\d+) buses and (\d+) branches", stripped_line)
+            if match:
+                buses = int(match.group(1))
+                branches = int(match.group(2))
+                current_dict['buses'] = buses
+                current_dict['branches'] = branches
+
+            # Process lines with key-value pairs after ':'
+            elif ':' in stripped_line:
+                dict_name, key_values = stripped_line.split(':', 1)
+                dict_name = dict_name.strip()
+                key_values = key_values.strip()
+
+                # Parse key-value pairs
+                if '=' in key_values:
+                    current_dict[dict_name] = {}
+                    for pair in key_values.split(','):
+                        key, value = map(str.strip, pair.split('='))
+                        current_dict[dict_name][key] = value
+                else:
+                    # Handle plain strings after ':'
+                    current_dict[dict_name] = key_values
+
+            else:
+                # Stop processing this block if indentation level is not greater than base_indent
+                if current_indent <= base_indent and current_dict:
+                    all_network_dicts.append(current_dict)
+                    current_dict = None
+
+    # Append the last dictionary if it exists
+    if current_dict is not None and current_dict:
+        all_network_dicts.append(current_dict)
+
+    # Filter out empty dicts
+    result = [n for n in all_network_dicts if n]
+
+    return result
 
 
 def get_network_elements(network: pypowsybl.network,
@@ -132,13 +222,29 @@ def get_connected_component_counts(network: pypowsybl.network, bus_count_thresho
     return counts.to_dict()
 
 
-def load_model(opdm_objects: List[dict]):
-
+def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
+    """
+    Loads given list of models (opdm_objects) into pypowsybl using internal (known good) default_parameters
+    Additional parameters can be specified as a dict in field parameters which will overwrite the default ones if keys
+    are matching
+    :param opdm_objects: list of dictionaries following the opdm model format
+    :param parameters: dictionary of desired parameters for loading models to pypowsybl
+    :param skip_default_parameters: skip the default parameters
+    """
     model_data = {}
+    default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
+    if not skip_default_parameters:
+        if not parameters:
+            parameters = default_parameters
+        else:
+            # Give a priority to parameters given from outside
+            parameters = {**default_parameters, **parameters}
+
     import_report = pypowsybl.report.Reporter()
     network = pypowsybl.network.load_from_binary_buffer(
         buffer=package_for_pypowsybl(opdm_objects),
         reporter=import_report,
+        parameters=parameters
         # parameters={
         #     "iidm.import.cgmes.store-cgmes-model-as-network-extension": 'true',
         #     "iidm.import.cgmes.create-active-power-control-extension": 'true',
@@ -207,7 +313,7 @@ def metadata_from_filename(file_name):
         file_metadata['pmd:validFrom'], file_metadata['pmd:timeHorizon'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
 
     else:
-        print("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
+        logger.warning("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
 
     model_authority_list = model_authority.split("-")
 
@@ -221,7 +327,7 @@ def metadata_from_filename(file_name):
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'], file_metadata['pmd:modelPartReference'] = model_authority_list
 
     else:
-        print(f"Parsing error {model_authority}")
+        logger.error(f"Parsing error {model_authority}")
 
     return file_metadata
 
@@ -280,7 +386,7 @@ def get_metadata_from_filename(file_name):
     meta_separator                = "_"
     entity_and_domain_separator   = "-"
 
-    #print(file_name)
+    logger.debug(file_name)
     file_metadata = {}
     file_name, file_type = file_name.split(file_type_separator)
 
@@ -296,7 +402,7 @@ def get_metadata_from_filename(file_name):
         file_metadata["Model.version"] = file_meta_list
         file_metadata["Model.processType"] = ""
 
-        print("Warning - only 4 meta elements found, expecting 5, setting Model.processType to empty string")
+        logger.warning("Only 4 meta elements found, expecting 5, setting Model.processType to empty string")
 
     # Naming after QoDC 2.1, always 5 positions
     elif len(file_meta_list) == 5:
@@ -308,7 +414,7 @@ def get_metadata_from_filename(file_name):
         file_metadata["Model.version"] = file_meta_list
 
     else:
-        print("Non CGMES file {}".format(file_name))
+        logger.error("Non CGMES file {}".format(file_name))
 
     if file_metadata.get("Model.modelingEntity", False):
 

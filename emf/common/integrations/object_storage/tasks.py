@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 def publish_tasks(tasks: list, index=ELASTIC_TASKS_INDEX):
 
     for task in tasks:
-        print(ELASTIC_TASKS_INDEX)
+        logger.info(f"Adding task to {ELASTIC_TASKS_INDEX}")
         elastic_service.send_to_elastic(
             index=index,
             json_message=task,

@@ -67,10 +67,12 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
 OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority
-    no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits
+    use_reactive_limits=True,
+    # no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority
     twt_split_shunt_admittance=False,
-    simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority
+    shunt_compensator_voltage_control_on=False,
+    # simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind
@@ -101,7 +103,7 @@ __CGM_DEFAULT_PROVIDER = {
     'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001"
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
-    'slackBusPMaxMismatch': '0.1',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
 }
 
 __CGM_RELAXED_1_PROVIDER = {
@@ -113,7 +115,7 @@ __CGM_RELAXED_1_PROVIDER = {
     'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
-    'slackBusPMaxMismatch': '0.1',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
 }
 
 __CGM_RELAXED_2_PROVIDER = {
@@ -125,7 +127,7 @@ __CGM_RELAXED_2_PROVIDER = {
     'maxReactivePowerMismatch': '0.5',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
-    'slackBusPMaxMismatch': '0.1',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
 }
 
 # Preparing CGM PROVIDER settings options from default settings
@@ -145,10 +147,12 @@ CGM_RELAXED_2_PROVIDER.update(__CGM_RELAXED_2_PROVIDER)
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1" ;
-    no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
+    use_reactive_limits=True,
+    # no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1" ;
     twt_split_shunt_admittance=None,
-    simul_shunt=True,  # cim:PowerFlowSettings.switchedShuntControlPriority "2" ;
+    shunt_compensator_voltage_control_on=True,
+    # simul_shunt=True,  # cim:PowerFlowSettings.switchedShuntControlPriority "2" ;
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionParticipationFactor ;
@@ -162,10 +166,12 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
 CGM_DEFAULT = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true" ;
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1" ;
-    no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
+    use_reactive_limits=True,
+    # no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1" ;
     twt_split_shunt_admittance=None,
-    simul_shunt=True,  # cim:PowerFlowSettings.switchedShuntControlPriority "2" ;
+    shunt_compensator_voltage_control_on=True,
+    # simul_shunt=True,  # cim:PowerFlowSettings.switchedShuntControlPriority "2" ;
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
@@ -179,10 +185,12 @@ CGM_DEFAULT = pypowsybl.loadflow.Parameters(
 CGM_RELAXED_1 = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true" ;
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0" ;
-    no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
+    use_reactive_limits=True,
+    # no_generator_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "true" ;
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0" ;
     twt_split_shunt_admittance=None,
-    simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0" ;
+    shunt_compensator_voltage_control_on=False,
+    # simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0" ;
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
@@ -196,10 +204,12 @@ CGM_RELAXED_1 = pypowsybl.loadflow.Parameters(
 CGM_RELAXED_2 = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true" ;
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0" ;
-    no_generator_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "false" ;
+    use_reactive_limits=False,
+    # no_generator_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "false" ;
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0":
     twt_split_shunt_admittance=None,
-    simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0" ;
+    shunt_compensator_voltage_control_on=False,
+    # simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0" ;
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;

@@ -3,6 +3,9 @@ from datetime import datetime
 
 from emf.task_generator.time_helper import parse_duration, convert_to_utc, timezone, reference_times
 from emf.common.integrations.object_storage.tasks import publish_tasks
+from emf.common.integrations.object_storage.models import query_data
+from emf.common.config_parser import parse_app_properties
+import config
 from uuid import uuid4
 import croniter
 from pathlib import Path
@@ -11,6 +14,7 @@ import logging
 from os import getlogin
 
 logger = logging.getLogger(__name__)
+parse_app_properties(globals(), config.paths.task_generator.task_generator)
 
 
 def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None):
@@ -157,6 +161,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                     task["task_tags"].extend(process.get("tags", []))
                     task["task_tags"].extend(run.get("tags", []))
 
+                    # Check if task already exists, then set version number accordingly
+                    if TASK_ELK_INDEX:
+                        set_task_version(task, TASK_ELK_INDEX)
+                    else:
+                        set_task_version(task)
+
                     # Update task status
                     update_task_status(task, "created")
 
@@ -240,6 +250,23 @@ def update_task_status(task, status_text, publish=True):
 #            logger.warning("Task Publication to ELK failed")
 
 
+def set_task_version(task, elk_index='emfos-tasks*'):
+    query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
+             'task_properties.time_horizon': task['task_properties']['time_horizon'],
+             'task_properties.merge_type': task['task_properties']['merge_type']}
+
+    try:
+        task_list = query_data(query, index=elk_index)
+    except:
+        task_list = None
+        logger.error("ELK query unsuccessful.")
+
+    if task_list:
+        try:
+            latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
+            task['task_properties']['version'] = str(int(latest_version) + 1)
+        except:
+            logger.warning(f"Failed to find latest task version, task versio set to: {task['task_properties']['version']}")
 
 
 if __name__ == "__main__":

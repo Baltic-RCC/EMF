@@ -25,13 +25,13 @@ class OPDM(opdm_api.create_client):
         if meta is None:
             meta = {}
 
-        query_id, raw_response = self.query_object(object_type, meta)
+        raw_response = self.query_object(object_type, meta)
         response = raw_response['sm:QueryResult']['sm:part'][1:]
 
         if type(response) == str:
             response = []
 
-        logger.info(f"Number of responses: {len(response)} for query {query_id}")
+        logger.info(f"Number of responses: {len(response)} for query")
 
         return response
 

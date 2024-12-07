@@ -1,18 +1,16 @@
 import logging
-import time
-import config
-import json
-import sys
 import uuid
-from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsValidator, HandlerMetadataToElastic
-from emf.common.integrations import elastic, opdm, minio, edx, rabbit
 from emf.common.logging import custom_logger
-from emf.common.config_parser import parse_app_properties
-from emf.common.converters import opdm_metadata_to_json
 
 # Initialize custom logger
 elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
 logger = logging.getLogger(__name__)
+
+import config
+from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsValidator, HandlerMetadataToElastic
+from emf.common.integrations import elastic, opdm, minio_api, edx, rabbit
+from emf.common.config_parser import parse_app_properties
+from emf.common.converters import opdm_metadata_to_json
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 

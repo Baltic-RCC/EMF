@@ -6,7 +6,8 @@ from typing import List
 import json
 
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, opdm, minio
+from emf.common.integrations import elastic, opdm, minio_api
+from emf.common.integrations.object_storage import models
 from emf.common.converters import opdm_metadata_to_json
 from emf.loadflow_tool.model_validator.validator import validate_model
 from emf.loadflow_tool.helper import load_opdm_data
@@ -14,13 +15,14 @@ from emf.loadflow_tool.helper import load_opdm_data
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
+parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
 
 
 class HandlerModelsToMinio:
 
     def __init__(self):
         self.opdm_service = opdm.OPDM()
-        self.minio_service = minio.ObjectStorage()
+        self.minio_service = minio_api.ObjectStorage()
 
     def handle(self, opdm_objects: dict, **kwargs):
         # Load from binary to json
@@ -82,9 +84,16 @@ class HandlerModelsToMinio:
 
 class HandlerModelsStat:
 
+    def __init__(self):
+        self.opdm_service = opdm.OPDM()
+
     def handle(self, opdm_objects: List[dict], **kwargs):
+
         # Get the latest boundary set for validation
-        latest_boundary = self.opdm_service.get_latest_boundary() # TODO - get BDS from ELK+MINIO
+        latest_boundary = models.get_latest_boundary()
+
+        if not latest_boundary:
+            latest_boundary = self.opdm_service.get_latest_boundary()
 
         # Extract statistics
         for opdm_object in opdm_objects:
@@ -105,13 +114,23 @@ class HandlerModelsValidator:
         self.opdm_service = opdm.OPDM()
 
     def handle(self, opdm_objects: List[dict], **kwargs):
+
         # Get the latest boundary set for validation
-        latest_boundary = self.opdm_service.get_latest_boundary()
+        latest_boundary = models.get_latest_boundary()
+
+        if not latest_boundary:
+            latest_boundary = self.opdm_service.get_latest_boundary()
+
+        logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
 
         # Run network model validation
         for opdm_object in opdm_objects:
-            response = validate_model(opdm_objects=[opdm_object, latest_boundary])
-            opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+            try:
+                response = validate_model(opdm_objects=[opdm_object, latest_boundary])
+                opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+            except Exception as error:
+                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
+                opdm_object["valid"] = False
 
         return opdm_objects
 
@@ -184,7 +203,7 @@ if __name__ == "__main__":
     service = elastic.Elastic()
     opdm_object = service.get_doc_by_id(index="models-opde-202309", id='723eb242-686c-42f1-85e3-81d38aab31e0').body['_source']
     opdm_service = opdm.OPDM()
-    minio_service = minio.ObjectStorage()
+    minio_service = minio_api.ObjectStorage()
     updated_opdm_objects = opde_models_to_minio(
         opdm_objects=[opdm_object],
         opdm_service=opdm_service,

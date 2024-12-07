@@ -1,16 +1,12 @@
 [[source]]
-url = "https://artifactory.elering.sise/artifactory/api/pypi/pssepip/simple/"
-verify_ssl = false
-name = "local_pypi"
-
-[[source]]
 url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
 [packages]
-pandas = "*"
-pypowsybl = "1.2.1"
+pandas = "2.2.2"
+numpy = "2.0.0"
+pypowsybl = "1.6.1"
 aniso8601 = "*"
 lxml = "*"
 edx = "*"

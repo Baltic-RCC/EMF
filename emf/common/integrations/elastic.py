@@ -48,7 +48,7 @@ class Elastic:
             iso_timestamp = datetime.datetime.utcnow().isoformat(sep="T")
 
         # Adding timestamp value to message
-        json_message["log_timestamp"] = iso_timestamp
+        json_message["@timestamp"] = iso_timestamp
 
         # Create server url with relevant index pattern
         _index = f"{index}-{datetime.datetime.today():%Y%m}"
@@ -60,9 +60,9 @@ class Elastic:
         # Executing POST to push message into ELK
         if debug:
             logger.debug(f"Sending data to {url}")
-        if json_message.get('args', None):  # TODO revise if this is best solution
+        if json_message.get('args', None):  # TODO revise if this is proper solution
             json_message.pop('args')
-        json_data = json.dumps(json_message, default=str)
+        json_data = json.dumps(json_message, default=str, ensure_ascii=True, skipkeys=True)
         response = requests.post(url=url, data=json_data.encode(), headers={"Content-Type": "application/json"})
         if debug:
             logger.debug(f"ELK response: {response.content}")
@@ -76,6 +76,7 @@ class Elastic:
                              id_metadata_list: List[str] | None = None,
                              server: str = ELK_SERVER,
                              batch_size: int = int(BATCH_SIZE),
+                             iso_timestamp: str | None = None,
                              debug: bool = False):
         """
         Method to send bulk message to ELK
@@ -85,12 +86,21 @@ class Elastic:
         :param id_metadata_list:
         :param server: url of ELK server
         :param batch_size: maximum size of batch
+        :param iso_timestamp: timestamp to be included in documents
         :param debug: flag for debug mode
         :return:
         """
+
         # Validate if_metadata_list parameter if id_from_metadata is True
         if id_from_metadata and id_metadata_list is None:
             raise Exception(f"Argument id_metadata_list not provided")
+
+        # Creating timestamp value if it is not provided in function call
+        if not iso_timestamp:
+            iso_timestamp = datetime.datetime.utcnow().isoformat(sep="T")
+
+        # Adding timestamp value to messages
+        json_message_list = [{**element, '@timestamp': iso_timestamp} for element in json_message_list]
 
         # Define server url with relevant index pattern (monthly indication is added)
         index = f"{index}-{datetime.datetime.today():%Y%m}"
