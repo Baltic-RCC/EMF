@@ -69,8 +69,17 @@ def get_meta_from_filename(file_name: str):
         for key in BOUNDARY_FILE_TYPE_FIX:
             if key in fixed_file_name:
                 fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
-        meta_data = metadata_from_filename(fixed_file_name)
+        meta_data = metadata_from_filename(os.path.basename(fixed_file_name))
         # Revert back cases where there is a '-' in TSO's name like ENTSO-E
+        # Some very special fix for general zip in form scenario-date_time-horizon_tso_revision
+        if meta_data[PMD_TIME_HORIZON_KEYWORD] == '':
+            igm_file_type_list = [file_type.replace('_', '') for file_type in IGM_FILE_TYPES]
+            boundary_file_type_list = [file_type.strip("_") for file_type in BOUNDARY_FILE_TYPE_FIX.values()]
+            if ((meta_data[PMD_CGMES_PROFILE_KEYWORD] not in igm_file_type_list + boundary_file_type_list) and
+                    (len(meta_data[PMD_MODEL_PART_REFERENCE_KEYWORD]) == 2)):
+                meta_data[PMD_TIME_HORIZON_KEYWORD] = meta_data[PMD_MODEL_PART_REFERENCE_KEYWORD]
+                meta_data[PMD_MODEL_PART_REFERENCE_KEYWORD] = meta_data[PMD_CGMES_PROFILE_KEYWORD]
+        # End of very special fix
         for case in SPECIAL_TSO_NAME:
             if case in fixed_file_name:
                 meta_data[PMD_MODEL_PART_REFERENCE_KEYWORD] = case

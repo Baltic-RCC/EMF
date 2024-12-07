@@ -579,7 +579,40 @@ def check_if_filename_exists_in_list(existing_file_instances: list, new_file_ins
     return existing_file_instances
 
 
-def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merging_entities: bool = False):
+def filter_by_time_horizon_scenario_date(file_name_meta: dict,
+                                         time_horizon: str = None,
+                                         scenario_date: str = None,
+                                         bypass_profiles: list = None):
+    """
+    Checks whether file name (dict) corresponds to the search values
+    :param file_name_meta: dictionary containing fields from file names
+    :param time_horizon: time horizon of requested models
+    :param scenario_date: scenario date of requested models
+    :param bypass_profiles: bypass specific profiles
+    :return: True if model met the criterias
+    """
+    add = True
+    # if (not file_name_meta.get(PMD_TIME_HORIZON_KEYWORD) and bypass_profiles
+    #         and file_name_meta.get(PMD_CGMES_PROFILE_KEYWORD) in bypass_profiles):
+    #     return add
+    if bypass_profiles and file_name_meta.get(PMD_CGMES_PROFILE_KEYWORD) in bypass_profiles:
+        return add
+    if (time_horizon and file_name_meta.get(PMD_TIME_HORIZON_KEYWORD)
+            and file_name_meta.get(PMD_TIME_HORIZON_KEYWORD) != time_horizon):
+        add = False
+    if (scenario_date and file_name_meta.get(PMD_VALID_FROM_KEYWORD)
+            and scenario_date != file_name_meta.get(PMD_VALID_FROM_KEYWORD)):
+        add = False
+    return add
+
+
+def group_files_by_origin(list_of_files: [],
+                          root_folder: str = None,
+                          allow_merging_entities: bool = False,
+                          time_horizon: str = None,
+                          scenario_date: str = None,
+                          bypass_profiles: list = None,
+                          allow_uncategorized_models: bool = True):
     """
     When input is a directory containing the .xml and .zip files for all the TSOs and boundaries as well and
     if files follow the standard name convention, then this one sorts them by TSOs and by boundaries
@@ -589,6 +622,10 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
     :param list_of_files: list of files to divide
     :param root_folder: root folder for relative or absolute paths
     :param allow_merging_entities: true: allow cases like TECNET-CE-ELIA to list of models
+    :param allow_uncategorized_models: try to figure out uncategorized models
+    :param time_horizon: filter inputs by time horizon
+    :param scenario_date: filter inputs by scenario date
+    :param bypass_profiles: bypass profiles that may be shared by several models (e.g EQ)
     :return: dictionaries for containing TSO files, boundary files
     """
     tso_files = {}
@@ -609,7 +646,6 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
             except Exception:
                 logger.error(f"Unknown input: {file_instance}")
                 continue
-        file_name = os.path.basename(file_name)
         file_extension = os.path.splitext(file_name)[-1]
         # Check if file is supported file
         if file_extension not in PREFERRED_FILE_TYPES:
@@ -636,8 +672,12 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
                 if tso_name not in tso_files.keys():
                     tso_files[tso_name] = []
                 # Check if file without the extension is already present
-                tso_files[tso_name] = check_if_filename_exists_in_list(existing_file_instances=tso_files[tso_name],
-                                                                       new_file_instance=file_instance)
+                if filter_by_time_horizon_scenario_date(file_name_meta=file_name_meta,
+                                                        time_horizon=time_horizon,
+                                                        bypass_profiles=bypass_profiles,
+                                                        scenario_date=scenario_date):
+                    tso_files[tso_name] = check_if_filename_exists_in_list(existing_file_instances=tso_files[tso_name],
+                                                                           new_file_instance=file_instance)
             # Handle boundaries
             elif file_type_name in boundary_file_types:
                 if tso_name not in boundaries.keys():
@@ -646,7 +686,18 @@ def group_files_by_origin(list_of_files: [], root_folder: str = None, allow_merg
                 boundaries[tso_name] = check_if_filename_exists_in_list(existing_file_instances=boundaries[tso_name],
                                                                         new_file_instance=file_instance)
             else:
-                logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
+                if not allow_uncategorized_models:
+                    logger.warning(f"Names follows convention but unable to categorize it: {file_name}")
+                else:
+                    if tso_name not in tso_files.keys():
+                        tso_files[tso_name] = []
+                    if filter_by_time_horizon_scenario_date(file_name_meta=file_name_meta,
+                                                            time_horizon=time_horizon,
+                                                            bypass_profiles=bypass_profiles,
+                                                            scenario_date=scenario_date):
+                        tso_files[tso_name] = check_if_filename_exists_in_list(
+                            existing_file_instances=tso_files[tso_name],
+                            new_file_instance=file_instance)
         else:
             logger.warning(f"Unrecognized file: {file_name}")
     return tso_files, boundaries
@@ -723,6 +774,8 @@ def get_latest_models_and_download(time_horizon: str = None,
                                    local_folder_for_examples: str = PY_ENTSOE_EXAMPLES_LOCAL,
                                    url_for_examples: str = PY_ENTSOE_EXAMPLES_EXTERNAL,
                                    allow_merging_entities: bool = False,
+                                   allow_uncategorized_models: bool = True,
+                                   bypass_profiles: list = None,
                                    igm_files_needed: list = None):
     """
      Gets list of files in directory and returns those who categorize to igm data in opdm format
@@ -733,8 +786,11 @@ def get_latest_models_and_download(time_horizon: str = None,
      :param local_folder_for_examples: path to the examples
      :param url_for_examples: path to online storage
      :param allow_merging_entities: true allow cases like TECNET-CE-ELIA to list of models
+     :param allow_uncategorized_models: try to
+     :param bypass_profiles: list of profiles to bypass in initial filtering
      :param igm_files_needed: specify explicitly the file types needed (escape pypowsybl "EQ" missing error)
      """
+    necessary_profiles = len(IGM_FILE_TYPES)
     if isinstance(path_to_directory, str):
         path_to_directory = [path_to_directory]
     models = []
@@ -750,6 +806,10 @@ def get_latest_models_and_download(time_horizon: str = None,
         file_names = next(os.walk(full_path), (None, None, []))[2]
         models_data, boundary_data = group_files_by_origin(list_of_files=file_names,
                                                            root_folder=full_path,
+                                                           scenario_date=scenario_date,
+                                                           time_horizon=time_horizon,
+                                                           bypass_profiles=bypass_profiles,
+                                                           allow_uncategorized_models=allow_uncategorized_models,
                                                            allow_merging_entities=allow_merging_entities)
         if models_data:
             models_transformed = get_data_from_files(file_locations=models_data,
@@ -763,11 +823,42 @@ def get_latest_models_and_download(time_horizon: str = None,
         if isinstance(tso, str):
             tso = [tso]
         models = [igm_model for igm_model in models if igm_model.get(PMD_TSO_KEYWORD) in tso]
-    if time_horizon:
-        models = [igm_model for igm_model in models if igm_model.get(PMD_TIME_HORIZON_KEYWORD) == time_horizon]
-    if scenario_date:
-        models = [igm_model for igm_model in models
-                  if parse_datetime(igm_model.get(PMD_SCENARIO_DATE_KEYWORD)) == parse_datetime(scenario_date)]
+    for model_instance in models:
+        if len(model_instance.get(OPDE_COMPONENT_KEYWORD, [])) == necessary_profiles:
+            continue
+        # Filter out duplicate (bypassed) profiles
+        profiles = model_instance.pop(OPDE_COMPONENT_KEYWORD, None)
+        unique_profiles = set(name.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_CGMES_PROFILE_KEYWORD) for name in profiles)
+        profile_dict = {name: [profile for profile in profiles
+                               if profile.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_CGMES_PROFILE_KEYWORD) == name]
+                        for name in unique_profiles}
+        new_profiles = []
+        for profile_name in profile_dict:
+            if len(profile_dict[profile_name]) == 1:
+                new_profiles.extend(profile_dict[profile_name])
+            else:
+                if model_instance_date := model_instance.get(PMD_SCENARIO_DATE_KEYWORD):
+                    main_date_time = parse_datetime(model_instance_date)
+                    closest_datetime = None,
+                    closest_profile = None
+                    for entry in profile_dict[profile_name]:
+                        try:
+                            time_val = parse_datetime(entry.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_VALID_FROM_KEYWORD))
+                        except Exception:
+                            logger.error(f"Unknown {entry.get(OPDM_PROFILE_KEYWORD, {}).get(PMD_VALID_FROM_KEYWORD)}")
+                            continue
+                        if not closest_datetime or (closest_datetime < time_val <= main_date_time):
+                            closest_datetime = time_val
+                            closest_profile = entry
+                    if not closest_profile:
+                        raise LocalFileLoaderError(f"Unable to find closest match for {profile_name}")
+                    else:
+                        new_profiles.append(closest_profile)
+                else:
+                    raise LocalFileLoaderError(f"Multiples entries for {profile_name} and missing scenario date")
+        model_instance[OPDE_COMPONENT_KEYWORD] = new_profiles
+    # exclude empty models
+    models = [model_instance for model_instance in models if model_instance.get(OPDE_COMPONENT_KEYWORD)]
     return models
 
 
