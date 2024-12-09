@@ -107,7 +107,7 @@ def save_content_to_zip_file(content: {}):
         if content:
             for file_name in content:
                 logger.info(f"Converting {file_name} to zip container")
-                output_zip.writestr(file_name, content[file_name])
+                output_zip.writestr(file_name, content[file_name], compress_type=zipfile.ZIP_DEFLATED)
         output_object.seek(0)
     return output_object.getvalue()
 
