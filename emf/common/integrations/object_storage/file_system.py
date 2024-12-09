@@ -70,7 +70,13 @@ def read_in_zip_file(zip_file_path: str | BytesIO, file_types: [] = None) -> {}:
         for file_name in zip_file.namelist():
             if file_types is None or any([file_keyword in file_name for file_keyword in file_types]):
                 logger.info(f"Reading {file_name} from {zip_file_path}")
-                content[file_name] = zip_file.read(file_name)
+                file_content = zip_file.read(file_name)
+                bytes_io_file = BytesIO(file_content)
+                if zipfile.is_zipfile(bytes_io_file):
+                    zip_content = read_in_zip_file(bytes_io_file, file_types=file_types)
+                    content.update(zip_content)
+                else:
+                    content[file_name] = file_content
     return content
 
 
@@ -839,7 +845,7 @@ def get_latest_models_and_download(time_horizon: str = None,
             else:
                 if model_instance_date := model_instance.get(PMD_SCENARIO_DATE_KEYWORD):
                     main_date_time = parse_datetime(model_instance_date)
-                    closest_datetime = None,
+                    closest_datetime = None
                     closest_profile = None
                     for entry in profile_dict[profile_name]:
                         try:

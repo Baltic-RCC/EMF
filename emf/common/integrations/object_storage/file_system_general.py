@@ -69,7 +69,11 @@ def get_meta_from_filename(file_name: str):
         for key in BOUNDARY_FILE_TYPE_FIX:
             if key in fixed_file_name:
                 fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
-        meta_data = metadata_from_filename(os.path.basename(fixed_file_name))
+        try:
+            meta_data = metadata_from_filename(os.path.basename(fixed_file_name))
+        except UnboundLocalError:
+            logger.error(f"Unable to parse {file_name}, check that fields are separated by '-'")
+            return {}
         # Revert back cases where there is a '-' in TSO's name like ENTSO-E
         # Some very special fix for general zip in form scenario-date_time-horizon_tso_revision
         if meta_data[PMD_TIME_HORIZON_KEYWORD] == '':
