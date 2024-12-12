@@ -1,6 +1,5 @@
 import logging
 import math
-
 import config
 import json
 import time
@@ -354,16 +353,6 @@ class HandlerMergeModels:
 
 
 if __name__ == "__main__":
-    import sys
-
-
-
-    logging.basicConfig(
-        format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
-        datefmt='%Y-%m-%dT%H:%M:%S',
-        level=logging.INFO,
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
 
     sample_task = {
         "@context": "https://example.com/task_context.jsonld",
@@ -393,10 +382,10 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-11-21T06:30:00+00:00",
+            "timestamp_utc": "2024-11-06T06:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRCC",
-            "included": ['PSE', 'AST'],
+            "included": ['PSE', 'AST', 'ELERING'],
             "excluded": [],
             "local_import": ['LITGRID'],
             "time_horizon": "1D",
