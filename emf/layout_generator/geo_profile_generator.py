@@ -1,89 +1,26 @@
 import pandas
-import triplets
 import json
 import geopandas as gpd
-from thefuzz import process, fuzz
-import uuid
 import shapely
-from shapely import LineString, Point, line_merge, unary_union, ops
+from shapely import unary_union
 from pathlib import Path
+import triplets
 
-NAME = f"Baltic_GL_2024"
-DIST_ID = str(uuid.uuid4())
-INSTANCE_ID = str(uuid.uuid4())
-GL_FULLMODEL_ID = str(uuid.uuid4())
-COORD_ID = str(uuid.uuid4())
-TOLERANCE = 0.1
-
-# Distribution part, needed for filename
-header_list = [
-    (DIST_ID, "Type", "Distribution"),
-    (DIST_ID, "label", f"{NAME}.xml"),
-    # (GL_FULLMODEL_ID, "Type", "FullModel"),
-    (GL_FULLMODEL_ID, 'Model.messageType', 'GL'),
-    (COORD_ID, "Type", "CoordinateSystem"),
-    (COORD_ID, "CoordinateSystem.crsUrn", "urn:ogc:def:crs:EPSG.4326"),
-]
-
-namespace_map = {
-    "cim": "http://iec.ch/TC57/2013/CIM-schema-cim16#",
-    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-    "dcat": "http://www.w3.org/ns/dcat#",
-    "skos": "http://www.w3.org/2004/02/skos/core#",
-    "at": "http://publications.europa.eu/ontology/authority/",
-    "dcterms": "http://purl.org/dc/terms/",
-}
-
-rdf_map = json.load(open(Path(__file__).parent.joinpath("entsoe_v2.4.15_2014-08-07.json")))
-
-
-def map_by_column(data_frame_1, column_1: str, data_frame_2, column_2: str):
-    return data_frame_1.merge(data_frame_2, left_on=data_frame_1[column_1].apply(
-        lambda x: process.extractOne(x, data_frame_2[column_2])[0]),
-                              right_on=column_2, suffixes=('_1', '_2'))
-
-
-def map_by_column_new(df1, col1: str, df2, col2: str):
-    map_list = df2[[col2, 'geometry']]
-    new_df = pandas.DataFrame()
-    for i in range(df1[[col1]].size):
-        if map_list[col2].size == 0:
-            break
-        match = process.extractOne(df1.loc[i, col1], map_list[col2])[0]
-        row1 = df1.loc[[i]].reset_index(drop=True)
-        row2 = df2.loc[[df2[df2[col2].str.contains(match)].head(1).index[0]]].reset_index(drop=True)
-        new_row = pandas.concat([row1, row2], axis=1)
-        new_df = pandas.concat([new_df, new_row], ignore_index=True)
-        map_list = map_list.drop(map_list[col2].str.contains(match).index[0])
-    return new_df
-
-
-def generate_geomap(df, name: str):
-    geo_df = gpd.GeoDataFrame(df)
-    m = geo_df.explore()
-    m.save(f"{name}.html")
-
-
-def multiline_to_linestring(multiline):
-    points = [point for line in multiline for point in line.coords]
-    return LineString(points)
-
-
-def process_group(group):
-    result = group.agg(lambda x: x.unique()[0] if x.nunique() == 1 else None)
-    result['geometry'] = unary_union(group['geometry'].tolist())
-    return result
-
+from emf.layout_generator.geo_functions import map_by_column, generate_geomap, geojson_from_dataframe
+from emf.layout_generator.geo_config import *
 
 # Load EQ profiles
-eq_df = pandas.concat([pandas.read_RDF([Path(__file__).parent.joinpath('20240110T0030Z_1D_LT_EQ_001.xml')]),
-                       pandas.read_RDF([Path(__file__).parent.joinpath('20240110T0030Z_1D_LV_EQ_001.xml')]),
-                       pandas.read_RDF([Path(__file__).parent.joinpath('20240213T2330Z_1D_Estonia_EQ_002.xml')]),
-                       ])
+eq_df = pandas.concat([
+    pandas.read_RDF([Path(__file__).parent.joinpath('inputs/20240110T0030Z_1D_LT_EQ_001.xml')]),
+    pandas.read_RDF([Path(__file__).parent.joinpath('inputs/20240110T0030Z_1D_LV_EQ_001.xml')]),
+    pandas.read_RDF([Path(__file__).parent.joinpath('inputs/20240213T2330Z_1D_Estonia_EQ_002.xml')]),
+])
+
+rdf_map = json.load(open(Path(__file__).parent.joinpath("inputs/entsoe_v2.4.15_2014-08-07.json")))
 
 # Load GeoJSON data
-geo_df = gpd.read_file(Path(__file__).parent.joinpath('data_clean.geojson'))
+geo_df = gpd.read_file(Path(__file__).parent.joinpath('inputs/grid_data_cleaned.geojson'))
+
 geo_df.loc[geo_df['ref'].isnull() == True, 'ref'] = geo_df['name']
 geo_df.loc[geo_df['name'].isnull() == True, 'name'] = geo_df['ref']
 geo_df = geo_df.dropna(subset=['name', 'ref'])
@@ -101,9 +38,6 @@ line_geo_df = geo_df[geo_df['power'].isin(['line'])].reset_index(drop=True)
 line_geo_df_330 = line_geo_df[line_geo_df['voltage'].str.contains('330000')]
 line_geo_df_400 = line_geo_df[line_geo_df['voltage'].str.contains('400000')]
 line_geo_df_330 = pandas.concat([line_geo_df_330, line_geo_df_400], ignore_index=True).drop_duplicates()
-
-
-
 
 
 # Substation EQ profile data
@@ -152,7 +86,8 @@ mapping_330['location_id'] = [uuid.uuid4() for num in range(len(mapping_330.inde
 # locations = full_mappping.rename(columns={'ID': 'Location.PowerSystemResources', 'location_id': 'ID'})
 
 # Generating CIM GL locations
-locations = mapping_330.rename(columns={'ID': 'Location.PowerSystemResources', 'location_id': 'ID'})
+mapping_330 = mapping_330.rename(columns={'ID': 'grid_id'})
+locations = mapping_330.rename(columns={'grid_id': 'Location.PowerSystemResources', 'location_id': 'ID'})
 locations['Type'] = 'Location'
 locations['Location.CoordinateSystem'] = COORD_ID
 locations_triplet = locations[['Type', 'ID', 'Location.PowerSystemResources', 'Location.CoordinateSystem']].melt(id_vars="ID", value_name="VALUE", var_name="KEY")
@@ -203,15 +138,22 @@ export.export_to_cimxml(rdf_map=rdf_map,
                         namespace_map=namespace_map,
                         export_undefined=False,
                         export_type="xml_per_instance",
-                        debug=False
-                        )
+                        debug=False)
 
 
 # Create visualisation of mapped data
-generate_geomap(mapping_330[['IdentifiedObject.name', 'name', 'Type', 'voltage', 'ref', 'geometry']], 'lines_substations_mapped')
-generate_geomap(position_points[['IdentifiedObject.name', 'IdentifiedObject.shortName', 'name', 'Type', 'voltage', 'ref', 'geometry']], 'lines_substations_simplified')
-generate_geomap(geo_df[['name', 'voltage', 'ref', 'geometry']], 'lines_substations_unmapped')
-generate_geomap(pandas.concat([line_geo_df_330, substation_geo_df_330])[['name', 'voltage', 'ref', 'geometry']], 'lines_substations_330_unmapped')
+generate_geomap(mapping_330[['IdentifiedObject.name', 'name', 'Type', 'voltage', 'ref', 'grid_id', 'geometry']],
+                'lines_substations_mapped')
+generate_geomap(position_points[['IdentifiedObject.name', 'IdentifiedObject.shortName', 'name', 'Type', 'voltage', 'ref', 'geometry']],
+                'lines_substations_simplified')
+generate_geomap(geo_df[['name', 'voltage', 'ref', 'geometry']],
+                'lines_substations_unmapped')
+generate_geomap(pandas.concat([line_geo_df_330, substation_geo_df_330])[['name', 'voltage', 'ref', 'geometry']],
+                'lines_substations_330_unmapped')
 
+grid_geojson = position_points[
+    ['IdentifiedObject.name', 'IdentifiedObject.shortName', 'name', 'Type', 'voltage', 'ref', 'Location.PowerSystemResources', 'geometry']]
+grid_geojson = grid_geojson.rename(columns={'Location.PowerSystemResources': 'grid_id'})
+geojson_from_dataframe('BA_grid_simplified.geojson', grid_geojson)
 
 print(f'GL profile {NAME} exported')
