@@ -33,7 +33,7 @@ def initialize_custom_logger(
     root_logger.propagate = True
 
     # Configure stream logging handler
-    root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
+    # root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
 
     # Configure Elk logging handler
     elk_handler = ElkLoggingHandler(elk_server=elk_server, index=index, extra=extra, fields_filter=fields_filter)
