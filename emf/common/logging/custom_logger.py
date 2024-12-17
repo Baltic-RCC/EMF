@@ -5,6 +5,10 @@ from emf.common.integrations import elastic
 import config
 from emf.common.config_parser import parse_app_properties
 
+# Root logger
+root_logger = logging.getLogger()
+
+# Local logger
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
 logging.basicConfig(
@@ -25,7 +29,6 @@ def initialize_custom_logger(
         fields_filter: None | list = None,
         ):
 
-    root_logger = logging.getLogger()
     root_logger.setLevel(level)
     root_logger.propagate = True
 
@@ -46,7 +49,6 @@ def initialize_custom_logger(
 
 def get_elk_logging_handler():
     # Try to find already existing instance of Elk logger in root logger handlers
-    root_logger = logging.getLogger()
     for handler in root_logger.handlers:
         if isinstance(handler, ElkLoggingHandler):
             return handler
