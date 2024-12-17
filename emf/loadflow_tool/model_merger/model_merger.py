@@ -17,6 +17,7 @@ from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
 from emf.loadflow_tool.replacement import run_replacement, get_available_tsos, run_replacement_local
+from emf.loadflow_tool import scaler
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
@@ -100,7 +101,7 @@ class HandlerMergeModels:
         mas = task_properties["mas"]
         version = task_properties["version"]
         model_replacement = task_properties["replacement"]
-        model_replacement_local= task_properties["replacement_local"]
+        model_replacement_local = task_properties["replacement_local"]
         model_scaling = task_properties["scaling"]
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
@@ -193,163 +194,172 @@ class HandlerMergeModels:
 
         valid_models = valid_models + additional_models_data
 
-        # Run process only if you find some models to merge, otherwise return None
+        # Return None if there are no models to be merged
         if not valid_models:
             logger.warning("Found no valid models to merge, returning None")
             return None
-        else:
-            # Load all selected models
-            input_models = valid_models + [latest_boundary]
 
-            if len(input_models) < 2:
-                logger.warning("Found no models to merge, returning None")
-                return None
+        # Load all selected models
+        input_models = valid_models + [latest_boundary]
+        if len(input_models) < 2:
+            logger.warning("Found no models to merge, returning None")
+            return None
 
-            # Run pre-processing
-            pre_p_start = datetime.datetime.now(datetime.UTC)
-            if pre_temp_fixes:
-                input_models = run_pre_merge_processing(input_models, merging_area)
-            pre_p_end = datetime.datetime.now(datetime.UTC)
-            logger.debug(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
+        # Run pre-processing
+        pre_p_start = datetime.datetime.now(datetime.UTC)
+        if pre_temp_fixes:
+            input_models = run_pre_merge_processing(input_models, merging_area)
+        pre_p_end = datetime.datetime.now(datetime.UTC)
+        logger.debug(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
 
-            # Load network model and merge
-            merge_start = datetime.datetime.now(datetime.UTC)
-            merged_model = merge_functions.load_model(input_models)
-            # TODO - run other LF if default fails
-            solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-            merge_end = datetime.datetime.now(datetime.UTC)
-            logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
+        # Load network model and merge
+        merge_start = datetime.datetime.now(datetime.UTC)
+        merged_model = merge_functions.load_model(input_models)
+        # TODO - run other LF if default fails
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        # Perform scaling
+        if model_scaling:
+            # Get aligned schedules
+            ac_schedules = scaler.query_acnp_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
+            dc_schedules = scaler.query_hvdc_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
+            # Scale balance
+            solved_model['network'] = scaler.scale_balance(network=solved_model['network'],
+                                                           ac_schedules=ac_schedules,
+                                                           dc_schedules=dc_schedules)
 
-            # Update time_horizon in case of generic ID process type
-            new_time_horizon = None
-            if time_horizon.upper() == "ID":
-                max_time_horizon_value = 36
-                _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
-                _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
-                time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
-                time_diff = _scenario_datetime - _task_creation_time
-                # column B
-                # time_horizon = f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-                # column C (original)
-                # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-                # column D
-                # time_horizon = f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-                if time_diff.days >= 0 and time_diff.days <= 1:
-                    # column E
-                    # time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                    # column F
-                    # time_horizon_actual = int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                    # column G
-                    time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                    # just in case cut it to bigger than 1 once again
-                    time_horizon_actual = max(time_horizon_actual, 1)
-                    if time_horizon_actual <= max_time_horizon_value:
-                        time_horizon = f"{time_horizon_actual:02d}"
-                new_time_horizon = time_horizon
-                # Check this, is it correct to  update the value here or it should be given to post processing"
-                # task_properties["time_horizon"] = time_horizon
-                logger.info(f"Setting intraday time horizon to: {time_horizon}")
+        merge_end = datetime.datetime.now(datetime.UTC)
+        logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
 
-            # Run post-processing
-            post_p_start = datetime.datetime.now(datetime.UTC)
-            sv_data, ssh_data = run_post_merge_processing(input_models,
-                                                          solved_model,
-                                                          task_properties,
-                                                          SMALL_ISLAND_SIZE,
-                                                          enable_temp_fixes=post_temp_fixes,
-                                                          time_horizon=new_time_horizon)
+        # Update time_horizon in case of generic ID process type
+        new_time_horizon = None
+        if time_horizon.upper() == "ID":
+            max_time_horizon_value = 36
+            _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
+            _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
+            time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
+            time_diff = _scenario_datetime - _task_creation_time
+            # column B
+            # time_horizon = f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+            # column C (original)
+            # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+            # column D
+            # time_horizon = f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+            if time_diff.days >= 0 and time_diff.days <= 1:
+                # column E
+                # time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                # column F
+                # time_horizon_actual = int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                # column G
+                time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+                # just in case cut it to bigger than 1 once again
+                time_horizon_actual = max(time_horizon_actual, 1)
+                if time_horizon_actual <= max_time_horizon_value:
+                    time_horizon = f"{time_horizon_actual:02d}"
+            new_time_horizon = time_horizon
+            # Check this, is it correct to  update the value here or it should be given to post processing"
+            # task_properties["time_horizon"] = time_horizon
+            logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
-            # Package both input models and exported CGM profiles to in memory zip files
-            serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
-            post_p_end = datetime.datetime.now(datetime.UTC)
-            logger.debug(f"Post proocessing took: {(post_p_end - post_p_start).total_seconds()} seconds")
-            logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
+        # Run post-processing
+        post_p_start = datetime.datetime.now(datetime.UTC)
+        sv_data, ssh_data = run_post_merge_processing(input_models,
+                                                      solved_model,
+                                                      task_properties,
+                                                      SMALL_ISLAND_SIZE,
+                                                      enable_temp_fixes=post_temp_fixes,
+                                                      time_horizon=new_time_horizon)
 
-            # Upload to OPDM
-            if model_upload_to_opdm:
-                try:
-                    for item in serialized_data:
-                        logger.info(f"Uploading to OPDM: {item.name}")
-                        time.sleep(2)
-                        async_call(function=self.opdm_service.publication_request, callback=log_opdm_response,
-                                   file_path_or_file_object=item)
-                        merge_log.update({'uploaded_to_opde': True})
-                except:
-                    logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
+        # Package both input models and exported CGM profiles to in memory zip files
+        serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
+        post_p_end = datetime.datetime.now(datetime.UTC)
+        logger.debug(f"Post proocessing took: {(post_p_end - post_p_start).total_seconds()} seconds")
+        logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
-            # Create zipped model data
-            if merging_area == 'BA':
-                cgm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
-            else:
-                cgm_name = f"CGM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
-            cgm_data = BytesIO()
-            with ZipFile(cgm_data, "w") as cgm_zip:
-
-                # Include CGM model files
+        # Upload to OPDM
+        if model_upload_to_opdm:
+            try:
                 for item in serialized_data:
-                    cgm_zip.writestr(item.name, item.getvalue())
+                    logger.info(f"Uploading to OPDM: {item.name}")
+                    time.sleep(2)
+                    async_call(function=self.opdm_service.publication_request, callback=log_opdm_response,
+                               file_path_or_file_object=item)
+                    merge_log.update({'uploaded_to_opde': True})
+            except:
+                logging.error(f"""Unexpected error on uploading to OPDM:""", exc_info=True)
 
-                # Include original IGM files
-                for object in input_models:
-                    for instance in object['opde:Component']:
-                        if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
-                            file_object = opdmprofile_to_bytes(instance)
-                            logging.info(f"Adding file: {file_object.name}")
-                            cgm_zip.writestr(file_object.name, file_object.getvalue())
+        # Create zipped model data
+        if merging_area == 'BA':
+            cgm_name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+        else:
+            cgm_name = f"CGM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+        cgm_data = BytesIO()
+        with ZipFile(cgm_data, "w") as cgm_zip:
 
-            cgm_object = cgm_data
-            cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
+            # Include CGM model files
+            for item in serialized_data:
+                cgm_zip.writestr(item.name, item.getvalue())
 
-            # Send to Object Storage
-            if model_upload_to_minio:
-                logger.info(f"Uploading CGM to MINIO: {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
+            # Include original IGM files
+            for object in input_models:
+                for instance in object['opde:Component']:
+                    if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
+                        file_object = opdmprofile_to_bytes(instance)
+                        logging.info(f"Adding file: {file_object.name}")
+                        cgm_zip.writestr(file_object.name, file_object.getvalue())
+
+        cgm_object = cgm_data
+        cgm_object.name = f"{OUTPUT_MINIO_FOLDER}/{cgm_name}.zip"
+
+        # Send to Object Storage
+        if model_upload_to_minio:
+            logger.info(f"Uploading CGM to MINIO: {OUTPUT_MINIO_BUCKET}/{cgm_object.name}")
+            try:
+                response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                if response:
+                    merge_log.update({'uploaded_to_minio': True})
+            except:
+                logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
+
+        logger.info(f"CGM creation done for {cgm_name}")
+
+        end_time = datetime.datetime.now(datetime.UTC)
+        task_duration = end_time - start_time
+        logger.info(f"Task ended at {end_time}, total run time {task_duration}",
+                    extra={"task_duration": task_duration.total_seconds(),
+                           "task_start_time": start_time.isoformat(),
+                           "task_end_time": end_time.isoformat()})
+
+        # Set task to finished
+        update_task_status(task, "finished")
+        logger.debug(task)
+
+        # Update merge log
+        merge_log.update({'task': task,
+                          'small_island_size': SMALL_ISLAND_SIZE,
+                          'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
+                          'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
+                          'content_reference': cgm_object.name,
+                          'cgm_name': cgm_name})
+
+        # Send merge report to Elastic
+        if model_merge_report_send_to_elk:
+            logger.info(f"Sending merge report to Elastic")
+            try:
+                merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
                 try:
-                    response = self.minio_service.upload_object(cgm_object, bucket_name=OUTPUT_MINIO_BUCKET)
-                    if response:
-                        merge_log.update({'uploaded_to_minio': True})
-                except:
-                    logging.error(f"""Unexpected error on uploading to Object Storage:""", exc_info=True)
-
-            logger.info(f"CGM creation done for {cgm_name}")
-
-            end_time = datetime.datetime.now(datetime.UTC)
-            task_duration = end_time - start_time
-            logger.info(f"Task ended at {end_time}, total run time {task_duration}",
-                        extra={"task_duration": task_duration.total_seconds(),
-                               "task_start_time": start_time.isoformat(),
-                               "task_end_time": end_time.isoformat()})
-
-            # Set task to finished
-            update_task_status(task, "finished")
-            logger.debug(task)
-
-            # Update merge log
-            merge_log.update({'task': task,
-                              'small_island_size': SMALL_ISLAND_SIZE,
-                              'loadflow_settings': MERGE_LOAD_FLOW_SETTINGS,
-                              'merge_duration': f'{(merge_end - merge_start).total_seconds()}',
-                              'content_reference': cgm_object.name,
-                              'cgm_name': cgm_name})
-
-            # Send merge report to Elastic
-            if model_merge_report_send_to_elk:
-                logger.info(f"Sending merge report to Elastic")
-                try:
-                    merge_report = merge_functions.generate_merge_report(solved_model, valid_models, merge_log)
-                    try:
-                        response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX,
-                                                                   json_message=merge_report)
-                    except Exception as error:
-                        logger.error(f"Merge report sending to Elastic failed: {error}")
+                    response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX,
+                                                               json_message=merge_report)
                 except Exception as error:
-                    logger.error(f"Failed to create merge report: {error}")
+                    logger.error(f"Merge report sending to Elastic failed: {error}")
+            except Exception as error:
+                logger.error(f"Failed to create merge report: {error}")
 
-            # Stop Trace
-            self.elk_logging_handler.stop_trace()
+        # Stop Trace
+        self.elk_logging_handler.stop_trace()
 
-            logger.info(f"Merge task finished for model: {cgm_name}")
+        logger.info(f"Merge task finished for model: {cgm_name}")
 
-            return task
+        return task
 
 
 if __name__ == "__main__":
@@ -382,7 +392,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-11-06T06:30:00+00:00",
+            "timestamp_utc": "2024-12-16T08:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRCC",
             "included": ['PSE', 'AST', 'ELERING'],
@@ -395,7 +405,7 @@ if __name__ == "__main__":
             "post_temp_fixes": "True",
             "replacement": "True",
             "replacement_local": "True",
-            "scaling": "False",
+            "scaling": "True",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
             "send_merge_report": "True",

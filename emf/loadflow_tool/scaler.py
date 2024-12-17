@@ -31,7 +31,7 @@ import pypowsybl as pp
 import logging
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Union
 import config
 from emf.common.config_parser import parse_app_properties
@@ -46,37 +46,43 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scaler)
 
 
-def query_hvdc_schedules(process_type: str,
-                         utc_start: str | datetime,
-                         utc_end: str | datetime,
-                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+def query_hvdc_schedules(time_horizon: str,
+                         scenario_timestamp: str | datetime) -> dict | None:
     """
     Method to get HVDC schedules (business type - B63)
-    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
-    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00Z'
-    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00Z'
-    :param area_eic_map: dictionary of geographical region names and control area eic code
-    :return: schedules in dict format
+    :param time_horizon: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
+    :return: DC schedules in dict format
     """
-    # Define area name to eic mapping table
-    if not area_eic_map:
+    # Create Elastic client
+    service = elastic.Elastic()
+
+    # Get area name to eic mapping
+    try:
+        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
+        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+    except Exception as e:
+        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
         import json
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
 
+    # Define utc start/end times from timestamp
+    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+
     # Define metadata dictionary
     metadata = {
-        "process.processType": process_type,
+        "@time_horizon": time_horizon,
         "TimeSeries.businessType": "B63",
     }
 
     # Get HVDC schedules
-    service = elastic.Elastic()
     schedules_df = service.query_schedules_from_elk(
         index=ELK_INDEX_PATTERN,
-        utc_start=utc_start,
-        utc_end=utc_end,
+        utc_start=utc_start.isoformat(),
+        utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
     )
@@ -103,35 +109,43 @@ def query_hvdc_schedules(process_type: str,
     return schedules_dict
 
 
-def query_acnp_schedules(process_type: str,
-                         utc_start: str | datetime,
-                         utc_end: str | datetime,
-                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+def query_acnp_schedules(time_horizon: str,
+                         scenario_timestamp: str | datetime) -> dict | None:
     """
     Method to get ACNP schedules (business type - B64)
-    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
-    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00Z'
-    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00Z'
-    :return:
+    :param time_horizon: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
+    :return: AC schedules in dict format
     """
-    # Define area name to eic mapping table
-    if not area_eic_map:
+    # Create Elastic client
+    service = elastic.Elastic()
+
+    # Get area name to eic mapping
+    try:
+        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
+        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+    except Exception as e:
+        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
         import json
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
 
+    # Define utc start/end times from timestamp
+    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+
+    # Define metadata dictionary
     metadata = {
-        "process.processType": process_type,
+        "@time_horizon": time_horizon,
         "TimeSeries.businessType": "B64",
     }
 
     # Get AC area schedules
-    service = elastic.Elastic()
     schedules_df = service.query_schedules_from_elk(
         index=ELK_INDEX_PATTERN,
-        utc_start=utc_start,
-        utc_end=utc_end,
+        utc_start=utc_start.isoformat(),
+        utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
     )
@@ -157,18 +171,17 @@ def query_acnp_schedules(process_type: str,
 def get_areas_losses(network: pp.network.Network):
     # Calculate ACNP with losses (from cross-border lines)
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
+    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby('country').p.sum()
 
     # Calculate ACNP without losses (from generation and consumption)
     gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-    generation = gens.groupby('CGMES.regionName').p.sum() * -1
-    consumption = loads.groupby('CGMES.regionName').p.sum()
+    generation = gens.groupby('country').p.sum() * -1
+    consumption = loads.groupby('country').p.sum()
     ## Need to ensure that all series in substraction has same index values. For example when area does not have HVDC connections
     ## Otherwise we will get NaN values for areas without HVDC after regular substraction
     present_areas = generation.index.union(consumption.index)
-    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('CGMES.regionName').p0.sum().reindex(present_areas,
-                                                                                                        fill_value=0)
+    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby('country').p0.sum().reindex(present_areas, fill_value=0)
     acnp_without_losses = generation - consumption - dcnp
 
     # Calculate losses by regions
@@ -206,6 +219,9 @@ def scale_balance(network: pp.network.Network,
     # Target HVDC setpoints
     target_hvdc_sp_df = pd.DataFrame(dc_schedules)
 
+    # TODO [TEMPORARY] drop out LPL schedule until synchronization
+    target_hvdc_sp_df = target_hvdc_sp_df.drop(target_hvdc_sp_df[target_hvdc_sp_df.registered_resource == '10T-LT-PL-000037'].index)
+
     # Target AC net positions mapping
     target_acnp_df = pd.DataFrame(ac_schedules)
     target_acnp_df['registered_resource'] = target_acnp_df['in_domain'].where(target_acnp_df['in_domain'].notna(), target_acnp_df['out_domain'])
@@ -217,17 +233,17 @@ def scale_balance(network: pp.network.Network,
 
     # Get pre-scale HVDC setpoints
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['ucte-x-node-code', 'p']]
+    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['ucte_xnode_code', 'p']]
     for dclink in prescale_hvdc_sp.to_dict('records'):
-        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['ucte-x-node-code']}: {round(dclink['p'], 2)} MW")
+        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['ucte_xnode_code']}: {round(dclink['p'], 2)} MW")
 
     # Mapping HVDC schedules to network
-    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'CGMES.regionName', 'ucte-x-node-code']]
+    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'country', 'ucte_xnode_code']]
     scalable_hvdc.reset_index(inplace=True)
     scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
-    mask = (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain']) | (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['out_domain'])
+    mask = (scalable_hvdc['country'] == scalable_hvdc['in_domain']) | (scalable_hvdc['country'] == scalable_hvdc['out_domain'])
     scalable_hvdc = scalable_hvdc[mask]
-    mask = (scalable_hvdc['CGMES.regionName'] == scalable_hvdc['in_domain']) & (scalable_hvdc['value'] > 0.0)
+    mask = (scalable_hvdc['country'] == scalable_hvdc['in_domain']) & (scalable_hvdc['value'] > 0.0)
     scalable_hvdc['value'] = np.where(mask, scalable_hvdc['value'] * -1, scalable_hvdc['value'])
     # sorting values by abs() in descending order to be able to drop_duplicates() later
     scalable_hvdc = scalable_hvdc.loc[scalable_hvdc['value'].abs().sort_values(ascending=False).index]
@@ -236,11 +252,11 @@ def scale_balance(network: pp.network.Network,
     scalable_hvdc = scalable_hvdc.set_index('id')
 
     # Updating HVDC network elements to scheduled values
-    scalable_hvdc_target = scalable_hvdc[['value', 'ucte-x-node-code']]
+    scalable_hvdc_target = scalable_hvdc[['value', 'ucte_xnode_code']]
     network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value)
-    logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['ucte-x-node-code'].values}")
+    logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['ucte_xnode_code'].values}")
     for dclink in scalable_hvdc_target.to_dict('records'):
-        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['ucte-x-node-code']}: {round(dclink['value'], 2)} MW")
+        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['ucte_xnode_code']}: {round(dclink['value'], 2)} MW")
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
@@ -293,7 +309,7 @@ def scale_balance(network: pp.network.Network,
 
     # Get pre-scale AC net positions for each control area
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
+    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('country').p.sum()
     _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.round().to_dict()}")
 
@@ -310,7 +326,8 @@ def scale_balance(network: pp.network.Network,
 
     # Validate total network AC net position from schedules to network model and scale to meet scheduled
     # Scaling is done through unpaired AC dangling lines
-    scheduled_network_acnp = target_acnp.sum()
+    # From target_acnp variable need to take only areas which are present in network model
+    scheduled_network_acnp = target_acnp[target_acnp.index.isin(prescale_acnp.index)].sum()
     dangling_lines.loc[unpaired_dangling_lines, 'participation'] = dangling_lines[unpaired_dangling_lines].p.abs() / dangling_lines[unpaired_dangling_lines].p.abs().sum()
     offset_network_acnp = prescale_network_acnp - scheduled_network_acnp
     prescale_network_acnp_diff = offset_network_acnp * dangling_lines[unpaired_dangling_lines].participation
@@ -337,8 +354,8 @@ def scale_balance(network: pp.network.Network,
     if debug:
         loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
         gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
-        prescale_generation = gens.groupby('CGMES.regionName').p.sum() * -1
-        prescale_consumption = loads.groupby('CGMES.regionName').p.sum()
+        prescale_generation = gens.groupby('country').p.sum() * -1
+        prescale_consumption = loads.groupby('country').p.sum()
         _scaling_results.append(pd.concat([prescale_generation, pd.Series({'KEY': 'generation', 'ITER': _iteration})]).to_dict())
         _scaling_results.append(pd.concat([prescale_consumption, pd.Series({'KEY': 'consumption', 'ITER': _iteration})]).to_dict())
 
@@ -359,10 +376,10 @@ def scale_balance(network: pp.network.Network,
 
         # Get scaling area loads participation factors
         scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
-        scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.groupby('CGMES.regionName').p0.transform('sum')
+        scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.groupby('country').p0.transform('sum')
 
         # Scale loads by participation factor
-        scalable_loads_diff = (scalable_loads['CGMES.regionName'].map(offset_acnp) * scalable_loads.p_participation)
+        scalable_loads_diff = (scalable_loads['country'].map(offset_acnp) * scalable_loads.p_participation)
         scalable_loads_target = scalable_loads.p0 + scalable_loads_diff
         scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
         network.update_loads(id=scalable_loads_target.index,
@@ -401,8 +418,8 @@ def scale_balance(network: pp.network.Network,
         if debug:
             gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
             loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-            postscale_generation = gens.groupby('CGMES.regionName').p.sum() * -1
-            postscale_consumption = loads.groupby('CGMES.regionName').p.sum()
+            postscale_generation = gens.groupby('country').p.sum() * -1
+            postscale_consumption = loads.groupby('country').p.sum()
             _scaling_results.append(pd.concat([postscale_generation, pd.Series({'KEY': 'generation', 'ITER': _iteration})]).to_dict())
             _scaling_results.append(pd.concat([postscale_consumption, pd.Series({'KEY': 'consumption', 'ITER': _iteration})]).to_dict())
 
@@ -415,7 +432,7 @@ def scale_balance(network: pp.network.Network,
 
         # Get post-scale AC net position
         dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('CGMES.regionName').p.sum()
+        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby('country').p.sum()
         _scaling_results.append(pd.concat([postscale_acnp, pd.Series({'KEY': 'postscale-acnp', 'ITER': _iteration})]).to_dict())
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {postscale_acnp.round().to_dict()}")
 
@@ -448,8 +465,8 @@ def hvdc_schedule_mapper(row):
     """BACKLOG FUNCTION. CURRENTLY NOT USED"""
     schedules = pd.DataFrame(target_dcnp)
     eic_mask = schedules['TimeSeries.connectingLine_RegisteredResource.mRID'] == row['lineEnergyIdentificationCodeEIC']
-    in_domain_mask = schedules["TimeSeries.in_Domain.regionName"] == row['CGMES.regionName']
-    out_domain_mask = schedules["TimeSeries.out_Domain.regionName"] == row['CGMES.regionName']
+    in_domain_mask = schedules["TimeSeries.in_Domain.regionName"] == row['country']
+    out_domain_mask = schedules["TimeSeries.out_Domain.regionName"] == row['country']
     relevant_schedule = schedules[(eic_mask) & ((in_domain_mask) | (out_domain_mask))]
 
     if relevant_schedule.empty:
@@ -476,28 +493,28 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    model_path = r"C:\Users\martynas.karobcikas\Documents\models\rmm\test_model_ast_litgrid.zip"
+    model_path = r"C:\Users\martynas.karobcikas\Documents\models\rmm\test-model-20241216T0830.zip"
     network = pp.network.load(model_path, parameters={"iidm.import.cgmes.source-for-iidm-id": "rdfID"})
 
     # Query target schedules
-    # ac_schedules = query_acnp_schedules(process_type="A01", utc_start="2024-04-29T12:00:00Z", utc_end="2024-04-29T13:00:00Z")
-    # dc_schedules = query_hvdc_schedules(process_type="A01", utc_start="2024-04-29T12:00:00Z", utc_end="2024-04-29T13:00:00Z")
+    ac_schedules = query_acnp_schedules(process_type="A01", utc_start="2024-12-16T08:00:00Z", utc_end="2024-12-16T09:00:00Z")
+    dc_schedules = query_hvdc_schedules(process_type="A01", utc_start="2024-12-16T08:00:00Z", utc_end="2024-12-16T09:00:00Z")
 
-    dc_schedules = [{'value': 350,
-                     'in_domain': None,
-                     'out_domain': 'LT',
-                     'registered_resource': '10T-LT-SE-000013'},
-                    {'value': 320,
-                     'in_domain': 'LT',
-                     'out_domain': None,
-                     'registered_resource': '10T-LT-PL-000037'}
-                    ]
-
-    # ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
-    ac_schedules = [
-        {"value": 200, "in_domain": "LT", "out_domain": None},
-        {"value": 100, "in_domain": None, "out_domain": "LV"},
-    ]
+    # dc_schedules = [{'value': 350,
+    #                  'in_domain': None,
+    #                  'out_domain': 'LT',
+    #                  'registered_resource': '10T-LT-SE-000013'},
+    #                 {'value': 320,
+    #                  'in_domain': 'LT',
+    #                  'out_domain': None,
+    #                  'registered_resource': '10T-LT-PL-000037'}
+    #                 ]
+    #
+    # # ac_schedules.append({"value": 400, "in_domain": "LT", "out_domain": None})
+    # ac_schedules = [
+    #     {"value": 200, "in_domain": "LT", "out_domain": None},
+    #     {"value": 100, "in_domain": None, "out_domain": "LV"},
+    # ]
 
     network = scale_balance(network=network, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
     print(network.ac_scaling_results_df)
@@ -508,4 +525,4 @@ if __name__ == "__main__":
     print(network.ac_scaling_results_df.query("KEY == 'offset-acnp'"))
 
     # Other examples
-    # loads = network.get_loads(id=network.get_elements_ids(element_type=pp.network.ElementType.LOAD, countries=['LT'])) 
+    # loads = network.get_loads(id=network.get_elements_ids(element_type=pp.network.ElementType.LOAD, countries=['LT'])
