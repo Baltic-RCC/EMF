@@ -98,6 +98,7 @@ def query_hvdc_schedules(time_horizon: str,
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
 
     # Filter to the latest revision number
+    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # TODO filter out data by reason code that take only verified tada
@@ -161,6 +162,7 @@ def query_acnp_schedules(time_horizon: str,
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
 
     # Filter to the latest revision number
+    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # Get relevant structure and convert to dictionary
