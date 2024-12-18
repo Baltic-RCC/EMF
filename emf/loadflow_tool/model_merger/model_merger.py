@@ -222,10 +222,13 @@ class HandlerMergeModels:
             # Get aligned schedules
             ac_schedules = scaler.query_acnp_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
             dc_schedules = scaler.query_hvdc_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
-            # Scale balance
-            solved_model['network'] = scaler.scale_balance(network=solved_model['network'],
-                                                           ac_schedules=ac_schedules,
-                                                           dc_schedules=dc_schedules)
+            # Scale balance if all schedules were received
+            if all([ac_schedules, dc_schedules]):
+                solved_model['network'] = scaler.scale_balance(network=solved_model['network'],
+                                                               ac_schedules=ac_schedules,
+                                                               dc_schedules=dc_schedules)
+            else:
+                logger.warning(f"Schedule reference data not available, skipping model scaling")
 
         merge_end = datetime.datetime.now(datetime.UTC)
         logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")

@@ -49,8 +49,8 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 def query_hvdc_schedules(time_horizon: str,
                          scenario_timestamp: str | datetime) -> dict | None:
     """
-    Method to get HVDC schedules (business type - B63)
-    :param time_horizon: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    Method to get HVDC schedules (business type - B63 for PEVF, B67 - for CGMA)
+    :param time_horizon: time horizon of schedules
     :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
     :return: DC schedules in dict format
     """
@@ -72,10 +72,13 @@ def query_hvdc_schedules(time_horizon: str,
     utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
     utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
 
+    # Define business type by time horizon
+    business_type = "B63" if time_horizon in ["1D", "ID"] else "B67"
+
     # Define metadata dictionary
     metadata = {
         "@time_horizon": time_horizon,
-        "TimeSeries.businessType": "B63",
+        "TimeSeries.businessType": business_type,
     }
 
     # Get HVDC schedules
@@ -113,7 +116,7 @@ def query_acnp_schedules(time_horizon: str,
                          scenario_timestamp: str | datetime) -> dict | None:
     """
     Method to get ACNP schedules (business type - B64)
-    :param time_horizon: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
+    :param time_horizon: time horizon of schedules
     :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
     :return: AC schedules in dict format
     """
@@ -497,8 +500,8 @@ if __name__ == "__main__":
     network = pp.network.load(model_path, parameters={"iidm.import.cgmes.source-for-iidm-id": "rdfID"})
 
     # Query target schedules
-    ac_schedules = query_acnp_schedules(process_type="A01", utc_start="2024-12-16T08:00:00Z", utc_end="2024-12-16T09:00:00Z")
-    dc_schedules = query_hvdc_schedules(process_type="A01", utc_start="2024-12-16T08:00:00Z", utc_end="2024-12-16T09:00:00Z")
+    ac_schedules = query_acnp_schedules(time_horizon="1D", scenario_timestamp="2024-12-16T08:00:00Z")
+    dc_schedules = query_hvdc_schedules(time_horizon="1D", scenario_timestamp="2024-12-16T08:00:00Z")
 
     # dc_schedules = [{'value': 350,
     #                  'in_domain': None,
