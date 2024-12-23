@@ -1,3 +1,4 @@
+import pandas
 import triplets
 from emf.loadflow_tool.helper import create_opdm_objects
 from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
@@ -17,7 +18,10 @@ def run_pre_merge_processing(input_models, merging_area):
     if merging_area == 'BA':
         input_models = set_brell_lines_to_zero_in_models(input_models)
 
-    assembled_data = load_opdm_data(input_models)
+    if not isinstance(input_models, pandas.DataFrame):
+        assembled_data = load_opdm_data(input_models)
+    else:
+        assembled_data = input_models
 
     # TODO try to optimize it better
     # if merging_area == 'BA':

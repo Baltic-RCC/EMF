@@ -12,7 +12,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import opdmprofile_to_bytes
+from emf.loadflow_tool.helper import opdmprofile_to_bytes, load_opdm_data
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
@@ -207,8 +207,29 @@ class HandlerMergeModels:
 
         # Run pre-processing
         pre_p_start = datetime.datetime.now(datetime.UTC)
+
+        assembled_data = None
+        to_remove = None
+        not_condenser = None
+        remove_non_generators_from_slack_participation = True
+        if remove_non_generators_from_slack_participation:
+            try:
+                assembled_data = load_opdm_data(input_models)
+                sync_machines = assembled_data.type_tableview('SynchronousMachine').reset_index()
+                to_remove = sync_machines[~sync_machines['SynchronousMachine.operatingMode'].str.contains('.generator')][
+                    ['ID']]
+                condensers = sync_machines[sync_machines['SynchronousMachine.operatingMode'].str.contains('.condenser')]
+                not_condenser = condensers[abs(condensers['RotatingMachine.p']) > 0]
+            except AttributeError as attr:
+                logger.error(f'Unable to find column for igm-cgm-ssh error: {ex}')
+            except Exception as ex:
+                logger.error(f'Unknown igm-cgm-ssh error: {ex}')
+
         if pre_temp_fixes:
-            input_models = run_pre_merge_processing(input_models, merging_area)
+            if assembled_data is not None:
+                input_models = run_pre_merge_processing(assembled_data, merging_area)
+            else:
+                input_models = run_pre_merge_processing(input_models, merging_area)
         pre_p_end = datetime.datetime.now(datetime.UTC)
         logger.debug(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
 
@@ -216,6 +237,34 @@ class HandlerMergeModels:
         merge_start = datetime.datetime.now(datetime.UTC)
         merged_model = merge_functions.load_model(input_models)
         # TODO - run other LF if default fails
+
+        # Remove elements from participating:
+        if remove_non_generators_from_slack_participation:
+            network_pre_instance = merged_model["network"]
+            # re-initialize condensers with p-value not zero
+            try:
+                generators = network_pre_instance.get_generators()
+                if not_condenser is not None:
+                    condensers_to_initialize = generators.reset_index().merge(not_condenser[['ID']]
+                                                                             .rename(columns={'ID': 'id'}), on='id')
+                    condensers_to_initialize['target_p'] = condensers_to_initialize['p'] * (-1)
+                    condensers_to_initialize = condensers_to_initialize[['id','target_p']].set_index('id')
+                    network_pre_instance.update_generators(condensers_to_initialize)
+                # remove elements from participating
+                if to_remove is not None:
+                    not_generators = (generators.reset_index().merge(to_remove[['ID']]
+                                                                    .rename(columns={'ID': 'id'}), on='id')
+                                      .set_index('id'))
+                    extensions = network_pre_instance.get_extensions('activePowerControl')
+                    remove_not_generators = extensions.merge(not_generators.reset_index()[['id']],
+                                                             left_index=True, right_on='id')
+                    remove_not_generators['participate'] = False
+                    remove_not_generators = remove_not_generators.set_index('id')
+                    network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
+            except Exception as ex:
+                logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
+            merged_model["network"] = network_pre_instance
+
         solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
         # Perform scaling
         if model_scaling:
