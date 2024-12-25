@@ -15,7 +15,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import opdmprofile_to_bytes, load_opdm_data
+from emf.loadflow_tool.helper import opdmprofile_to_bytes
 from emf.loadflow_tool.model_merger import merge_functions
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
