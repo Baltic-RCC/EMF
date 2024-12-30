@@ -1,5 +1,8 @@
 import logging
 import math
+
+import pypowsybl
+
 import config
 import json
 import time
@@ -109,6 +112,8 @@ class HandlerMergeModels:
         pre_temp_fixes = task_properties['pre_temp_fixes']
         post_temp_fixes = task_properties['post_temp_fixes']
 
+        remove_non_generators_from_slack_participation = True
+
         # Collect valid models from ObjectStorage
         downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False)
         latest_boundary = get_latest_boundary()
@@ -216,6 +221,36 @@ class HandlerMergeModels:
         merge_start = datetime.datetime.now(datetime.UTC)
         merged_model = merge_functions.load_model(input_models)
         # TODO - run other LF if default fails
+
+        # Various fixes from igmsshvscgmssh error
+        if remove_non_generators_from_slack_participation:
+            network_pre_instance = merged_model["network"]
+            try:
+                generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
+                                                               all_attributes=True)
+                not_generators = generators[~(generators['CGMES.synchronousMachineOperatingMode']
+                                              .str.contains('generator'))]
+                condensers = generators[(generators['CGMES.synchronousMachineType'].str.contains('condenser'))
+                                        & (abs(generators['p']) > 0)
+                                        & (abs(generators['target_p']) == 0)]
+                # Fix condensers that have p not zero by setting their target_p to equal to p
+                if not condensers.empty:
+                    logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
+                    condensers.loc[:, 'target_p'] = condensers['p'] * (-1)
+                    network_pre_instance.update_generators(condensers[['target_p']])
+                # Remove all not generators from active power distribution
+                if not not_generators.empty:
+                    logger.warning(f"Removing {len(not_generators.index)} machines from power distribution")
+                    extensions = network_pre_instance.get_extensions('activePowerControl')
+                    remove_not_generators = extensions.merge(not_generators.reset_index()[['id']],
+                                                             left_index=True, right_on='id')
+                    remove_not_generators['participate'] = False
+                    remove_not_generators = remove_not_generators.set_index('id')
+                    network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
+            except Exception as ex:
+                logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
+            merged_model["network"] = network_pre_instance
+
         solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
         # Perform scaling
         if model_scaling:
