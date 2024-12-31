@@ -227,9 +227,33 @@ class HandlerMergeModels:
             network_pre_instance = merged_model["network"]
             try:
                 generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
-                                                               all_attributes=True)
-                not_generators = generators[~(generators['CGMES.synchronousMachineOperatingMode']
-                                              .str.contains('generator'))]
+                                                               all_attributes=True).reset_index()
+                generators_mask = (generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
+                not_generators = generators[~generators_mask]
+                generators = generators[generators_mask]
+                curve_points = (network_pre_instance
+                                .get_elements(
+                    element_type=pypowsybl.network.ElementType.REACTIVE_CAPABILITY_CURVE_POINT,
+                    all_attributes=True).reset_index())
+                curve_limits = (curve_points.merge(generators[['id']], on='id')
+                                .groupby('id').agg(curve_p_min=('p', 'min'), curve_p_max=('p', 'max'))).reset_index()
+                curve_generators = generators.merge(curve_limits, on='id')
+                # low end can be zero
+                curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max'])]
+                if not curve_generators.empty:
+                    logger.warning(f"Found {len(curve_generators.index)} generators for "
+                                   f"which p > max(reactive capacity curve(p))")
+                    # Solution 1: set max_p from curve max, it should contain p on target-p
+                    curve_generators['max_p'] = curve_generators['curve_p_max']
+                    network_pre_instance.update_generators(curve_generators[['id', 'max_p']].set_index('id'))
+                    # Solution 2: discard generator from participating
+                    # extensions = network_pre_instance.get_extensions('activePowerControl')
+                    # remove_curve_generators = extensions.merge(curve_generators[['id']],
+                    #                                            left_index=True, right_on='id')
+                    # if not remove_curve_generators.empty:
+                    #     remove_curve_generators['participate'] = False
+                    #     network_pre_instance.update_extensions('activePowerControl',
+                    #                                            remove_curve_generators.set_index('id'))
                 condensers = generators[(generators['CGMES.synchronousMachineType'].str.contains('condenser'))
                                         & (abs(generators['p']) > 0)
                                         & (abs(generators['target_p']) == 0)]
@@ -237,13 +261,12 @@ class HandlerMergeModels:
                 if not condensers.empty:
                     logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
                     condensers.loc[:, 'target_p'] = condensers['p'] * (-1)
-                    network_pre_instance.update_generators(condensers[['target_p']])
+                    network_pre_instance.update_generators(condensers[['id', 'target_p']].set_index('id'))
                 # Remove all not generators from active power distribution
                 if not not_generators.empty:
                     logger.warning(f"Removing {len(not_generators.index)} machines from power distribution")
                     extensions = network_pre_instance.get_extensions('activePowerControl')
-                    remove_not_generators = extensions.merge(not_generators.reset_index()[['id']],
-                                                             left_index=True, right_on='id')
+                    remove_not_generators = extensions.merge(not_generators[['id']], left_index=True, right_on='id')
                     remove_not_generators['participate'] = False
                     remove_not_generators = remove_not_generators.set_index('id')
                     network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
