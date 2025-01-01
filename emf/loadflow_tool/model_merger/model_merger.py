@@ -226,11 +226,11 @@ class HandlerMergeModels:
         if remove_non_generators_from_slack_participation:
             network_pre_instance = merged_model["network"]
             try:
-                generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
-                                                               all_attributes=True).reset_index()
-                generators_mask = (generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
-                not_generators = generators[~generators_mask]
-                generators = generators[generators_mask]
+                all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
+                                                                   all_attributes=True).reset_index()
+                generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
+                not_generators = all_generators[~generators_mask]
+                generators = all_generators[generators_mask]
                 curve_points = (network_pre_instance
                                 .get_elements(
                     element_type=pypowsybl.network.ElementType.REACTIVE_CAPABILITY_CURVE_POINT,
@@ -254,9 +254,9 @@ class HandlerMergeModels:
                         remove_curve_generators['participate'] = False
                         network_pre_instance.update_extensions('activePowerControl',
                                                                remove_curve_generators.set_index('id'))
-                condensers = generators[(generators['CGMES.synchronousMachineType'].str.contains('condenser'))
-                                        & (abs(generators['p']) > 0)
-                                        & (abs(generators['target_p']) == 0)]
+                condensers = all_generators[(all_generators['CGMES.synchronousMachineType'].str.contains('condenser'))
+                                            & (abs(all_generators['p']) > 0)
+                                            & (abs(all_generators['target_p']) == 0)]
                 # Fix condensers that have p not zero by setting their target_p to equal to p
                 if not condensers.empty:
                     logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
