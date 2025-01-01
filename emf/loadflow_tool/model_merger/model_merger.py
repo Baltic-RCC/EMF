@@ -243,17 +243,17 @@ class HandlerMergeModels:
                 if not curve_generators.empty:
                     logger.warning(f"Found {len(curve_generators.index)} generators for "
                                    f"which p > max(reactive capacity curve(p))")
-                    # Solution 1: set max_p from curve max, it should contain p on target-p
-                    curve_generators['max_p'] = curve_generators['curve_p_max']
-                    network_pre_instance.update_generators(curve_generators[['id', 'max_p']].set_index('id'))
+                    # Solution 1: set max_p from curve max, it should contain p on target_p
+                    # curve_generators['max_p'] = curve_generators['curve_p_max']
+                    # network_pre_instance.update_generators(curve_generators[['id', 'max_p']].set_index('id'))
                     # Solution 2: discard generator from participating
-                    # extensions = network_pre_instance.get_extensions('activePowerControl')
-                    # remove_curve_generators = extensions.merge(curve_generators[['id']],
-                    #                                            left_index=True, right_on='id')
-                    # if not remove_curve_generators.empty:
-                    #     remove_curve_generators['participate'] = False
-                    #     network_pre_instance.update_extensions('activePowerControl',
-                    #                                            remove_curve_generators.set_index('id'))
+                    extensions = network_pre_instance.get_extensions('activePowerControl')
+                    remove_curve_generators = extensions.merge(curve_generators[['id']],
+                                                               left_index=True, right_on='id')
+                    if not remove_curve_generators.empty:
+                        remove_curve_generators['participate'] = False
+                        network_pre_instance.update_extensions('activePowerControl',
+                                                               remove_curve_generators.set_index('id'))
                 condensers = generators[(generators['CGMES.synchronousMachineType'].str.contains('condenser'))
                                         & (abs(generators['p']) > 0)
                                         & (abs(generators['target_p']) == 0)]
