@@ -507,13 +507,17 @@ def get_model_outages(network: pypowsybl.network):
     outage_log = []
     lines = network.get_lines().reset_index(names=['grid_id'])
     lines['element_type'] = 'Line'
-    dls = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    dls['element_type'] = 'Tieline'
+    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    dlines['element_type'] = 'Tieline'
+    gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
+    gens['element_type'] = 'Generator'
 
     disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
-    disconnected_dls = dls[dls['connected'] == False]
+    disconnected_dlines = dlines[dlines['connected'] == False]
+    disconnected_gens = gens[gens['connected'] == False]
 
-    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type']].to_dict('records'))
-    outage_log.extend(disconnected_dls[['grid_id', 'name', 'element_type']].to_dict('records'))
+    outage_log.extend(disconnected_lines[['grid_id', 'name', 'country', 'element_type']].to_dict('records'))
+    outage_log.extend(disconnected_dlines[['grid_id', 'name', 'country', 'element_type']].to_dict('records'))
+    outage_log.extend(disconnected_gens[['grid_id', 'name', 'country', 'element_type']].to_dict('records'))
 
     return outage_log

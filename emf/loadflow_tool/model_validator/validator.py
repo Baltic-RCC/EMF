@@ -117,6 +117,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
+    # Get outages of the model
     try:
         model_data['outages'] = get_model_outages(network)
     except Exception as e:
@@ -131,6 +132,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
     model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
     model_data['@version'] = model_metadata['pmd:versionNumber']
+    model_data['tso'] = model_metadata['pmd:TSO']
 
     # Pop out pypowsybl network object
     model_data.pop('network')
@@ -160,7 +162,9 @@ if __name__ == "__main__":
     opdm = OPDM()
 
     latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-08-16T09:30")#, tso="ELERING")
+    available_models = opdm.get_latest_models_and_download(time_horizon='1D',
+                                                           scenario_date="2025-01-01T09:30",
+                                                           tso="AST")
 
     validated_models = []
 
