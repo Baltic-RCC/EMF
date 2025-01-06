@@ -215,6 +215,11 @@ def get_network_elements(network: pypowsybl.network,
     elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
     elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
 
+    # Need to ensure that column 'isHvdc' is present if DANGLING_LINE type is requested
+    if element_type is pypowsybl.network.ElementType.DANGLING_LINE:
+        if 'isHvdc' not in elements.columns:
+            elements['isHvdc'] = ''
+
     return elements
 
 
