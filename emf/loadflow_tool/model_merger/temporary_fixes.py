@@ -1,4 +1,6 @@
 import triplets
+
+from emf.common.integrations import elastic
 from emf.loadflow_tool.helper import create_opdm_objects
 from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
                                                             fix_sv_tapsteps, remove_duplicate_sv_voltages,
@@ -7,6 +9,7 @@ from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, crea
                                                             export_to_cgmes_zip, set_brell_lines_to_zero_in_models,
                                                             configure_paired_boundarypoint_injections_by_nodes,
                                                             set_brell_lines_to_zero_in_models_new)
+from emf.loadflow_tool.model_merger.model_merger import logger
 
 
 def run_pre_merge_processing(input_models, merging_area):
@@ -60,3 +63,59 @@ def run_post_merge_processing(input_models, solved_model, task_properties, SMALL
         #sv_data, ssh_data = disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets) fix implemented in pypowsybl 1.8.1 
 
     return sv_data, ssh_data
+
+
+def fix_model_outages(merged_model, replaced_model_list: list, merge_log, scenario_datetime):
+
+    area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
+    outage_areas = [area_map.get(item, item) for item in replaced_model_list]
+
+    elk_service = elastic.Elastic()
+
+    # Get outage eic-mrid mapping
+    mrid_map = elk_service.get_docs_by_query(index='config-network*', query={"match_all": {}}, size=10000)
+    mrid_map['mrid'] = mrid_map['mrid'].str.lstrip('_')
+
+    # Get latest UAP parse date
+    body = {"size": 1, "query": {"bool": {"must": [{"match": {"Merge": "Week"}}]}},
+            "sort": [{"reportParsedDate": {"order": "desc"}}], "fields": ["reportParsedDate"]}
+    last_uap_version = elk_service.client.search(index='opc-outages-baltics*', body=body)['hits']['hits'][0]['fields']['reportParsedDate'][0]
+
+    # Query for latest outage UAP
+    uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
+                                   {"match": {"Merge": "Week"}}]}}
+    uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
+    uap_outages = uap_outages.merge(mrid_map[['eic', 'mrid']], how='left', on='eic').rename(columns={"mrid": 'grid_element_id'})
+
+    # Filter outages according to model scenario date and replaced area
+    filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
+    filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
+
+    mapped_outages = filtered_outages[~filtered_outages['grid_element_id'].isna()]
+    missing_outages = filtered_outages[filtered_outages['grid_element_id'].isna()]
+
+    if not missing_outages.empty:
+        logger.warning(f"Missing outage mRID(s): {missing_outages['name'].values}")
+
+    # TODO find reliable way to enable incorrectly disconnected outages
+    # model_outages = pd.DataFrame(get_model_outages(merged_model['network']))
+    # mapped = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
+
+    logger.info("Checking outages inside merged model:")
+    for index, outage in mapped_outages.iterrows():
+        try:
+            if merged_model['network'].disconnect(outage['grid_element_id']):
+                logger.info(f"Line {outage['name']} {outage['grid_element_id']} successfully disconnected")
+                merge_log.update({'outages_corrected': True})
+                merge_log.get('outages_applied').extend([{'name': outage['name'], 'grid_id': outage['grid_element_id'], "eic": outage['eic']}])
+            else:
+                if uap_outages['grid_element_id'].str.contains(outage['grid_element_id']).any():
+                    logger.info(f"Line {outage['name']} {outage['grid_element_id']} is already in outage")
+                else:
+                    logger.error(f"Failed to disconnect line: {outage['name']} {outage['grid_element_id']}")
+        except Exception as e:
+            logger.error((e, outage['name']))
+            merge_log.get('outages_unmapped').extend([{'name': outage['name'], 'grid_id': outage['grid_element_id'], "eic": outage['eic']}])
+            continue
+
+    return merged_model, merge_log

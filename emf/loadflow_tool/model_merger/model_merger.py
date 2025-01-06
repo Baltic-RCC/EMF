@@ -24,7 +24,7 @@ from emf.loadflow_tool import scaler
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing
+from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, fix_model_outages
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -72,7 +72,10 @@ class HandlerMergeModels:
                      "exclusion_reason": [],
                      "replacement": False,
                      "replaced_entity": [],
-                     "replacement_reason": []}
+                     "replacement_reason": [],
+                     "outages_corrected": False,
+                     "outages_applied": [],
+                     "outages_unmapped": []}
 
         # Parse relevant data from Task
         task = task_object
@@ -221,6 +224,12 @@ class HandlerMergeModels:
         merge_start = datetime.datetime.now(datetime.UTC)
         merged_model = merge_functions.load_model(input_models)
         # TODO - run other LF if default fails
+
+        # Crosscheck replaced model outages with latest UAP if atleast one baltic model was replaced
+        replaced_tso_list = [model['tso'] for model in merge_log['replaced_entity']]
+
+        if any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
+            merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime)
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
