@@ -38,7 +38,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
 from emf.common.integrations import elastic
 from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
-    get_connected_component_counts
+    get_connected_components_data
 from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_RELAXED_2
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def query_hvdc_schedules(time_horizon: str,
     """
     Method to get HVDC schedules (business type - B63 for PEVF, B67 - for CGMA)
     :param time_horizon: time horizon of schedules
-    :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
+    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
     :return: DC schedules in dict format
     """
     # Create Elastic client
@@ -118,7 +118,7 @@ def query_acnp_schedules(time_horizon: str,
     """
     Method to get ACNP schedules (business type - B64)
     :param time_horizon: time horizon of schedules
-    :param scenario_timestamp: start time in utc. Example: '2023-08-08T23:00:00Z'
+    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
     :return: AC schedules in dict format
     """
     # Create Elastic client
@@ -211,7 +211,7 @@ def scale_balance(network: pp.network.Network,
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
-    _island_bus_count = get_connected_component_counts(network=network, bus_count_threshold=5)
+    _components = get_connected_components_data(network=network, bus_count_threshold=5)
     _scaling_results = []
     _iteration = 0
 
@@ -274,11 +274,14 @@ def scale_balance(network: pp.network.Network,
     logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
 
     # Solving initial loadflow
+    converged_components = {}
     pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-    for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+    for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
         result_dict = attr_to_dict(result)
         logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
         logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
+        if not result.status.value:
+            converged_components[result.connected_component_num] = _components[result.connected_component_num]
     else:
         if pf_results[0].status.value:
             logger.error(f"Terminating network scaling due to divergence in main island")
@@ -302,7 +305,7 @@ def scale_balance(network: pp.network.Network,
     #
     # # Solving loadflow after balancing the network
     # pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-    # for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+    # for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
     #     result_dict = attr_to_dict(result)
     #     logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
     #     logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
@@ -318,42 +321,49 @@ def scale_balance(network: pp.network.Network,
     _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.round().to_dict()}")
 
-    # Get pre-scale total network balance -> AC+DC net position
-    prescale_network_np = dangling_lines.p.sum()
+    # Get pre-scale total network balance by each component -> AC+DC net position
+    prescale_network_np = {k: round(dangling_lines[dangling_lines.country.isin(v['countries'])].p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-np', 'GLOBAL': prescale_network_np, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP: {round(prescale_network_np, 2)}")
+    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
 
-    # Get pre-scale total network balance -> AC net position
+    # Get pre-scale total network balance by each component -> AC net position
     unpaired_dangling_lines = (dangling_lines.isHvdc == '') & (dangling_lines.tie_line_id == '')
-    prescale_network_acnp = dangling_lines[unpaired_dangling_lines].p.sum()  # TODO discuss which one to use p or p0
+    # TODO discuss which one to use p or p0
+    prescale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-acnp', 'GLOBAL': prescale_network_acnp, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP: {round(prescale_network_acnp, 2)}")
+    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP by component: {prescale_network_acnp}")
 
-    # Validate total network AC net position from schedules to network model and scale to meet scheduled
+    # Validate total network AC net position from schedules to network model and scale to meet scheduled (per each component)
     # Scaling is done through unpaired AC dangling lines
     # From target_acnp variable need to take only areas which are present in network model
-    scheduled_network_acnp = target_acnp[target_acnp.index.isin(prescale_acnp.index)].sum()
-    dangling_lines.loc[unpaired_dangling_lines, 'participation'] = dangling_lines[unpaired_dangling_lines].p.abs() / dangling_lines[unpaired_dangling_lines].p.abs().sum()
-    offset_network_acnp = prescale_network_acnp - scheduled_network_acnp
-    prescale_network_acnp_diff = offset_network_acnp * dangling_lines[unpaired_dangling_lines].participation
-    prescale_network_acnp_target = dangling_lines[unpaired_dangling_lines].p - prescale_network_acnp_diff
-    prescale_network_acnp_target.dropna(inplace=True)
-    logger.info(f"[ITER {_iteration}] Scaling total network ACNP to scheduled: {round(scheduled_network_acnp, 2)}")
-    network.update_dangling_lines(id=prescale_network_acnp_target.index,
-                                  p0=prescale_network_acnp_target.to_list())  # TODO maintain power factor
+    # TODO discuss whether to scale only converged islands or try on all. Currently scales all higher than 5 buses
+    target_network_acnp = {}
+    for component_key, v in _components.items():
+        scheduled_component_acnp = float(target_acnp[target_acnp.index.isin(v['countries'])].sum())
+        target_network_acnp[component_key] = round(scheduled_component_acnp)  # preserve for scaling report
+        relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("country in @v['countries']")
+        relevant_dangling_lines['participation'] = relevant_dangling_lines.p.abs() / relevant_dangling_lines.p.abs().sum()
+        offset_network_acnp = prescale_network_acnp.get(component_key) - scheduled_component_acnp
+        prescale_network_acnp_diff = offset_network_acnp * relevant_dangling_lines.participation
+        prescale_network_acnp_target = relevant_dangling_lines.p0 - prescale_network_acnp_diff
+        prescale_network_acnp_target.dropna(inplace=True)
+        logger.info(f"[ITER {_iteration}] Scaling network component {component_key} {v['countries']} ACNP to scheduled: {scheduled_component_acnp}")
+        network.update_dangling_lines(id=prescale_network_acnp_target.index,
+                                      p0=prescale_network_acnp_target.to_list())  # TODO maintain power factor
+    _scaling_results.append({'KEY': 'target-network-acnp', 'GLOBAL': target_network_acnp, 'ITER': _iteration})
 
     # Solving loadflow after aligning total network AC net position to scheduled
     pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-    for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+    for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
         result_dict = attr_to_dict(result)
         logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
         logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
     # Validate total network AC net position alignment
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    postscale_network_acnp = dangling_lines[unpaired_dangling_lines].p.sum()
+    postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'postscale-network-acnp', 'GLOBAL': postscale_network_acnp, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP: {round(postscale_network_acnp, 2)}")
+    logger.info(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP by component: {postscale_network_acnp}")
 
     # Get pre-scale generation and consumption
     if debug:
@@ -393,7 +403,7 @@ def scale_balance(network: pp.network.Network,
 
         # Solving post-scale loadflow
         pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-        for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+        for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
             result_dict = attr_to_dict(result)
             logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
             logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
@@ -414,7 +424,7 @@ def scale_balance(network: pp.network.Network,
         #                      q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
         #
         # pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-        # for result in [x for x in pf_results if x.connected_component_num in _island_bus_count.keys()]:
+        # for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
         #     result_dict = attr_to_dict(result)
         #     logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
         #     logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
@@ -498,12 +508,12 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    model_path = r"C:\Users\martynas.karobcikas\Documents\models\rmm\test-model-20241216T0830.zip"
+    model_path = r"C:\Users\martynas.karobcikas\Documents\models\cgm\cgm.zip"
     network = pp.network.load(model_path, parameters={"iidm.import.cgmes.source-for-iidm-id": "rdfID"})
 
     # Query target schedules
-    ac_schedules = query_acnp_schedules(time_horizon="1D", scenario_timestamp="2024-12-16T08:00:00Z")
-    dc_schedules = query_hvdc_schedules(time_horizon="1D", scenario_timestamp="2024-12-16T08:00:00Z")
+    ac_schedules = query_acnp_schedules(time_horizon="1D", scenario_timestamp="2025-01-03T13:30:00Z")
+    dc_schedules = query_hvdc_schedules(time_horizon="1D", scenario_timestamp="2025-01-03T13:30:00Z")
 
     # dc_schedules = [{'value': 350,
     #                  'in_domain': None,

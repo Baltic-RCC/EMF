@@ -229,11 +229,14 @@ def get_slack_generators(network: pypowsybl.network):
     return slack_generators
 
 
-def get_connected_component_counts(network: pypowsybl.network, bus_count_threshold: int | None = None):
-    counts = network.get_buses().connected_component.value_counts()
+def get_connected_components_data(network: pypowsybl.network, bus_count_threshold: int | None = None):
+    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
+    data = buses.groupby('connected_component').agg(countries=('country', lambda x: list(x.unique())),
+                                                    bus_count=('name', 'size'))
     if bus_count_threshold:
-        counts = counts[counts > bus_count_threshold]
-    return counts.to_dict()
+        data = data[data.bus_count > bus_count_threshold]
+
+    return data.to_dict('index')
 
 
 def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
