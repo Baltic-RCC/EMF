@@ -5,6 +5,7 @@ Repository for Open Source EMF implementation proof of concept
 # Business Process
 ## Overview
 ![RSC EMF protsess-FUTURE drawio](https://user-images.githubusercontent.com/11408965/210733092-81fdea1e-f6c2-4df9-b9ab-e340d4847897.svg)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FBaltic-RCC%2FEMF.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FBaltic-RCC%2FEMF?ref=badge_shield)
 ## IGM Validation
 Incoming IGM-s need to be validated by EMF tool:
  - To ensure that the IGM-s can be imported to the tool
@@ -171,3 +172,7 @@ Integration between message bus and OPDM. This integration is needed to:
  - Task Manager: [ELK](https://www.elastic.co/industries) and custom scripts
 ## Target
 - _TODO_
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FBaltic-RCC%2FEMF.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FBaltic-RCC%2FEMF?ref=badge_large)
