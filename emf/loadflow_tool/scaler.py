@@ -336,9 +336,9 @@ def scale_balance(network: pp.network.Network,
     # Validate total network AC net position from schedules to network model and scale to meet scheduled (per each component)
     # Scaling is done through unpaired AC dangling lines
     # From target_acnp variable need to take only areas which are present in network model
-    # TODO discuss whether to scale only converged islands or try on all. Currently scales all higher than 5 buses
+    # TODO discuss whether to scale only converged islands or try on all. Currently scales converged higher than 5 buses
     target_network_acnp = {}
-    for component_key, v in _components.items():
+    for component_key, v in converged_components.items():
         scheduled_component_acnp = float(target_acnp[target_acnp.index.isin(v['countries'])].sum())
         target_network_acnp[component_key] = round(scheduled_component_acnp)  # preserve for scaling report
         relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("country in @v['countries']")
