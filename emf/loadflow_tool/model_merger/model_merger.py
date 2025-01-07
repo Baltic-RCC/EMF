@@ -74,7 +74,7 @@ class HandlerMergeModels:
                      "replaced_entity": [],
                      "replacement_reason": [],
                      "outages_corrected": False,
-                     "outages_applied": [],
+                     "outage_fixes": [],
                      "outages_unmapped": []}
 
         # Parse relevant data from Task
@@ -229,7 +229,7 @@ class HandlerMergeModels:
         replaced_tso_list = [model['tso'] for model in merge_log['replaced_entity']]
 
         if any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
-            merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime)
+            merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime, time_horizon)
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
