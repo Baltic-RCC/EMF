@@ -228,7 +228,7 @@ class HandlerMergeModels:
         # Crosscheck replaced model outages with latest UAP if atleast one baltic model was replaced
         replaced_tso_list = [model['tso'] for model in merge_log['replaced_entity']]
 
-        if any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
+        if merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
             merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime, time_horizon)
 
         # Various fixes from igmsshvscgmssh error
@@ -439,13 +439,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2024-12-16T08:30:00+00:00",
-            "merge_type": "EU",
+            "timestamp_utc": "2025-01-06T08:30:00+00:00",
+            "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ['PSE', 'AST', 'ELERING'],
             "excluded": [],
             "local_import": ['LITGRID'],
-            "time_horizon": "1D",
+            "time_horizon": "2D",
             "version": "99",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
