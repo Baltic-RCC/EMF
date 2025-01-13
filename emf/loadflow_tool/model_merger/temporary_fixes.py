@@ -83,6 +83,8 @@ def fix_model_outages(merged_model, replaced_model_list: list, merge_log, scenar
     # Get latest UAP parse date
     if time_horizon == 'MO':
         merge_type = "Month"
+    elif time_horizon == 'YR':
+        merge_type = "Year"
     else:
         merge_type = "Week"
 
