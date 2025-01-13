@@ -146,6 +146,13 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
 
     business_list = conf["timeHorizon"]["Request_list"]
     business_list_final = business_list[business_list.index(target_timehorizon):]  # make list of relevant businesstypes
+
+    # Month ahead requires separate replacement logic
+    if target_timehorizon == 'MO':
+        hour_list_final = ['07:30', '08:30', '09:30', '06:30', '05:30', '04:30']
+        day_list_final = [get_first_monday_of_last_month(timestamp).strftime("%Y-%m-%d")]
+        business_list_final = ['1D']
+
     return hour_list_final, day_list_final, business_list_final
 
 
@@ -186,12 +193,34 @@ def get_available_tsos():
     return list({item[key] for item in body if key in item})
 
 
+def get_first_monday_of_last_month(timestamp):
+    dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+    if dt.month == 1:
+        prev_month = 12
+        prev_year = dt.year -1
+    else:
+        prev_month = dt.month -1
+        prev_year = dt.year
+    try:
+        previous_month_day = dt.replace(month=prev_month, year=prev_year)
+    except ValueError:
+        first_day_of_current_month = dt.replace(day=1)
+        previous_month_day = first_day_of_current_month - timedelta(days=1)
+
+    first_day_of_month = previous_month_day.replace(day=1)
+    weekday = first_day_of_month.weekday()
+    days_to_add = (0 - weekday) % 7
+    first_monday = first_day_of_month + timedelta(days=days_to_add)
+
+    return first_monday
+
+
 if __name__ == "__main__":
 
-    missing_tso = ['PSE', 'LITGRID']
+    missing_tso = ['PSE', 'LITGRID', 'AST']
 
-    test_time_horizon = "ID"
-    test_scenario_date = "2024-11-21T19:30:00Z"
-    print('hello')
+    test_time_horizon = "MO"
+    test_scenario_date = "2025-02-12T09:30:00Z"
+    # print('hello')
     response_list = run_replacement(missing_tso, test_time_horizon, test_scenario_date)
     print('')
