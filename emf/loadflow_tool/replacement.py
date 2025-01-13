@@ -130,7 +130,7 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     """
     date_time = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
     filter_hour = date_time.strftime("%H:%M")
-    filter_day = date_time.weekday() + 1
+    filter_day = date_time.weekday()
     hour_list = []
     day_list = []
 
