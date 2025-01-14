@@ -149,9 +149,9 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
 
     # Month ahead requires separate replacement logic
     if target_timehorizon == 'MO':
-        hour_list_final = ['07:30', '08:30', '09:30', '06:30', '05:30', '04:30']
+        hour_list_final = [hour for hour in conf["month_ahead"]["hours"]]
         day_list_final = [get_first_monday_of_last_month(timestamp).strftime("%Y-%m-%d")]
-        business_list_final = ['1D']
+        business_list_final = conf["month_ahead"]['business_type']
 
     return hour_list_final, day_list_final, business_list_final
 

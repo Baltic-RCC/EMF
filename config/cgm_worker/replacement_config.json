@@ -7,6 +7,10 @@
         "timeHorizon": {
             "Request_list": ["ID", "1D", "2D", "WK", "1D", "MO", "YR"]
         },
+        "month_ahead": {
+            "hours": ["07:30", "08:30", "09:30", "06:30", "05:30", "04:30"],
+            "business_type": ["1D"]
+        },
         "hours": [
             {
                 "hour": "00:30",
