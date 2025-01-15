@@ -397,9 +397,11 @@ def scale_balance(network: pp.network.Network,
         scalable_loads_diff = (scalable_loads['country'].map(offset_acnp) * scalable_loads.p_participation)
         scalable_loads_target = scalable_loads.p0 + scalable_loads_diff
         scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
+        conform_loads_na = conform_loads.merge((scalable_loads_target.reset_index())[['id']], left_index=True,
+                                               right_on='id').set_index('id')# removing loads which target value is NaN. It can be because missing target ACNP for this area
         network.update_loads(id=scalable_loads_target.index,
                              p0=scalable_loads_target.to_list(),
-                             q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
+                             q0=(scalable_loads_target * conform_loads_na.power_factor).to_list())   # maintain power factor
 
         # Solving post-scale loadflow
         pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
