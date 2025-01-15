@@ -164,7 +164,7 @@ if __name__ == '__main__':
 
     # Test ELK custom logger
     index = 'debug-emfos-logs'
-    server = "http://test-rcc-logs-master.elering.sise:9200"
+    server = "access_url"
     elk_handler = ElkLoggingHandler(elk_server=server, index=index, extra={'time_horizon': '1D'})
     if elk_handler.connected:
         logger.addHandler(elk_handler)
