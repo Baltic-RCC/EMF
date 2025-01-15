@@ -134,7 +134,7 @@ Asynchronous message exchange platform that allows publish and subscribe functio
 
 ### Task management
  - Tasks are published
- - Each worker will create a que and subscribe to tasks
+ - Each worker will create a queue and subscribe to tasks
 
 ### Data retrieval from OPDE
  - All data received via EDX and OPDM is published
