@@ -232,12 +232,17 @@ def scale_balance(network: pp.network.Network,
     target_hvdc_sp_df = pd.DataFrame(dc_schedules)
 
     # TODO [TEMPORARY] drop out LPL schedule until synchronization
-    target_hvdc_sp_df = target_hvdc_sp_df.drop(target_hvdc_sp_df[target_hvdc_sp_df.registered_resource == '10T-LT-PL-000037'].index)
+    skipped_hvdc_lines = pd.DataFrame(data=['10T-LT-PL-000037'], columns=['registered_resource'])
+    target_hvdc_sp_df = target_hvdc_sp_df.merge(skipped_hvdc_lines, on='registered_resource', how='left', indicator=True)
+    target_hvdc_sp_df = target_hvdc_sp_df[target_hvdc_sp_df['_merge'] == 'left_only'].drop(columns=['_merge'])
+    # target_hvdc_sp_df = target_hvdc_sp_df.drop(target_hvdc_sp_df[target_hvdc_sp_df.registered_resource == '10T-LT-PL-000037'].index)
 
     # Target AC net positions mapping
     target_acnp_df = pd.DataFrame(ac_schedules)
     target_acnp_df['registered_resource'] = target_acnp_df['in_domain'].where(target_acnp_df['in_domain'].notna(), target_acnp_df['out_domain'])
     target_acnp_df = target_acnp_df.dropna(subset='registered_resource')
+    # is dropping duplicates reasonable (for example if 50Hertz is as in-domain and out-domain = 2 x registered_resource
+    # then we only count for schedule which bigger)
     target_acnp_df = target_acnp_df.sort_values('value', key=abs, ascending=False).drop_duplicates(subset='registered_resource')
     mask = (target_acnp_df['in_domain'].notna()) & (target_acnp_df['value'] > 0.0)  # value is not zero
     target_acnp_df['value'] = np.where(mask, target_acnp_df['value'] * -1, target_acnp_df['value'])
@@ -258,10 +263,30 @@ def scale_balance(network: pp.network.Network,
         scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', country_name, 'ucte_xnode_code']]
         scalable_hvdc.reset_index(inplace=True)
     except AttributeError:
-        scalable_hvdc = pd.DataFrame()
+        scalable_hvdc_pre = pd.DataFrame()
     if not scalable_hvdc.empty:
         # Skipping line between LT and PL
-        scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
+        # scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
+        scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource', how='left', indicator=True)
+        missing_schedules_hvdc = scalable_hvdc[scalable_hvdc['_merge'] == 'left_only'].drop(columns=['_merge'])
+        scalable_hvdc = scalable_hvdc[scalable_hvdc['_merge'] == 'both'].drop(columns=['_merge'])
+        # Check the skipped lines
+        try:
+            missing_schedules_hvdc = missing_schedules_hvdc.merge(skipped_hvdc_lines,
+                                                                  left_on='lineEnergyIdentificationCodeEIC',
+                                                                  right_on='registered_resource', how='left', indicator=True)
+            missing_schedules_hvdc = (missing_schedules_hvdc[missing_schedules_hvdc['_merge'] == 'left_only']
+                                      .drop(columns=['_merge']))
+        except (AttributeError, NameError):
+            missing_schedules_hvdc = pd.DataFrame()
+        if not missing_schedules_hvdc.empty:
+            for hvdc_link in missing_schedules_hvdc.to_dict('records'):
+                logger.warning(f"[INITIAL] PRE-SCALE HVDC {hvdc_link['ucte_xnode_code']} is missing schedule "
+                               f"of {hvdc_link['lineEnergyIdentificationCodeEIC']}")
+        # # Check nan or zero values:
+        # for dclink in scalable_hvdc_target.to_dict('records'):
+        #     logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['ucte_xnode_code']}: {round(dclink['value'], 2)} MW")
+        # ------------------------------------------------------------------------------------------------------------ #
         mask = (scalable_hvdc[country_name] == scalable_hvdc['in_domain']) | (scalable_hvdc[country_name] == scalable_hvdc['out_domain'])
         scalable_hvdc = scalable_hvdc[mask]
         mask = (scalable_hvdc[country_name] == scalable_hvdc['in_domain']) & (scalable_hvdc['value'] > 0.0)
@@ -360,10 +385,27 @@ def scale_balance(network: pp.network.Network,
     # From target_acnp variable need to take only areas which are present in network model
     # TODO discuss whether to scale only converged islands or try on all. Currently scales converged higher than 5 buses
     target_network_acnp = {}
+    ac_countries = []
+    for key_item in converged_components.keys():
+        if isinstance(converged_components[key_item], dict) and "countries" in converged_components[key_item].keys():
+            ac_countries.extend(converged_components[key_item].get('countries', []))
+    ac_countries = pd.DataFrame(data=ac_countries, columns=['registered_resource'])
+    target_acnp_countries = target_acnp_df.merge(ac_countries, on='registered_resource')
+    acnp_nan_values = target_acnp_countries[target_acnp_countries['value'].isna()]
+    if not acnp_nan_values.empty:
+        for ac_value in acnp_nan_values.to_dict('records'):
+            logger.warning(f"[INITIAL] PRE-SCALE ACNP: {ac_value['registered_resource']} is missing value")
+    acnp_zero_values = target_acnp_countries[abs(target_acnp_countries['value']) == 0]
+    if not acnp_zero_values.empty:
+        for ac_value in acnp_zero_values.to_dict('records'):
+            logger.warning(f"[INITIAL] PRE-SCALE ACNP: {ac_value['registered_resource']} has value of "
+                           f"{ac_value['value']}")
+
     for component_key, v in converged_components.items():
         scheduled_component_acnp = float(target_acnp[target_acnp.index.isin(v['countries'])].sum())
         target_network_acnp[component_key] = round(scheduled_component_acnp)  # preserve for scaling report
         relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("country in @v['countries']")
+        # According to which the participation is calculated? Currently it is over the regions
         relevant_dangling_lines['participation'] = relevant_dangling_lines.p.abs() / relevant_dangling_lines.p.abs().sum()
         offset_network_acnp = prescale_network_acnp.get(component_key) - scheduled_component_acnp
         prescale_network_acnp_diff = offset_network_acnp * relevant_dangling_lines.participation
