@@ -233,7 +233,7 @@ class HandlerSendToElastic:
 if __name__ == '__main__':
 
     # Create client
-    server = "http://test-rcc-logs-master.elering.sise:9200"
+    server = "access_url"
     service = Elastic(server=server)
 
     # Example get documents by query

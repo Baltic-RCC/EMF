@@ -500,6 +500,9 @@ def generate_merge_report(merged_model, input_models, merge_data):
         "uploaded_to_opde": merge_data.get('uploaded_to_opde'),
         "uploaded_to_minio": merge_data.get('uploaded_to_minio'),
         "content_reference": merge_data.get('content_reference'),
+        "outages_corrected": merge_data.get('outages_corrected'),
+        "outage_fixes": merge_data.get('outage_fixes'),
+        "outages_unmapped": merge_data.get('outages_unmapped'),
     })
 
     return merge_report

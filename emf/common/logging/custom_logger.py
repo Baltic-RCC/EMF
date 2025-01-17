@@ -5,9 +5,18 @@ from emf.common.integrations import elastic
 import config
 from emf.common.config_parser import parse_app_properties
 
-logger = logging.getLogger(__name__)
+# Root logger
+root_logger = logging.getLogger()
 
+# Local logger
+logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
+logging.basicConfig(
+    format=LOGGING_FORMAT,
+    datefmt=LOGGING_DATEFMT,
+    level=LOGGING_LEVEL,
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 
 
 def initialize_custom_logger(
@@ -20,12 +29,11 @@ def initialize_custom_logger(
         fields_filter: None | list = None,
         ):
 
-    root_logger = logging.getLogger()
     root_logger.setLevel(level)
     root_logger.propagate = True
 
     # Configure stream logging handler
-    root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
+    # root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
 
     # Configure Elk logging handler
     elk_handler = ElkLoggingHandler(elk_server=elk_server, index=index, extra=extra, fields_filter=fields_filter)
@@ -38,23 +46,18 @@ def initialize_custom_logger(
     #TODO: KV: 2024-06-28 Should be deprecated
     return elk_handler
 
+
 def get_elk_logging_handler():
+    # Try to find already existing instance of Elk logger in root logger handlers
+    for handler in root_logger.handlers:
+        if isinstance(handler, ElkLoggingHandler):
+            return handler
 
-    root_logger = logging.getLogger()
-    logger.debug(root_logger)
-    if root_logger:
-        logger.debug(root_logger.handlers)
-        for handler in root_logger.handlers:
-            if isinstance(handler, ElkLoggingHandler):
-                return handler
-
-        logger.warning("ELK handler missing, trying to create one")
-        handler = ElkLoggingHandler()
-        root_logger.addHandler(handler)
-        logger.debug(root_logger.handlers)
+    logger.warning("ELK logging handler not found, initialize new instance")
+    handler = ElkLoggingHandler()
+    root_logger.addHandler(handler)
 
     return handler
-
 
 
 class StreamHandler(logging.StreamHandler):
@@ -69,7 +72,11 @@ class ElkLoggingHandler(logging.StreamHandler):
 
     _trace_parameter_names = ['task_id', 'process_id', 'run_id', 'job_id']
 
-    def __init__(self, elk_server=elastic.ELK_SERVER, index=LOGGING_INDEX, extra=None, fields_filter=None):
+    def __init__(self,
+                 elk_server: str = elastic.ELK_SERVER,
+                 index: str = LOGGING_INDEX,
+                 extra: dict | None = None,
+                 fields_filter: list | None = None):
         """
         Initialize ELK logging handler
         :param elk_server: url of ELK stack server
@@ -77,7 +84,7 @@ class ElkLoggingHandler(logging.StreamHandler):
         :param extra: additional log field in dict format
         :param fields_filter: fields to filter out in list format, default None - all record attributes will be used
         """
-        super().__init__(self)
+        super().__init__(sys.stdout)
         self.server = elk_server
         self.index = index
 
@@ -88,6 +95,11 @@ class ElkLoggingHandler(logging.StreamHandler):
 
         self.fields_filter = fields_filter
         self.connected = self.elk_connection()
+
+        # Set level and format from settings
+        self.setLevel(LOGGING_LEVEL)
+        formatter = logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT)
+        self.setFormatter(formatter)
 
     def elk_connection(self):
         try:
@@ -152,7 +164,7 @@ if __name__ == '__main__':
 
     # Test ELK custom logger
     index = 'debug-emfos-logs'
-    server = "http://test-rcc-logs-master.elering.sise:9200"
+    server = "access_url"
     elk_handler = ElkLoggingHandler(elk_server=server, index=index, extra={'time_horizon': '1D'})
     if elk_handler.connected:
         logger.addHandler(elk_handler)

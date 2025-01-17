@@ -187,6 +187,20 @@ def parse_pypowsybl_report(report: str):
     return result
 
 
+def temporary_decorator_change_litpol_to_non_hvdc(func):
+    # TODO temporary decorator to be removed after synchro
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        if 'isHvdc' in result.columns:  # it means it was called for dangling lines
+            try:
+                result.loc[result.pairing_key == 'XEL_AL1P', 'isHvdc'] = ''
+            except Exception as e:
+                logger.error(f"Temporary decorator failed: {e}")
+        return result
+    return wrapper
+
+
+@temporary_decorator_change_litpol_to_non_hvdc
 def get_network_elements(network: pypowsybl.network,
                          element_type: pypowsybl.network.ElementType,
                          all_attributes: bool = True,
@@ -200,6 +214,11 @@ def get_network_elements(network: pypowsybl.network,
     elements = network.get_elements(element_type=element_type, all_attributes=all_attributes, attributes=attributes, **kwargs)
     elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
     elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
+
+    # Need to ensure that column 'isHvdc' is present if DANGLING_LINE type is requested
+    if element_type is pypowsybl.network.ElementType.DANGLING_LINE:
+        if 'isHvdc' not in elements.columns:
+            elements['isHvdc'] = ''
 
     return elements
 
@@ -215,11 +234,15 @@ def get_slack_generators(network: pypowsybl.network):
     return slack_generators
 
 
-def get_connected_component_counts(network: pypowsybl.network, bus_count_threshold: int | None = None):
-    counts = network.get_buses().connected_component.value_counts()
+def get_connected_components_data(network: pypowsybl.network, bus_count_threshold: int | None = None,
+                                  country_name: str = 'country'):
+    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
+    data = buses.groupby('connected_component').agg(countries=(country_name, lambda x: list(x.unique())),
+                                                    bus_count=('name', 'size'))
     if bus_count_threshold:
-        counts = counts[counts > bus_count_threshold]
-    return counts.to_dict()
+        data = data[data.bus_count > bus_count_threshold]
+
+    return data.to_dict('index')
 
 
 def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
@@ -490,16 +513,27 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
 
 
 def get_model_outages(network: pypowsybl.network):
+
     outage_log = []
-    lines = network.get_lines().reset_index(names=['grid_id'])
+    lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
+    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
+    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
+    lines = lines.merge(_voltage_levels, left_on='voltage_level1_id', right_index=True, suffixes=(None, '_voltage_level'))
+    lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
     lines['element_type'] = 'Line'
-    dls = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    dls['element_type'] = 'Tieline'
+
+    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    dlines['element_type'] = 'Tieline'
+
+    gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
+    gens['element_type'] = 'Generator'
 
     disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
-    disconnected_dls = dls[dls['connected'] == False]
+    disconnected_dlines = dlines[dlines['connected'] == False]
+    disconnected_gens = gens[gens['connected'] == False]
 
-    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type']].to_dict('records'))
-    outage_log.extend(disconnected_dls[['grid_id', 'name', 'element_type']].to_dict('records'))
+    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_dlines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
 
     return outage_log
