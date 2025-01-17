@@ -419,6 +419,45 @@
      "upload_to_minio": "True",
      "send_merge_report": "True"
     }
+    ,   
+   {
+    "@context": "https://example.com/schemas/run.jsonld",
+    "@id": "https://example.com/runs/MonthAheadRMM",
+    "@type": "Run",
+    "process_id": "https://example.com/processes/RMM_CREATION",
+    "valid_from": "",
+    "valid_to": "",
+    "gate_open": "P1DT5H",
+    "gate_close": "P1DT4H",
+    "run_at": "30 22 5-18 * 5", 
+    "time_frame": "M-1",
+    "data_timestamps": "30 7 * * *",
+    "data_resolution": "PT1H",
+    "tags": [],
+    "properties": {
+     "merge_type": "BA",
+     "merging_entity": "BALTICRCC",
+     "included": [
+      "AST",
+      "PSE",
+      "ELERING",
+      "LITGRID"
+     ],
+     "excluded": [],
+     "local_import": [
+      "LITGRID",
+      "AST",
+      "ELERING"
+     ],
+     "time_horizon": "WK",
+     "version": "001",
+     "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
+     "replacement": "True",
+     "scaling": "False",
+     "upload_to_opdm": "False",
+     "upload_to_minio": "True",
+     "send_merge_report": "True"
+    }
    }
   ]
  }

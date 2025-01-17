@@ -36,6 +36,9 @@ elif TIME_HORIZON == 'ID':
 elif TIME_HORIZON == 'WK':
     process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'WeekAhead' in d['@id']]
     timeframe_config_json = [d for d in timeframe_config_json if 'W-1' in d['@id']]
+elif TIME_HORIZON == 'MO':
+    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'MonthAhead' in d['@id']]
+    timeframe_config_json = [d for d in timeframe_config_json if 'M-1' in d['@id']]
 elif TIME_HORIZON == 'YR':
     process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'YearAhead' in d['@id']]
     timeframe_config_json = [d for d in timeframe_config_json if 'Y-1' in d['@id']]
