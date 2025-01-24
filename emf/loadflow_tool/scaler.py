@@ -209,6 +209,18 @@ def scale_balance(network: pp.network.Network,
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
+    # Either one or both can be missing
+    if not ac_schedules and not dc_schedules:
+        logger.error(f"Missing AC schedules and DC schedules, no scaling can be performed")
+        return network
+    # If this is lost then no point on going further
+    if not ac_schedules:
+        logger.error(f"Missing AC schedules, no scaling can be performed")
+        return network
+    # Point of discussion: losing data about the dc schedules in code side allows to continue but is it feasible
+    # if not dc_schedules:
+    #     logger.error(f"Missing DC schedules, no scaling can be performed")
+    #     return network
     _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
     _scaling_results = []
     _iteration = 0
@@ -224,8 +236,13 @@ def scale_balance(network: pp.network.Network,
 
     # TODO [TEMPORARY] drop out LPL schedule until synchronization
     skipped_hvdc_lines = pd.DataFrame(data=['10T-LT-PL-000037'], columns=['registered_resource'])
-    target_hvdc_sp_df = target_hvdc_sp_df.merge(skipped_hvdc_lines, on='registered_resource', how='left', indicator=True)
-    target_hvdc_sp_df = target_hvdc_sp_df[target_hvdc_sp_df['_merge'] == 'left_only'].drop(columns=['_merge'])
+    if not target_hvdc_sp_df.empty:
+        target_hvdc_sp_df = target_hvdc_sp_df.merge(skipped_hvdc_lines, on='registered_resource',
+                                                    how='left', indicator=True)
+        target_hvdc_sp_df = (target_hvdc_sp_df[target_hvdc_sp_df['_merge'] == 'left_only']
+                             .drop(columns=['_merge']))
+    else:
+        logger.error(f"Missing DC schedules, no scaling can be performed HVDC links")
     # target_hvdc_sp_df = target_hvdc_sp_df.drop(target_hvdc_sp_df[target_hvdc_sp_df.registered_resource == '10T-LT-PL-000037'].index)
 
     # Target AC net positions mapping
@@ -246,7 +263,9 @@ def scale_balance(network: pp.network.Network,
     # Mapping HVDC schedules to network
     scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code']]
     scalable_hvdc.reset_index(inplace=True)
-    scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
+    if not target_hvdc_sp_df.empty:
+        scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC',
+                                            right_on='registered_resource')
     mask = (scalable_hvdc[_country_col] == scalable_hvdc['in_domain']) | (scalable_hvdc[_country_col] == scalable_hvdc['out_domain'])
     scalable_hvdc = scalable_hvdc[mask]
     mask = (scalable_hvdc[_country_col] == scalable_hvdc['in_domain']) & (scalable_hvdc['value'] > 0.0)
