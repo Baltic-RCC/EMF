@@ -234,10 +234,11 @@ def get_slack_generators(network: pypowsybl.network):
     return slack_generators
 
 
-def get_connected_components_data(network: pypowsybl.network, bus_count_threshold: int | None = None,
-                                  country_name: str = 'country'):
+def get_connected_components_data(network: pypowsybl.network,
+                                  bus_count_threshold: int | None = None,
+                                  country_col_name: str = 'country'):
     buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
-    data = buses.groupby('connected_component').agg(countries=(country_name, lambda x: list(x.unique())),
+    data = buses.groupby('connected_component').agg(countries=(country_col_name, lambda x: list(x.unique())),
                                                     bus_count=('name', 'size'))
     if bus_count_threshold:
         data = data[data.bus_count > bus_count_threshold]
