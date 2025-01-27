@@ -248,13 +248,28 @@ class HandlerMergeModels:
                                 .groupby('id').agg(curve_p_min=('p', 'min'), curve_p_max=('p', 'max'))).reset_index()
                 curve_generators = generators.merge(curve_limits, on='id')
                 # low end can be zero
-                curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max'])]
+                curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max']) |
+                                                    ((curve_generators['target_p'] > 0) &
+                                                     (curve_generators['target_p'] < curve_generators['curve_p_min']))]
                 if not curve_generators.empty:
                     logger.warning(f"Found {len(curve_generators.index)} generators for "
-                                   f"which p > max(reactive capacity curve(p))")
-                    # Solution 1: set max_p from curve max, it should contain p on target_p
-                    # curve_generators['max_p'] = curve_generators['curve_p_max']
-                    # network_pre_instance.update_generators(curve_generators[['id', 'max_p']].set_index('id'))
+                                   f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
+                    # in order this to work curve_p_min <= p_min <= target_p <= p_max <= curve_p_max
+                    # Solution 1: set max_p from curve max, it should contain p on target-p
+                    upper_limit_violated = curve_generators[
+                        (curve_generators['max_p'] > curve_generators['curve_p_max'])]
+                    if not upper_limit_violated.empty:
+                        logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
+                        upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
+                        network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].set_index('id'))
+
+                    lower_limit_violated = curve_generators[
+                        (curve_generators['min_p'] < curve_generators['curve_p_min'])]
+                    if not lower_limit_violated.empty:
+                        logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
+                        lower_limit_violated['min_p'] = lower_limit_violated['curve_p_min']
+                        network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
+
                     # Solution 2: discard generator from participating
                     extensions = network_pre_instance.get_extensions('activePowerControl')
                     remove_curve_generators = extensions.merge(curve_generators[['id']],
