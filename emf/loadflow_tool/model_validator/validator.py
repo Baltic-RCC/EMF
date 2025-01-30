@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 
 import pandas
 import pypowsybl
@@ -26,6 +27,73 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.vali
 # note - multiple islands wo load or generation can be an issue
 
 
+def get_str_from_enum(input_value):
+    """
+    Tries to parse the input to string
+    :param input_value:input string
+    """
+    if isinstance(input_value, str):
+        return input_value
+    if isinstance(input_value, Enum):
+        return input_value.name
+    try:
+        return input_value.name
+    except AttributeError:
+        return input_value
+
+
+def get_failed_buses(load_flow_results: list, network_instance: pypowsybl.network, fail_types: dict = None):
+    """
+    Gets dataframe of failed buses for postprocessing
+    :param load_flow_results: list of load flow results for connected components
+    :param network_instance: network instance to get buses
+    :param fail_types: list of fail types
+    :return dataframe of failed buses
+    """
+    all_networks = pandas.DataFrame(load_flow_results)
+    all_buses = (network_instance.get_buses().reset_index()
+                 .merge(all_networks.rename(columns={'connected_component_num': 'connected_component'}),
+                        on='connected_component'))
+    if not fail_types:
+        fail_types = {
+            'FAILED': get_str_from_enum(pypowsybl.loadflow.ComponentStatus.FAILED),
+            'NOT CALCULATED': get_str_from_enum(pypowsybl.loadflow.ComponentStatus.NO_CALCULATION),
+            'CONVERGED': get_str_from_enum(pypowsybl.loadflow.ComponentStatus.CONVERGED),
+            'MAX_ITERATION_REACHED': get_str_from_enum(pypowsybl.loadflow.ComponentStatus.MAX_ITERATION_REACHED)
+        }
+    network_count = len(all_networks.index)
+    bus_count = len(all_buses.index)
+    messages = [f"Networks: {len(load_flow_results)}"]
+    error_flag = False
+    for status_type in fail_types:
+        networks = len((all_networks[all_networks['status'] == fail_types[status_type]]).index)
+        buses = len(all_buses[all_buses['status'] == fail_types[status_type]].index)
+        network_count = network_count - networks
+        bus_count = bus_count - buses
+        if networks > 0:
+            if status_type == 'MAX_ITERATION_REACHED':
+                error_flag = True
+            messages.append(f"{status_type}: {networks} ({buses} buses)")
+    network_count = max(network_count, 0)
+    bus_count = max(bus_count, 0)
+    if network_count > 0:
+        error_flag = True
+        messages.append(f"OTHER CRITICAL ERROR:: {network_count} ({bus_count} buses)")
+    troublesome_buses = pandas.DataFrame([result for result in load_flow_results
+                                          if get_str_from_enum(result['status']) in fail_types.values()])
+    message = '; '.join(messages)
+    if error_flag:
+        logger.error(message)
+    else:
+        logger.info(message)
+    if not troublesome_buses.empty:
+        troublesome_buses = (network_instance.get_buses().reset_index()
+                             .merge(troublesome_buses
+                                    .rename(columns={'connected_component_num': 'connected_component'}),
+                                    on='connected_component'))
+    return troublesome_buses
+
+
 def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS), run_element_validations=True):
     # Load data
     start_time = time.time()
@@ -38,6 +106,7 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     kirchhoff_first_law_detected = False
     check_non_retained_switches_val = json.loads(CHECK_NON_RETAINED_SWITCHES.lower())
     check_kirchhoff_first_law_val = json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower())
+    exclude_diverged_models = json.loads(EXCLUDE_MODELS_WITH_DIVERGED_ISLANDS.lower())
     if check_non_retained_switches_val:
         not_retained_switches = check_not_retained_switches_between_nodes(opdm_model_triplets)[1]
     # violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets)
@@ -101,6 +170,21 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Validation status and duration
     # TODO check only main island component 0?
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
+    # Check if any of islands diverged
+    iteration_reached = "MAX_ITERATION_REACHED" in [key_value["status"] for key_value in loadflow_result_dict.values()]
+    if iteration_reached and exclude_diverged_models:
+        # Figure out what to do next
+        # 1) Call entire igm invalid
+        # model_valid = False
+        # 2) Check if diverged island is contained for example pass if most of the models converged
+        troublesome_buses = get_failed_buses(load_flow_results=list(loadflow_result_dict.values()),
+                                             network_instance=network)
+        failed_mask = troublesome_buses['status'].str.upper().str.contains('MAX_ITERATION_REACHED')
+        failed_buses = len(troublesome_buses[failed_mask].index)
+        ok_buses = len(troublesome_buses[~failed_mask].index)
+        if failed_buses > ok_buses:
+            model_valid = model_valid and not iteration_reached
+        # 3) Check it by some other logic
 
     if check_non_retained_switches_val and not_retained_switches > 0:
         logger.error(f"Non retained switches triggered")
@@ -194,6 +278,3 @@ if __name__ == "__main__":
     # {'tso': 'SEPS', 'valid': None, 'duration': None}
     # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
     # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
-
-
-
