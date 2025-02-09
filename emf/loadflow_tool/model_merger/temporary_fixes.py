@@ -8,9 +8,8 @@ from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, crea
                                                             fix_sv_tapsteps, remove_duplicate_sv_voltages,
                                                             remove_small_islands,check_and_fix_dependencies,
                                                             disconnect_equipment_if_flow_sum_not_zero,
-                                                            export_to_cgmes_zip, set_brell_lines_to_zero_in_models,
-                                                            configure_paired_boundarypoint_injections_by_nodes,
-                                                            set_brell_lines_to_zero_in_models_new)
+                                                            export_to_cgmes_zip,
+                                                            configure_paired_boundarypoint_injections_by_nodes)
 
 
 logger = logging.getLogger(__name__)
@@ -19,17 +18,7 @@ logger = logging.getLogger(__name__)
 def run_pre_merge_processing(input_models, merging_area):
 
     # TODO warning logs for temp fix functions
-
-    # SET BRELL LINE VALUES
-    if merging_area == 'BA':
-        input_models = set_brell_lines_to_zero_in_models(input_models)
-
     assembled_data = load_opdm_data(input_models)
-
-    # TODO try to optimize it better
-    # if merging_area == 'BA':
-    #     assembled_data = set_brell_lines_to_zero_in_models_new(assembled_data)
-
     assembled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembled_data)
     assembled_data = configure_paired_boundarypoint_injections_by_nodes(assembled_data)
     escape_upper_xml = assembled_data[assembled_data['VALUE'].astype(str).str.contains('.XML')]
