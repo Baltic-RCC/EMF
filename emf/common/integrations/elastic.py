@@ -121,6 +121,8 @@ class Elastic:
                                      data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
                                      timeout=None,
                                      headers={"Content-Type": "application/x-ndjson"})
+            if json.loads(response.content).get('errors'):
+                logger.error(f"Send to elasticsearch responded with errors: {response.text}")
             if debug:
                 logger.debug(f"ELK response: {response.content}")
             response_list.append(response.ok)
@@ -219,15 +221,12 @@ class HandlerSendToElastic:
         self.session.auth = auth
 
     def handle(self, byte_string, properties):
-
-        Elastic.send_to_elastic_bulk(index=self.index,
-                                     json_message_list=json.loads(byte_string),
-                                     id_from_metadata=self.id_from_metadata,
-                                     id_metadata_list=self.id_metadata_list,
-                                     server=self.server,
-                                     debug=self.debug)
-
-        # TODO add support for properties argument
+        response = Elastic.send_to_elastic_bulk(index=self.index,
+                                                json_message_list=json.loads(byte_string),
+                                                id_from_metadata=self.id_from_metadata,
+                                                id_metadata_list=self.id_metadata_list,
+                                                server=self.server,
+                                                debug=self.debug)
 
 
 if __name__ == '__main__':
