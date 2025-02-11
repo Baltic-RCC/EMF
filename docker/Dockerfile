@@ -6,15 +6,15 @@ FROM python:3.11 as emfos-model-retriever
 RUN pip install --upgrade setuptools
 RUN pip install --upgrade pip
 RUN pip install uv
-#RUN pip install pipenv
+RUN pip install pipenv
 
 # Install needed modules
 COPY Pipfile .
 COPY Pipfile.lock .
-COPY requirements.txt .
+#COPY requirements.txt .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
-#RUN pipenv requirements > requirements.txt
+RUN pipenv requirements > requirements.txt
 RUN uv pip sync requirements.txt --system
 #RUN uv cache clean
 
@@ -42,15 +42,15 @@ FROM python:3.11 as emfos-model-merger
 RUN pip install --upgrade setuptools
 RUN pip install --upgrade pip
 RUN pip install uv
-#RUN pip install pipenv
+RUN pip install pipenv
 
 # Install needed modules
 COPY Pipfile .
 COPY Pipfile.lock .
-COPY requirements.txt .
+#COPY requirements.txt .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
-#RUN pipenv requirements > requirements.txt
+RUN pipenv requirements > requirements.txt
 RUN uv pip sync requirements.txt --system
 #RUN uv cache clean
 
