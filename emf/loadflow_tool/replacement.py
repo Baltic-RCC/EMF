@@ -151,6 +151,13 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     if target_timehorizon == 'MO':
         hour_list_final = [hour for hour in conf["month_ahead"]["hours"]]
         day_list_final = [get_first_monday_of_last_month(timestamp).strftime("%Y-%m-%d")]
+
+        # TODO TEMPORARY FIX
+        #  CAN BE SAFELY REMOVED AFTER FEBRUARY
+        if date_time.year == 2025 and date_time.month == 3:
+            day_list_final = ["2025-02-10"]
+
+
         business_list_final = conf["month_ahead"]['business_type']
 
     return hour_list_final, day_list_final, business_list_final
@@ -220,7 +227,7 @@ if __name__ == "__main__":
     missing_tso = ['PSE', 'LITGRID', 'AST']
 
     test_time_horizon = "MO"
-    test_scenario_date = "2025-02-12T09:30:00Z"
+    test_scenario_date = "2025-03-12T09:30:00Z"
     # print('hello')
     response_list = run_replacement(missing_tso, test_time_horizon, test_scenario_date)
     print('')
