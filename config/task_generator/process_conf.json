@@ -430,9 +430,9 @@
        "valid_to": "",
        "gate_open": "P1DT5H",
        "gate_close": "P1DT4H",
-       "run_at": "30 22 5-18 * 5", 
+       "run_at": "30 22 3 * 5", 
        "time_frame": "M-1",
-       "data_timestamps": "30 7 * * *",
+       "data_timestamps": "30 6 * * *",
        "data_resolution": "PT1H",
        "tags": [],
        "properties": {
