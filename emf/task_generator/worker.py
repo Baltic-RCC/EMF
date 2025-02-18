@@ -28,6 +28,8 @@ for runs in process_config_json[0]['runs']:
     runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_CGM
     runs['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
     runs['properties']['post_temp_fixes'] = POST_TEMP_FIXES
+    runs['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
+
 for runs in process_config_json[1]['runs']:
     runs['properties']['included'] = [tso.strip() for tso in RMM_INCLUDED_TSO.split(',')] if RMM_INCLUDED_TSO else []
     runs['properties']['excluded'] = [tso.strip() for tso in RMM_EXCLUDED_TSO.split(',')] if RMM_EXCLUDED_TSO else []
@@ -40,6 +42,7 @@ for runs in process_config_json[1]['runs']:
     runs['properties']['send_merge_report'] = SEND_MERGE_REPORT_RMM
     runs['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
     runs['properties']['post_temp_fixes'] = POST_TEMP_FIXES
+    runs['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 
 with open(process_conf, 'w') as file:
     json.dump(process_config_json, file, indent=1)

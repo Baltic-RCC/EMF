@@ -114,6 +114,7 @@ class HandlerMergeModels:
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
         pre_temp_fixes = task_properties['pre_temp_fixes']
         post_temp_fixes = task_properties['post_temp_fixes']
+        force_outage_fix = task_properties['force_outage_fix']
 
         remove_non_generators_from_slack_participation = True
 
@@ -228,7 +229,8 @@ class HandlerMergeModels:
         # Crosscheck replaced model outages with latest UAP if atleast one baltic model was replaced
         replaced_tso_list = [model['tso'] for model in merge_log['replaced_entity']]
 
-        if merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
+        # Fix model outages
+        if force_outage_fix or merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
             merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime, time_horizon)
 
         # Various fixes from igmsshvscgmssh error
@@ -477,13 +479,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-01-06T08:30:00+00:00",
+            "timestamp_utc": "2025-02-15T08:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ['PSE', 'AST', 'ELERING'],
+            "included": ['PSE', 'AST', 'LITGRID'],
             "excluded": [],
-            "local_import": ['LITGRID'],
-            "time_horizon": "2D",
+            "local_import": ['ELERING'],
+            "time_horizon": "ID",
             "version": "99",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
@@ -493,7 +495,8 @@ if __name__ == "__main__":
             "scaling": "True",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
-            "send_merge_report": "True",
+            "send_merge_report": "False",
+            "force_outage_fix": "True",
         }
     }
 
