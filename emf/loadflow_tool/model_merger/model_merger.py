@@ -202,6 +202,7 @@ class HandlerMergeModels:
                 logger.error(f"Failed to run replacement: {error}")
 
         valid_models = valid_models + additional_models_data
+        valid_tso = [tso['pmd:TSO'] for tso in valid_models]
 
         # Return None if there are no models to be merged
         if not valid_models:
@@ -230,7 +231,10 @@ class HandlerMergeModels:
         replaced_tso_list = [model['tso'] for model in merge_log['replaced_entity']]
 
         # Fix model outages
-        if force_outage_fix or merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
+        if force_outage_fix:
+            merged_model, merge_log = fix_model_outages(merged_model, valid_tso, merge_log, scenario_datetime, time_horizon,
+                                                        debug=False)
+        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
             merged_model, merge_log = fix_model_outages(merged_model, replaced_tso_list, merge_log, scenario_datetime, time_horizon)
 
         # Various fixes from igmsshvscgmssh error

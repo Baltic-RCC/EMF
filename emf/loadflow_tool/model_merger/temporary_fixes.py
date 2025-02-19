@@ -58,10 +58,10 @@ def run_post_merge_processing(input_models, solved_model, task_properties, SMALL
     return sv_data, ssh_data
 
 
-def fix_model_outages(merged_model, replaced_model_list: list, merge_log, scenario_datetime, time_horizon):
+def fix_model_outages(merged_model, model_list: list, merge_log, scenario_datetime, time_horizon, debug=False):
 
     area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
-    outage_areas = [area_map.get(item, item) for item in replaced_model_list]
+    outage_areas = [area_map.get(item, item) for item in model_list]
 
     elk_service = elastic.Elastic()
 
@@ -101,16 +101,18 @@ def fix_model_outages(merged_model, replaced_model_list: list, merge_log, scenar
     model_outages = pd.DataFrame(get_model_outages(merged_model['network']))
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
     model_area_map = {"LITGRID": "LT", "AST": "LV", "ELERING": "EE"}
-    model_outage_areas = [model_area_map.get(item, item) for item in replaced_model_list]
+    model_outage_areas = [model_area_map.get(item, item) for item in model_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
-    logger.info("Fixing outages inside merged model:")
+    logger.info("Fixing outages inside merged model")
 
     # Reconnecting outages from network-config list
+    logger.info("Reconnecting outages from network-config list")
     for index, outage in filtered_model_outages.iterrows():
         try:
             if merged_model['network'].connect(outage['grid_id']):
-                logger.info(f" {outage['name']} {outage['grid_id']} successfully reconnected")
+                if debug:
+                    logger.info(f" {outage['name']} {outage['grid_id']} successfully reconnected")
                 merge_log.update({'outages_corrected': True})
                 merge_log.get('outage_fixes').extend([{'name': outage['name'], 'grid_id': outage['grid_id'], "eic": outage['eic'], "outage_status": "connected"}])
             else:
@@ -124,10 +126,12 @@ def fix_model_outages(merged_model, replaced_model_list: list, merge_log, scenar
             continue
 
     # Applying outages from UAP
+    logger.info("Applying outages from UAP")
     for index, outage in mapped_outages.iterrows():
         try:
             if merged_model['network'].disconnect(outage['grid_id']):
-                logger.info(f"{outage['name']} {outage['grid_id']} successfully disconnected")
+                if debug:
+                    logger.info(f"{outage['name']} {outage['grid_id']} successfully disconnected")
                 merge_log.update({'outages_corrected': True})
                 merge_log.get('outage_fixes').extend([{'name': outage['name'], 'grid_id': outage['grid_id'], "eic": outage['eic'], "outage_status": "disconnected"}])
             else:
