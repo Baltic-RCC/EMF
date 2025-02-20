@@ -656,16 +656,20 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
                                 (cgm_ssh_data['VALUE'].str.contains('SteadyStateHypothesis'))]
     dependencies = pandas.concat([tp_file_ids, ssh_file_ids], ignore_index=True, sort=False)
     existing_dependencies = cgm_sv_data[cgm_sv_data['KEY'] == 'Model.DependentOn']
-    if existing_dependencies.empty or len(existing_dependencies.index) < len(dependencies.index):
-        logger.info(f"Missing dependencies. Adding {len(dependencies.index)} dependencies to SV profile")
+    dependency_difference = existing_dependencies.merge(dependencies[['ID']].rename(columns={'ID': 'VALUE'}),
+                                                        on='VALUE', how='outer', indicator=True)
+    if not dependency_difference.query('_merge == "right_only"').empty:
+        cgm_sv_data = triplets.rdf_parser.remove_triplet_from_triplet(cgm_sv_data, existing_dependencies)
         full_model_id = cgm_sv_data[(cgm_sv_data['KEY'] == 'Type') & (cgm_sv_data['VALUE'] == 'FullModel')]
-        new_dependencies = dependencies[['ID']].copy().rename(columns={'ID': 'VALUE'}).reset_index(drop=True)
+        dependencies_to_update = dependency_difference.query('_merge != "left_only"')
+        logger.info(f"Mismatch of dependencies. Inserting {len(dependencies_to_update.index)} "
+                    f"dependencies to SV profile")
+        new_dependencies = dependencies_to_update[['VALUE']].copy().reset_index(drop=True)
         new_dependencies.loc[:, 'KEY'] = 'Model.DependentOn'
         new_dependencies.loc[:, 'ID'] = full_model_id['ID'].iloc[0]
         new_dependencies.loc[:, 'INSTANCE_ID'] = full_model_id['INSTANCE_ID'].iloc[0]
         cgm_sv_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_sv_data, new_dependencies)
     return cgm_sv_data
-
 
 def remove_small_islands(solved_data, island_size_limit):
     small_island = pandas.DataFrame(solved_data.query("KEY == 'TopologicalIsland.TopologicalNodes'").ID.value_counts()).reset_index().query("count <= @island_size_limit")

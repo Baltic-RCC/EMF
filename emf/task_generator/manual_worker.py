@@ -61,6 +61,7 @@ process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = UPLOAD_TO_M
 process_config_json[0]['runs'][0]['properties']['send_merge_report'] = SEND_MERGE_REPORT
 process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
 process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_FIXES
+process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 
 
 if PROCESS_TIME_SHIFT:

@@ -76,6 +76,9 @@ def query_data(metadata_query: dict,
         for num, item in enumerate(content_list):
             content_list[num] = get_content(item)
 
+    # Delete scroll after retrieving data
+    object_storage.elastic_service.client.clear_scroll(scroll_id=scroll_id)
+
     return content_list
 
 
@@ -187,7 +190,7 @@ if __name__ == "__main__":
 
     test_query = {"pmd:TSO": "TERNA",
                   "pmd:timeHorizon": "2D",
-                  "pmd:scenarioDate": "2024-02-15T22:30:00Z",
+                  "pmd:scenarioDate": "2025-02-15T22:30:00Z",
                   }
     test_filter = "now-2w"
     test_response = query_data(test_query, query_filter=test_filter, return_payload=True)
