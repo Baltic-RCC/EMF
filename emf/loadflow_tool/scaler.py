@@ -222,9 +222,6 @@ def scale_balance(network: pp.network.Network,
     # Target HVDC setpoints
     target_hvdc_sp_df = pd.DataFrame(dc_schedules)
 
-    # TODO [TEMPORARY] drop out LPL schedule until synchronization
-    target_hvdc_sp_df = target_hvdc_sp_df.drop(target_hvdc_sp_df[target_hvdc_sp_df.registered_resource == '10T-LT-PL-000037'].index)
-
     # Target AC net positions mapping
     target_acnp_df = pd.DataFrame(ac_schedules)
     target_acnp_df['registered_resource'] = target_acnp_df['in_domain'].where(target_acnp_df['in_domain'].notna(), target_acnp_df['out_domain'])
