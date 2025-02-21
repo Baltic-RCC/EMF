@@ -17,31 +17,43 @@ process_conf = config.paths.task_generator.process_conf
 process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
-if MERGE_TYPE == 'BA':
-    merge_type = "RMM"
-    process_config_json.pop(0)
-elif MERGE_TYPE == 'EU':
-    merge_type = "CGM"
-    process_config_json.pop(1)
+print(RUN_TYPE)
 
-if TIME_HORIZON == '1D':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'DayAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'D-1' in d['@id']]
-elif TIME_HORIZON == '2D':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'TwoDaysAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'D-2' in d['@id']]
-elif TIME_HORIZON == 'ID':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if '1' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'H-24' in d['@id']]
-elif TIME_HORIZON == 'WK':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'WeekAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'W-1' in d['@id']]
-elif TIME_HORIZON == 'MO':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'MonthAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'M-1' in d['@id']]
-elif TIME_HORIZON == 'YR':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'YearAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'Y-1' in d['@id']]
+#Based on run time get pro
+for merge_type in process_config_json:
+    for run in merge_type.get("runs",[]):
+        if RUN_TYPE in run["@id"]:
+            
+            process_config_json[0]['runs'] = run
+            timeframe_config_json = timeframe_config_json(run["time_frame"])
+
+
+
+#if MERGE_TYPE == 'BA':
+#    merge_type = "RMM"
+#    process_config_json.pop(0)
+#elif MERGE_TYPE == 'EU':
+#    merge_type = "CGM"
+#    process_config_json.pop(1)
+
+#if TIME_HORIZON == '1D':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'DayAhead' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'D-1' in d['@id']]
+#elif TIME_HORIZON == '2D':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'TwoDaysAhead' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'D-2' in d['@id']]
+#elif TIME_HORIZON == 'ID':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if '1' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'H-24' in d['@id']]
+#elif TIME_HORIZON == 'WK':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'WeekAhead' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'W-1' in d['@id']]
+#elif TIME_HORIZON == 'MO':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'MonthAhead' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'M-1' in d['@id']]
+#elif TIME_HORIZON == 'YR':
+#    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'YearAhead' in d['@id']]
+#    timeframe_config_json = [d for d in timeframe_config_json if 'Y-1' in d['@id']]
 
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 
