@@ -396,7 +396,7 @@ class RMQConsumer:
                     ack = False
                     self.basic_reject(delivery_tag, requeue=True)
                     # self.stop()
-                    break
+                    
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
