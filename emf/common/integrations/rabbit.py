@@ -67,8 +67,8 @@ class RMQConsumer:
         self._connection_parameters = pika.ConnectionParameters(host=self._host,
                                                                 port=self._port,
                                                                 virtual_host=self._vhost,
-                                                                heartbeat: None if RMQ_HEARTBEAT_IN_SEC == "0" else int(RMQ_HEARTBEAT_IN_SEC) ,
-                                                                credentials=pika.PlainCredentials(username, password))
+                                                                credentials=pika.PlainCredentials(username, password),
+                                                                heartbeat: None if RMQ_HEARTBEAT_IN_SEC == "0" else int(RMQ_HEARTBEAT_IN_SEC))
       
 
     
