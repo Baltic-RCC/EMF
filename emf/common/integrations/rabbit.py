@@ -381,7 +381,9 @@ class RMQConsumer:
             except Exception as error:
                 logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
+                self.basic_reject(delivery_tag, requeue=True)
                 # self.stop()
+                
 
         if self.message_handlers:
 
