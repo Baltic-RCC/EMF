@@ -6,154 +6,13 @@ import config
 from typing import List
 from emf.common.config_parser import parse_app_properties
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from pika.adapters.asyncio_connection import AsyncioConnection
-import asyncio
+#from pika.adapters.asyncio_connection import AsyncioConnection
+#import asyncio
 
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(globals(), config.paths.integrations.rabbit)
-
-
-class BlockingClient:
-
-    def __init__(self,
-                 host: str = RMQ_SERVER,
-                 port: int = int(RMQ_PORT),
-                 username: str = RMQ_USERNAME,
-                 password: str = RMQ_PASSWORD,
-                 message_converter: object | None = None,
-                 message_handler: object | None = None,
-                 ):
-        self.connection_params = {
-            'host': host,
-            'port': port,
-            'credentials': pika.PlainCredentials(username, password)
-        }
-        self.message_converter = message_converter
-        self.message_handler = message_handler
-        self._connect()
-        self.consuming = False
-
-    def _connect(self):
-        # Connect to RabbitMQ server
-        self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(**self.connection_params)
-        )
-        self.publish_channel = self.connection.channel()
-        self.consume_channel = self.connection.channel()
-
-    def publish(self, payload: str, exchange_name: str, headers: dict | None = None, routing_key: str = ''):
-        # Publish message
-        self.publish_channel.basic_publish(
-            exchange=exchange_name,
-            routing_key=routing_key,
-            body=payload,
-            properties=pika.BasicProperties(
-                headers=headers
-            )
-        )
-
-    def get_single_message(self, queue: str, auto_ack: bool = True):
-        """
-        Attempt to fetch a single message from the specified queue.
-
-        :param queue: The name of the queue to fetch the message from.
-        :param auto_ack: Whether to automatically acknowledge the message. Defaults to True.
-        :return: The method frame, properties, and body of the message if available; otherwise, None.
-        """
-
-        # Stop previous consume
-        if self.consuming:
-            self.consume_stop()
-
-        method_frame, properties, body = self.consume_channel.basic_get(queue, auto_ack=auto_ack)
-
-        if method_frame:
-            logger.info(f"Received message from {queue}: {properties}")
-
-            # Convert message
-            if self.message_converter:
-                try:
-                    body, content_type = self.message_converter.convert(body)
-                    properties.content_type = content_type
-                    logger.info(f"Message converted")
-                except Exception as error:
-                    logger.error(f"Message conversion failed: {error}")
-            return method_frame, properties, body
-        else:
-            logger.info(f"No message available in queue {queue}")
-            return None, None, None
-
-    def consume_start(self, queue: str, callback: object | None = None, auto_ack: bool = True):
-
-        # Stop previous consume
-        if self.consuming:
-            self.consume_stop()
-
-        # Set up consumer
-        if not callback:
-            callback = lambda ch, method, properties, body: logger.info(f"Received message: {properties} (No callback processing)")
-
-        self.consume_channel.basic_consume(
-            queue=queue,
-            on_message_callback=callback,
-            auto_ack=auto_ack
-        )
-
-        logger.info(f"Waiting for messages in {queue}. To exit press CTRL+C")
-
-        try:
-            self.consume_channel.start_consuming()
-            self.consuming = True
-        except KeyboardInterrupt:
-            self.consume_stop()
-
-    def shovel(self,
-               from_queue: str,
-               to_exchange: str,
-               callback: object | None = None,
-               headers: dict | None = None,
-               routing_key: str = ''):
-
-        def internal_callback(ch, method, properties, body):
-
-            if callback:
-                ch, method, properties, body = callback(ch, method, properties, body)
-
-            new_headers = properties.headers if properties.headers else {}
-            # Add or update the 'shovelled' flag
-            new_headers['shovelled'] = True
-
-            # If additional headers were provided, merge them with the existing ones
-            if headers:
-                new_headers.update(headers)
-
-            self.publish(body, to_exchange, headers=new_headers, routing_key=routing_key)
-
-            # Manually acknowledge the message to ensure it's only removed from the queue after successful processing
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-
-        # Start consuming with the internal callback. Set auto_ack=False for manual ack in the callback.
-        self.consume_start(from_queue, callback=internal_callback, auto_ack=False)
-
-    def consume_stop(self):
-        self.consume_channel.stop_consuming()
-        self.consuming = False
-
-    def close(self):
-
-        # Stop consuming
-        if self.consuming:
-            self.consume_stop()
-
-        # Close the connection
-        if self.connection.is_open:
-            self.connection.close()
-
-    def __del__(self):
-        # Destructor to ensure the connection is closed properly
-        self.close()
 
 
 class RMQConsumer:
@@ -208,25 +67,11 @@ class RMQConsumer:
         self._connection_parameters = pika.ConnectionParameters(host=self._host,
                                                                 port=self._port,
                                                                 virtual_host=self._vhost,
+                                                                heartbeat: None if RMQ_HEARTBEAT_IN_SEC == "0" else int(RMQ_HEARTBEAT_IN_SEC) ,
                                                                 credentials=pika.PlainCredentials(username, password))
-        self.set_heartbeat(heartbeat=heartbeat)
+      
 
-    def set_heartbeat(self, heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC):
-        """
-        Brings heartbeat parameter out to be configured
-        NB! guard is to added not to switch the heartbeat off
-        :param heartbeat: new heartbeat value to send to server
-        """
-        if heartbeat:
-            if isinstance(heartbeat, str):
-                try:
-                    heartbeat = int(heartbeat)
-                except ValueError:
-                    heartbeat = None
-            # Do not switch the heartbeat off
-            if heartbeat and heartbeat > 0:
-                self._connection_parameters.heartbeat = heartbeat
-
+    
     def connect(self):
         """This method connects to RabbitMQ, returning the connection handle.
         When the connection is established, the on_connection_open method
@@ -237,12 +82,13 @@ class RMQConsumer:
         """
         logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
         logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
-
-        return AsyncioConnection(
+        
+        return pika.SelectConnection(
             parameters=self._connection_parameters,
             on_open_callback=self.on_connection_open,
             on_open_error_callback=self.on_connection_open_error,
             on_close_callback=self.on_connection_closed)
+
 
     def close_connection(self):
         self._consuming = False
@@ -387,22 +233,6 @@ class RMQConsumer:
 
         # Convert if needed
         if self.message_converter:
-            # with ThreadPoolExecutor() as converter_executor:
-            #     converter_task = converter_executor.submit(self.message_converter.convert, body)
-            #
-            #     while not converter_task.done():
-            #         logger.info("Waiting for converter")
-            #         # self._connection.process_data_events(time_limit=1)
-            #         self._connection._heartbeat_checker._send_heartbeat()
-            #         time.sleep(10)
-            #
-            #     try:
-            #         body, content_type = converter_task.result()
-            #
-            #     except Exception as error:
-            #         logger.error(f"Message conversion failed: {error}", exc_info=True)
-            #         ack = False
-
             try:
                 body, content_type = self.message_converter.convert(body)
                 properties.content_type = content_type
@@ -413,42 +243,6 @@ class RMQConsumer:
                 # self.stop()
 
         if self.message_handlers:
-            # with ThreadPoolExecutor() as handler_executor:
-            #
-            #     for message_handler in self.message_handlers:
-            #         logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-            #         handler_task = handler_executor.submit(message_handler.handle, body, properties=properties)
-            #
-            #         while not handler_task.done():
-            #
-            #             try:
-            #                 # TODO - set to debug when rabbit issue solved
-            #                 logger.info("Waiting for handler")
-            #                 # logger.info(self._connection.ioloop.is_running())
-            #                 # logger.info(asyncio.current_task(self._connection.ioloop))
-            #                 # logger.info(asyncio.all_tasks(self._connection.ioloop))
-            #                 # logger.info(self._connection.ioloop._scheduled)
-            #                 # loop_time = self._connection.ioloop.time()
-            #                 # logger.info([task.when() - loop_time for task in self._connection.ioloop._scheduled])
-            #                 # logger.info(self._connection.ioloop.time())
-            #                 self._connection._heartbeat_checker._send_heartbeat()
-            #                 # self._connection.ioloop.poll()
-            #                 # self._connection.process_data_events(time_limit=1)
-            #                 # self._connection._heartbeat_checker.send_heartbeat()
-            #                 time.sleep(10)
-            #
-            #             except Exception as error:
-            #                 logger.info(error)
-            #
-            #         try:
-            #             body = handler_task.result()
-            #
-            #         except Exception as error:
-            #             logger.error(f"Message handling failed: {error}", exc_info=True)
-            #             ack = False
-            #             # In case of failure, stop message processing and close the thread
-            #             handler_executor.shutdown(wait=False)
-            #             break
 
             for message_handler in self.message_handlers:
                 try:
@@ -457,6 +251,7 @@ class RMQConsumer:
                 except Exception as error:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
+                    self.basic_reject(delivery_tag, requeue=True)
                     # self.stop()
                     break
 
@@ -523,7 +318,7 @@ class RMQConsumer:
             self._executor = ThreadPoolExecutor()
             self._executor_stopped = False
         self._connection = self.connect()
-        self._connection.ioloop.run_forever()
+        self._connection.ioloop.start()
 
     def stop(self):
         """Cleanly shutdown the connection to RabbitMQ by stopping the consumer
@@ -540,7 +335,7 @@ class RMQConsumer:
             logger.info(f"Stopping")
             if self._consuming:
                 self.stop_consuming()
-                self._connection.ioloop.run_forever()
+                self._connection.ioloop.start()
             else:
                 self._connection.ioloop.stop()
             self._executor.shutdown()
