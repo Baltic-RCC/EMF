@@ -116,6 +116,13 @@ class HandlerMergeModels:
         post_temp_fixes = task_properties['post_temp_fixes']
         force_outage_fix = task_properties['force_outage_fix']
 
+        try:
+            net_interchange_threshold = int(NET_INTERCHANGE_THRESHOLD)
+        except Exception:
+            net_interchange_threshold = 200
+
+        task_properties['net_interchange2_threshold'] = net_interchange_threshold
+
         remove_non_generators_from_slack_participation = True
 
         # Collect valid models from ObjectStorage
@@ -494,6 +501,7 @@ if __name__ == "__main__":
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
+            "fix_net_interchange2": "True",
             "replacement": "True",
             "replacement_local": "True",
             "scaling": "True",
