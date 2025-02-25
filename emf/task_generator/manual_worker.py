@@ -28,7 +28,7 @@ for merge_type in process_config_json:
             process_config_json[0]['runs'][0]= run
             for time_conf in timeframe_config_json:
                 if run["time_frame"] in time_conf["@id"]:
-                    timeframe_config_json = time_conf
+                    timeframe_config_json[0] = time_conf
 
 
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
