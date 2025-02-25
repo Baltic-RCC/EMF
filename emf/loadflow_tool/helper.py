@@ -187,20 +187,6 @@ def parse_pypowsybl_report(report: str):
     return result
 
 
-def temporary_decorator_change_litpol_to_non_hvdc(func):
-    # TODO temporary decorator to be removed after synchro
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        if 'isHvdc' in result.columns:  # it means it was called for dangling lines
-            try:
-                result.loc[result.pairing_key == 'XEL_AL1P', 'isHvdc'] = ''
-            except Exception as e:
-                logger.error(f"Temporary decorator failed: {e}")
-        return result
-    return wrapper
-
-
-@temporary_decorator_change_litpol_to_non_hvdc
 def get_network_elements(network: pypowsybl.network,
                          element_type: pypowsybl.network.ElementType,
                          all_attributes: bool = True,

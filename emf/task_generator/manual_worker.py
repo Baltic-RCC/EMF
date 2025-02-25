@@ -40,16 +40,16 @@ process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in LOCAL_IMPORT.split(',')] if LOCAL_IMPORT else []
-process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
-process_config_json[0]['runs'][0]['properties']['replacement'] = RUN_REPLACEMENT
-process_config_json[0]['runs'][0]['properties']['replacement_local'] = RUN_REPLACEMENT_LOCAL
-process_config_json[0]['runs'][0]['properties']['scaling'] = RUN_SCALING
-process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM
-process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = UPLOAD_TO_MINIO
-process_config_json[0]['runs'][0]['properties']['send_merge_report'] = SEND_MERGE_REPORT
-process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
-process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_FIXES
-process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
+process_config_json[0]['runs'][0]['properties']['version'] = os.environ(TASK_VERSION, process_config_json[0]['runs'][0]['properties']['version'] )
+process_config_json[0]['runs'][0]['properties']['replacement'] = os.environ(RUN_REPLACEMENT,process_config_json[0]['runs'][0]['properties']['replacement'])
+process_config_json[0]['runs'][0]['properties']['replacement_local'] = os.environ(RUN_REPLACEMENT_LOCAL,process_config_json[0]['runs'][0]['properties']['replacement_local'])
+process_config_json[0]['runs'][0]['properties']['scaling'] = os.environ(RUN_SCALING,process_config_json[0]['runs'][0]['properties']['scaling'])
+process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = os.environ(UPLOAD_TO_OPDM,process_config_json[0]['runs'][0]['properties']['upload_to_opdm'])
+process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = os.environ(UPLOAD_TO_MINIO,process_config_json[0]['runs'][0]['properties']['upload_to_minio'])
+process_config_json[0]['runs'][0]['properties']['send_merge_report'] = os.environ(SEND_MERGE_REPORT,process_config_json[0]['runs'][0]['properties']['send_merge_report'])
+process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = os.environ(PRE_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'])
+process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = os.environ(POST_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['post_temp_fixes'])
+process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = os.environ(FORCE_OUTAGE_FIX,process_config_json[0]['runs'][0]['properties']['force_outage_fix'])
 
 
 if PROCESS_TIME_SHIFT:
