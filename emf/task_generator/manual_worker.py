@@ -7,6 +7,7 @@ from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
 from emf.common.logging.custom_logger import initialize_custom_logger
 
+
 logger = logging.getLogger("task_generator.worker")
 elk_handler = initialize_custom_logger()
 
