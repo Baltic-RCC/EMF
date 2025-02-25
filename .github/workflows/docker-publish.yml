@@ -112,9 +112,8 @@ jobs:
 
   build-task-generator:
     if: |
-      contains(join(github.event.head_commit.modified, ','), 'emf/common/') ||
-      contains(join(github.event.head_commit.modified, ','), 'emf/task_generator/') ||
-      contains(join(github.event.head_commit.modified, ','), 'config/')
+      contains(toJson(github.event.commits.*.modified), 'emf/common/') ||
+      contains(toJson(github.event.commits.*.modified), 'emf/task_generator/') ||
 
     runs-on: ubuntu-latest
 

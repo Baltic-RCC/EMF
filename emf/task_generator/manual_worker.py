@@ -12,9 +12,11 @@ elk_handler = initialize_custom_logger()
 
 parse_app_properties(globals(), config.paths.task_generator.manual_task_generator)
 
+# Get default timeframe and process conf
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
+# Load to json
 process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
