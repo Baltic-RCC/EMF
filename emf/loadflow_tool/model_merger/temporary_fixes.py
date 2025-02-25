@@ -9,7 +9,8 @@ from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, crea
                                                             remove_small_islands,check_and_fix_dependencies,
                                                             disconnect_equipment_if_flow_sum_not_zero,
                                                             export_to_cgmes_zip,
-                                                            configure_paired_boundarypoint_injections_by_nodes)
+                                                            configure_paired_boundarypoint_injections_by_nodes,
+                                                            get_opdm_data_from_models)
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,92 @@ def run_pre_merge_processing(input_models, merging_area):
     return input_models
 
 
+def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False,
+                           threshold: float = None):
+    """
+    An attempt to calculate the net interchange 2 values and check them against those provided in ssh profiles
+    :param cgm_sv_data: merged sv profile
+    :param cgm_ssh_data: merged ssh profile
+    :param original_models: original profiles
+    :param fix_errors: injects new calculated flows into merged ssh profiles
+    :param threshold: specify threshold if needed
+    :return (updated) ssh profiles
+    """
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    try:
+        control_areas = (original_models.type_tableview('ControlArea')
+                         .rename_axis('ControlArea')
+                         .reset_index())[['ControlArea', 'ControlArea.netInterchange', 'ControlArea.pTolerance',
+                                          'IdentifiedObject.energyIdentCodeEic', 'IdentifiedObject.name']]
+    except KeyError:
+        control_areas = original_models.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
+        ssh_areas = cgm_ssh_data.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
+        control_areas = control_areas.merge(ssh_areas, on='ControlArea')[['ControlArea', 'ControlArea.netInterchange',
+                                                                          'ControlArea.pTolerance',
+                                                                          'IdentifiedObject.energyIdentCodeEic',
+                                                                          'IdentifiedObject.name']]
+    tie_flows = (original_models.type_tableview('TieFlow')
+                 .rename_axis('TieFlow').rename(columns={'TieFlow.ControlArea': 'ControlArea',
+                                                         'TieFlow.Terminal': 'Terminal'})
+                 .reset_index())[['ControlArea', 'Terminal', 'TieFlow.positiveFlowIn']]
+    tie_flows = tie_flows.merge(control_areas[['ControlArea']], on='ControlArea')
+    try:
+        terminals = (original_models.type_tableview('Terminal')
+                     .rename_axis('Terminal').reset_index())[['Terminal', 'ACDCTerminal.connected']]
+    except KeyError:
+        terminals = (original_models.type_tableview('Terminal')
+                     .rename_axis('Terminal').reset_index())[['Terminal']]
+    tie_flows = tie_flows.merge(terminals, on='Terminal')
+    try:
+        power_flows_pre = (original_models.type_tableview('SvPowerFlow')
+                           .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
+                           .reset_index())[['Terminal', 'SvPowerFlow.p']]
+        tie_flows = tie_flows.merge(power_flows_pre, on='Terminal', how='left')
+    except Exception:
+        logger.error(f"Was not able to get tie flows from original models")
+    power_flows_post = (cgm_sv_data.type_tableview('SvPowerFlow')
+                        .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
+                        .reset_index())[['Terminal', 'SvPowerFlow.p']]
+
+    tie_flows = tie_flows.merge(power_flows_post, on='Terminal', how='left',
+                                suffixes=('_pre', '_post'))
+    try:
+        tie_flows_grouped = ((tie_flows.groupby('ControlArea')[['SvPowerFlow.p_pre', 'SvPowerFlow.p_post']]
+                              .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
+                             .rename_axis('ControlArea').reset_index())
+    except KeyError:
+        tie_flows_grouped = ((tie_flows.groupby('ControlArea')[['SvPowerFlow.p']]
+                              .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
+                             .rename_axis('ControlArea').reset_index())
+        tie_flows_grouped = tie_flows_grouped.rename(columns={'SvPowerFlow.p': 'SvPowerFlow.p_post'})
+    tie_flows_grouped = control_areas.merge(tie_flows_grouped, on='ControlArea')
+    if threshold and threshold > 0:
+        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
+                                             - tie_flows_grouped['SvPowerFlow.p_post']) > threshold)
+    else:
+        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
+                                             - tie_flows_grouped['SvPowerFlow.p_post']) >
+                                         tie_flows_grouped['ControlArea.pTolerance'])
+    net_interchange_errors = tie_flows_grouped[tie_flows_grouped.eval('Exceeded')]
+    if not net_interchange_errors.empty:
+        if threshold > 0:
+            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
+                         f"over {threshold}:")
+        else:
+            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems:")
+        print(net_interchange_errors.to_string())
+        if fix_errors:
+            logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
+            new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
+                                                                                  'ControlArea.pTolerance', 'Type']]
+            new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
+                                        .rename(columns={'ControlArea': 'ID',
+                                                         'SvPowerFlow.p_post': 'ControlArea.netInterchange'}), on='ID')
+            cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_ssh_data, new_areas)
+    return cgm_ssh_data
+
+
+
 def run_post_merge_processing(input_models, solved_model, task_properties, SMALL_ISLAND_SIZE, enable_temp_fixes,
                               time_horizon: str=None):
 
@@ -46,7 +133,8 @@ def run_post_merge_processing(input_models, solved_model, task_properties, SMALL
                                                   scenario_datetime, time_horizon,
                                                   version, merging_area,
                                                   merging_entity, mas)
-
+    fix_net_interchange_errors = False
+    net_interchange_threshold = 200
     if enable_temp_fixes:
         sv_data = fix_sv_shunts(sv_data, models_as_triplets)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
@@ -54,7 +142,14 @@ def run_post_merge_processing(input_models, solved_model, task_properties, SMALL
         sv_data = remove_duplicate_sv_voltages(cgm_sv_data=sv_data, original_data=models_as_triplets)
         sv_data = check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets)
         #sv_data, ssh_data = disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets) fix implemented in pypowsybl 1.8.1 
-
+        try:
+            ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
+                                              cgm_ssh_data=ssh_data,
+                                              original_models=models_as_triplets,
+                                              fix_errors=fix_net_interchange_errors,
+                                              threshold=net_interchange_threshold)
+        except KeyError:
+            logger.error(f"No fields for netInterchange")
     return sv_data, ssh_data
 
 
