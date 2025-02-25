@@ -83,11 +83,11 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
                                 suffixes=('_pre', '_post'))
     try:
         tie_flows_grouped = ((tie_flows.groupby('ControlArea')[['SvPowerFlow.p_pre', 'SvPowerFlow.p_post']]
-                              .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
+                              .agg(lambda x: pd.to_numeric(x, errors='coerce').sum()))
                              .rename_axis('ControlArea').reset_index())
     except KeyError:
         tie_flows_grouped = ((tie_flows.groupby('ControlArea')[['SvPowerFlow.p']]
-                              .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
+                              .agg(lambda x: pd.to_numeric(x, errors='coerce').sum()))
                              .rename_axis('ControlArea').reset_index())
         tie_flows_grouped = tie_flows_grouped.rename(columns={'SvPowerFlow.p': 'SvPowerFlow.p_post'})
     tie_flows_grouped = control_areas.merge(tie_flows_grouped, on='ControlArea')
@@ -133,8 +133,8 @@ def run_post_merge_processing(input_models, solved_model, task_properties, SMALL
                                                   scenario_datetime, time_horizon,
                                                   version, merging_area,
                                                   merging_entity, mas)
-    fix_net_interchange_errors = False
-    net_interchange_threshold = 200
+    fix_net_interchange_errors = task_properties.get('fix_net_interchange2', False)
+    net_interchange_threshold = int(task_properties.get('net_interchange2_threshold', 200))
     if enable_temp_fixes:
         sv_data = fix_sv_shunts(sv_data, models_as_triplets)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
