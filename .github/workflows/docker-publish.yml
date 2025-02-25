@@ -1,5 +1,5 @@
 
-name: Build and Publish Docker Image
+name: Build and publish EMFOS workers
 
 on:
   push:

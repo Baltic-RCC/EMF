@@ -1,7 +1,12 @@
-name: Build and Publish Base Image (Manual)
+name: Build and publish base image
 
 on:
-  workflow_dispatch:  # Allows manual triggering from GitHub UI
+  push:
+    branches:
+      - dev
+
+#on:
+#  workflow_dispatch:  # Allows manual triggering from GitHub UI
 
 jobs:
   build-base:
