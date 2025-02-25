@@ -41,6 +41,8 @@ process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in LOCAL_IMPORT.split(',')] if LOCAL_IMPORT else []
+#new parameter
+process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] = os.environ.get(FIX_NET_INTERCHANGE2, process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] )
 process_config_json[0]['runs'][0]['properties']['version'] = os.environ.get(TASK_VERSION, process_config_json[0]['runs'][0]['properties']['version'] )
 process_config_json[0]['runs'][0]['properties']['replacement'] = os.environ.get(RUN_REPLACEMENT,process_config_json[0]['runs'][0]['properties']['replacement'])
 process_config_json[0]['runs'][0]['properties']['replacement_local'] = os.environ.get(RUN_REPLACEMENT_LOCAL,process_config_json[0]['runs'][0]['properties']['replacement_local'])
