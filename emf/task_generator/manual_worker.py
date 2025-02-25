@@ -1,4 +1,5 @@
 import json
+import os
 import config
 import logging
 from emf.task_generator.task_generator import generate_tasks, filter_and_flatten_dict
@@ -17,31 +18,19 @@ process_conf = config.paths.task_generator.process_conf
 process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
-if MERGE_TYPE == 'BA':
-    merge_type = "RMM"
-    process_config_json.pop(0)
-elif MERGE_TYPE == 'EU':
-    merge_type = "CGM"
-    process_config_json.pop(1)
+#Testing locally
+#RUN_TYPE = "WeekAheadRMM"
+print(RUN_TYPE)
 
-if TIME_HORIZON == '1D':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'DayAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'D-1' in d['@id']]
-elif TIME_HORIZON == '2D':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'TwoDaysAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'D-2' in d['@id']]
-elif TIME_HORIZON == 'ID':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if '1' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'H-24' in d['@id']]
-elif TIME_HORIZON == 'WK':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'WeekAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'W-1' in d['@id']]
-elif TIME_HORIZON == 'MO':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'MonthAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'M-1' in d['@id']]
-elif TIME_HORIZON == 'YR':
-    process_config_json[0]['runs'] = [d for d in process_config_json[0]['runs'] if 'YearAhead' in d['@id']]
-    timeframe_config_json = [d for d in timeframe_config_json if 'Y-1' in d['@id']]
+#Based on run time get pro
+for merge_type in process_config_json:
+    for run in merge_type.get("runs",[]):
+        if RUN_TYPE in run["@id"]:
+            process_config_json[0]['runs'][0]= run
+            for time_conf in timeframe_config_json:
+                if run["time_frame"] in time_conf["@id"]:
+                    timeframe_config_json[0] = time_conf
+
 
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 
@@ -52,16 +41,16 @@ process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in LOCAL_IMPORT.split(',')] if LOCAL_IMPORT else []
-process_config_json[0]['runs'][0]['properties']['version'] = os.environ(TASK_VERSION, process_config_json[0]['runs'][0]['properties']['version'] )
-process_config_json[0]['runs'][0]['properties']['replacement'] = os.environ(RUN_REPLACEMENT,process_config_json[0]['runs'][0]['properties']['replacement'])
-process_config_json[0]['runs'][0]['properties']['replacement_local'] = os.environ(RUN_REPLACEMENT_LOCAL,process_config_json[0]['runs'][0]['properties']['replacement_local'])
-process_config_json[0]['runs'][0]['properties']['scaling'] = os.environ(RUN_SCALING,process_config_json[0]['runs'][0]['properties']['scaling'])
-process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = os.environ(UPLOAD_TO_OPDM,process_config_json[0]['runs'][0]['properties']['upload_to_opdm'])
-process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = os.environ(UPLOAD_TO_MINIO,process_config_json[0]['runs'][0]['properties']['upload_to_minio'])
-process_config_json[0]['runs'][0]['properties']['send_merge_report'] = os.environ(SEND_MERGE_REPORT,process_config_json[0]['runs'][0]['properties']['send_merge_report'])
-process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = os.environ(PRE_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'])
-process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = os.environ(POST_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['post_temp_fixes'])
-process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = os.environ(FORCE_OUTAGE_FIX,process_config_json[0]['runs'][0]['properties']['force_outage_fix'])
+process_config_json[0]['runs'][0]['properties']['version'] = os.environ.get(TASK_VERSION, process_config_json[0]['runs'][0]['properties']['version'] )
+process_config_json[0]['runs'][0]['properties']['replacement'] = os.environ.get(RUN_REPLACEMENT,process_config_json[0]['runs'][0]['properties']['replacement'])
+process_config_json[0]['runs'][0]['properties']['replacement_local'] = os.environ.get(RUN_REPLACEMENT_LOCAL,process_config_json[0]['runs'][0]['properties']['replacement_local'])
+process_config_json[0]['runs'][0]['properties']['scaling'] = os.environ.get(RUN_SCALING,process_config_json[0]['runs'][0]['properties']['scaling'])
+process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = os.environ.get(UPLOAD_TO_OPDM,process_config_json[0]['runs'][0]['properties']['upload_to_opdm'])
+process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = os.environ.get(UPLOAD_TO_MINIO,process_config_json[0]['runs'][0]['properties']['upload_to_minio'])
+process_config_json[0]['runs'][0]['properties']['send_merge_report'] = os.environ.get(SEND_MERGE_REPORT,process_config_json[0]['runs'][0]['properties']['send_merge_report'])
+process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = os.environ.get(PRE_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'])
+process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = os.environ.get(POST_TEMP_FIXES,process_config_json[0]['runs'][0]['properties']['post_temp_fixes'])
+process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = os.environ.get(FORCE_OUTAGE_FIX,process_config_json[0]['runs'][0]['properties']['force_outage_fix'])
 
 
 if PROCESS_TIME_SHIFT:

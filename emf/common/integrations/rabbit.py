@@ -382,6 +382,7 @@ class RMQConsumer:
                 logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
                 self.basic_reject(delivery_tag, requeue=True)
+                self.connection.close()
                 # self.stop()
                 
 
@@ -395,6 +396,7 @@ class RMQConsumer:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
                     self.basic_reject(delivery_tag, requeue=True)
+                    self.connection.close()
                     # self.stop()
                     
 
