@@ -5,11 +5,11 @@ on:
   push:
     branches:
       - main
-      - dev
+    tags:
+      - "dev-v*"
   pull_request:
     branches:
       - main
-      - dev
 
 jobs:
   build-model-retriever:
@@ -35,6 +35,10 @@ jobs:
         run: |
           IMAGE_NAME="${{ vars.DOCKER_USERNAME }}/${WORKER_NAME}"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+#      # Pull base image from Docker Hub
+#      - name: Pull base image from Docker Hub
+#        run: docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
 
       # Build the Docker image
       - name: Build the Docker image
