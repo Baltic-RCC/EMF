@@ -6,7 +6,7 @@ on:
     branches:
       - main
     tags:
-      - "dev-v*"
+      - "v*"
   pull_request:
     branches:
       - main
