@@ -222,7 +222,6 @@ class RMQConsumer:
 
         """
         logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
-        logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
         
         return pika.SelectConnection(
             parameters=self._connection_parameters,
@@ -381,8 +380,8 @@ class RMQConsumer:
             except Exception as error:
                 logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
-                self.basic_reject(delivery_tag, requeue=True)
-                self.connection.close()
+                self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
+                #self.connection.close()
                 # self.stop()
                 
 
@@ -395,8 +394,8 @@ class RMQConsumer:
                 except Exception as error:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
-                    self.basic_reject(delivery_tag, requeue=True)
-                    self.connection.close()
+                    self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
+                    #self.connection.close()
                     # self.stop()
                     
 
