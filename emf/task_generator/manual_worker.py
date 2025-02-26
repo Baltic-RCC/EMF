@@ -21,10 +21,12 @@ process_conf = config.paths.task_generator.process_conf
 process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
+
+
 # Based on RUN_TYPE get process timeframe config
 for merge_type in process_config_json:
     for run in merge_type.get("runs", []):
-        if RUN_TYPE in run["@id"]:
+        if os.environ.get(RUN_TYPE) in run["@id"]:
             process_config_json[0]['runs'][0] = run
             for time_conf in timeframe_config_json:
                 if run["time_frame"] in time_conf["@id"]:
@@ -36,9 +38,9 @@ for merge_type in process_config_json:
 # process_config_json[0]['runs'][0]['properties']['merging_entity'] = TASK_MERGING_ENTITY
 # process_config_json[0]['runs'][0]['properties']['mas'] = TASK_MAS
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
-process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
-process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
-process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in LOCAL_IMPORT.split(',')] if LOCAL_IMPORT else []
+process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in os.environ.get(INCLUDED_TSO).split(',')] if os.environ.get(INCLUDED_TSO) else []
+process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in os.environ.get(EXCLUDED_TSO).split(',')] if os.environ.get(EXCLUDED_TSO) else []
+process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in os.environ.get(LOCAL_IMPORT).split(',')] if os.environ.get(LOCAL_IMPORT) else []
 process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] = os.environ.get(FIX_NET_INTERCHANGE2, process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] )
 process_config_json[0]['runs'][0]['properties']['version'] = os.environ.get(TASK_VERSION, process_config_json[0]['runs'][0]['properties']['version'] )
 process_config_json[0]['runs'][0]['properties']['replacement'] = os.environ.get(RUN_REPLACEMENT, process_config_json[0]['runs'][0]['properties']['replacement'])
@@ -52,11 +54,11 @@ process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = os.environ.
 process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = os.environ.get(FORCE_OUTAGE_FIX, process_config_json[0]['runs'][0]['properties']['force_outage_fix'])
 
 # Apply process time shift and time travel if defined
-if PROCESS_TIME_SHIFT:
-    timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
-if TIMETRAVEL:
-    timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
-    timeframe_config_json[0]['reference_time'] = TASK_REFERENCE_TIME
+if os.environ.get(PROCESS_TIME_SHIFT):
+    timeframe_config_json[0]['period_start'] = f'{os.environ.get(PROCESS_TIME_SHIFT)}'
+if os.environ.get(TIMETRAVEL):
+    timeframe_config_json[0]['period_duration'] = os.environ.get(TASK_PERIOD_DURATION)
+    timeframe_config_json[0]['reference_time'] = os.environ.get(TASK_REFERENCE_TIME)
 
 # Exporting configuration
 with open(process_conf, 'w') as file:
@@ -65,7 +67,7 @@ with open(timeframe_conf, 'w') as file:
     json.dump(timeframe_config_json, file, indent=4)
 
 # Generate tasks
-tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
+tasks = list(generate_tasks(os.environ.get(TASK_WINDOW_DURATION), os.environ.get(TASK_WINDOW_REFERENCE), process_conf, timeframe_conf, os.environ.get(TIMETRAVEL)))
 
 # Publish tasks
 if tasks:
