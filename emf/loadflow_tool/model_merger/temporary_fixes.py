@@ -12,7 +12,6 @@ from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, crea
                                                             export_to_cgmes_zip,
                                                             configure_paired_boundarypoint_injections_by_nodes,
                                                             get_opdm_data_from_models)
-from emf.loadflow_tool.model_merger.model_merger import logger
 
 logger = logging.getLogger(__name__)
 
