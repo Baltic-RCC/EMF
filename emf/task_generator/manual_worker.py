@@ -22,21 +22,24 @@ process_config_json = json.load(process_conf)
 timeframe_config_json = json.load(timeframe_conf)
 
 
-
 # Based on RUN_TYPE get process timeframe config
-for merge_type in process_config_json:
+break_top=False
+for merge_index, merge_type in enumerate(process_config_json):
     for run in merge_type.get("runs", []):
         if RUN_TYPE in run["@id"]:
-            process_config_json[0]['runs'][0] = run
-            for time_conf in timeframe_config_json:
-                if run["time_frame"] in time_conf["@id"]:
-                    timeframe_config_json[0] = time_conf
+            process_config_json.pop(merge_index)
+            process_config_json[0]['runs'] = [run]
+            break_top=True
+            break
+    if break_top:
+        break
+
+for time_conf in timeframe_config_json:
+    if process_config_json[0]['runs'][0]["time_frame"] in time_conf["@id"]:
+        timeframe_config_json = time_conf
+        break
 
 # Update process configuration from ENV variables if defined
-# process_config_json[0]['runs'][0]['properties']['merge_type'] = MERGE_TYPE
-# process_config_json[0]['runs'][0]['properties']['time_horizon'] = TIME_HORIZON
-# process_config_json[0]['runs'][0]['properties']['merging_entity'] = TASK_MERGING_ENTITY
-# process_config_json[0]['runs'][0]['properties']['mas'] = TASK_MAS
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
