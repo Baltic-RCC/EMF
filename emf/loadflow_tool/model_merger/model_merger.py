@@ -117,7 +117,7 @@ class HandlerMergeModels:
         pre_temp_fixes = task_properties['pre_temp_fixes']
         post_temp_fixes = task_properties['post_temp_fixes']
         force_outage_fix = task_properties['force_outage_fix']
-        open_non_retained_switches_between_tn = json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower())
+        open_non_retained_switches_between_tn = json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower())
         try:
             net_interchange_threshold = int(NET_INTERCHANGE_THRESHOLD)
         except Exception:
