@@ -36,7 +36,7 @@ for merge_index, merge_type in enumerate(process_config_json):
 
 for time_conf in timeframe_config_json:
     if process_config_json[0]['runs'][0]["time_frame"] in time_conf["@id"]:
-        timeframe_config_json = time_conf
+        timeframe_config_json = [time_conf]
         break
 
 # Update process configuration from ENV variables if defined
