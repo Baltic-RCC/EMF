@@ -119,7 +119,8 @@ __CGM_RELAXED_1_PROVIDER = {
 }
 
 __CGM_RELAXED_2_PROVIDER = {
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    # 'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    'loadPowerFactorConstant': 'True',
     'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
@@ -128,6 +129,7 @@ __CGM_RELAXED_2_PROVIDER = {
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 
 # Preparing CGM PROVIDER settings options from default settings
@@ -213,7 +215,8 @@ CGM_RELAXED_2 = pypowsybl.loadflow.Parameters(
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
+    # balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_CONFORM_LOAD,
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,

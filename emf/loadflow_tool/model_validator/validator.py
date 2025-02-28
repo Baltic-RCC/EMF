@@ -1,3 +1,6 @@
+import uuid
+
+import pandas
 import pypowsybl
 import logging
 import json
@@ -5,10 +8,13 @@ import time
 import math
 import config
 from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
+from emf.loadflow_tool.model_merger.merge_functions import get_opdm_data_from_models
+from emf.loadflow_tool.model_validator.validator_functions import check_not_retained_switches_between_nodes, \
+    get_nodes_against_kirchhoff_first_law
 
 # Initialize custom logger
 # custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid.uuid4())})
@@ -26,10 +32,21 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     model_data = load_model(opdm_objects=opdm_objects)
     network = model_data["network"]
 
-    # Run all validations except SHUNTS, that does not work on pypowsybl 0.24.0
+    # Pre check
+    opdm_model_triplets = get_opdm_data_from_models(model_data=opdm_objects)
+    not_retained_switches = 0
+    kirchhoff_first_law_detected = False
+    check_non_retained_switches_val = json.loads(CHECK_NON_RETAINED_SWITCHES.lower())
+    check_kirchhoff_first_law_val = json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower())
+    if check_non_retained_switches_val:
+        not_retained_switches = check_not_retained_switches_between_nodes(opdm_model_triplets)[1]
+    # violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets)
+    # kirchhoff_first_law_detected = False if violated_nodes_pre.empty else True
+    # End of pre check
+
+    # Run all validations
     if run_element_validations:
-        validations = list(
-            set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value", "SHUNTS"]))
+        validations = list(set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
 
         model_data["validations"] = {}
 
@@ -38,9 +55,10 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
-                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network, validation_types=[validation_type])._valid.__bool__()
+                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
+                                                                                          validation_types=[validation_type])._valid.__bool__()
             except Exception as error:
-                logger.error(f"Failed {validation_type} validation with error: {error}")
+                logger.warning(f"Failed {validation_type} validation with error: {error}")
                 continue
 
     # Validate if loadflow can be run
@@ -50,6 +68,23 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
                                                 parameters=loadflow_parameters,
                                                 reporter=loadflow_report)
 
+    violated_nodes_post = pandas.DataFrame()
+    if check_kirchhoff_first_law_val:
+        # Export sv profile and check it for Kirchhoff 1st law
+        export_parameters = {"iidm.export.cgmes.profiles": 'SV',
+                             "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+        bytes_object = network.save_to_binary_buffer(format="CGMES",
+                                                     parameters=export_parameters)
+        bytes_object.name = f"{uuid.uuid4()}.zip"
+        # Load SV data
+        sv_data = pandas.read_RDF([bytes_object])
+        # Check violations after loadflow
+        violated_nodes_post = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets,
+                                                                    cgm_sv_data=sv_data,
+                                                                    nodes_only=True,
+                                                                    consider_sv_injection=True)
+        kirchhoff_first_law_detected = kirchhoff_first_law_detected or (False if violated_nodes_post.empty else True)
+        # End of post check
 
     # Parsing loadflow results
     # TODO move sanitization to Elastic integration
@@ -66,9 +101,38 @@ def validate_model(opdm_objects, loadflow_parameters=getattr(loadflow_settings, 
     # Validation status and duration
     # TODO check only main island component 0?
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
+
+    if check_non_retained_switches_val and not_retained_switches > 0:
+        logger.error(f"Non retained switches triggered")
+        model_valid = False
+        model_data["not_retained_switches_between_tn_present"] = not_retained_switches
+    if check_kirchhoff_first_law_val and kirchhoff_first_law_detected:
+        logger.error(f"Kirchhoff first law triggered")
+        model_valid = False
+        kirchhoff_string = violated_nodes_post.to_string(index=False, header=False)
+        kirchhoff_string = kirchhoff_string.replace('\n', ', ')
+        model_data["Kirchhoff_first_law_error"] = kirchhoff_string
+
     model_data["valid"] = model_valid
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
+
+    # Get outages of the model
+    try:
+        model_data['outages'] = get_model_outages(network)
+    except Exception as e:
+        logger.error(f'Failed to log model outages: {e}')
+
+    try:
+        model_metadata = next(d for d in opdm_objects if d.get('opde:Object-Type') == 'IGM')
+    except:
+        logger.error("Failed to get model metadata")
+        model_metadata = {'pmd:scenarioDate': '', 'pmd:timeHorizon': '', 'pmd:versionNumber': ''}
+
+    model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
+    model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
+    model_data['@version'] = model_metadata['pmd:versionNumber']
+    model_data['tso'] = model_metadata['pmd:TSO']
 
     # Pop out pypowsybl network object
     model_data.pop('network')
@@ -98,7 +162,9 @@ if __name__ == "__main__":
     opdm = OPDM()
 
     latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D', scenario_date="2023-08-16T09:30")#, tso="ELERING")
+    available_models = opdm.get_latest_models_and_download(time_horizon='1D',
+                                                           scenario_date="2025-01-01T09:30",
+                                                           tso="AST")
 
     validated_models = []
 

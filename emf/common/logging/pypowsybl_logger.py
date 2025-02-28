@@ -10,7 +10,7 @@ import requests
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
-from emf.common.integrations.minio import ObjectStorage
+from emf.common.integrations.minio_api import ObjectStorage
 from emf.loadflow_tool.load_files_general import SEPARATOR_SYMBOL, check_the_folder_path
 
 logger = logging.getLogger(__name__)

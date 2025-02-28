@@ -14,6 +14,9 @@ parse_app_properties(globals(), config.paths.task_generator.task_generator)
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
+process_config_json = json.load(process_conf)
+
+
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
 
 if tasks:

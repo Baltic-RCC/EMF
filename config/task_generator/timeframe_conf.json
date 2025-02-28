@@ -19,6 +19,24 @@
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/H-16",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running 16 hours ahead in intraday",
+        "period_duration": "PT16H",
+        "period_start": "PT1H",
+        "reference_time": "currentHourStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/H-24",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running 24 hours ahead in intraday",
+        "period_duration": "PT24H",
+        "period_start": "PT1H",
+        "reference_time": "currentHourStart"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/D-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs day before the targeted day",
@@ -58,9 +76,9 @@
         "@id": "https://example.com/timeHorizons/W-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current week for next week",
-        "period_duration": "P1W",
-        "period_start": "P1W",
-        "reference_time": "currentWeekStart"
+        "period_duration": "P9D",
+        "period_start": "P3D",
+        "reference_time": "currentDayStart"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",

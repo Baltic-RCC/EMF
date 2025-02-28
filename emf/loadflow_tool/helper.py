@@ -13,7 +13,7 @@ from lxml import etree
 import triplets
 import uuid
 from aniso8601 import parse_datetime
-
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,70 @@ def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     return result_dict
 
 
+def parse_pypowsybl_report(report: str):
+    lines = report.replace('+', '').splitlines()
+    all_network_dicts = []
+
+    current_dict = None
+    base_indent = None
+
+    for line in lines:
+        stripped_line = line.strip()
+
+        # Identify "Network info" line and its indentation level
+        if "Network info" in stripped_line:
+            if current_dict is not None:
+                # Save the current dictionary if a new "Network info" block starts
+                all_network_dicts.append(current_dict)
+
+            current_dict = {}
+            base_indent = len(line) - len(stripped_line)
+            continue
+
+        if current_dict is not None:
+            # Calculate the current line's indentation level relative to "Network info"
+            current_indent = len(line) - len(line.lstrip())
+
+            # Check for the specific phrase "Network has x buses and y branches"
+            match = re.match(r"Network has (\d+) buses and (\d+) branches", stripped_line)
+            if match:
+                buses = int(match.group(1))
+                branches = int(match.group(2))
+                current_dict['buses'] = buses
+                current_dict['branches'] = branches
+
+            # Process lines with key-value pairs after ':'
+            elif ':' in stripped_line:
+                dict_name, key_values = stripped_line.split(':', 1)
+                dict_name = dict_name.strip()
+                key_values = key_values.strip()
+
+                # Parse key-value pairs
+                if '=' in key_values:
+                    current_dict[dict_name] = {}
+                    for pair in key_values.split(','):
+                        key, value = map(str.strip, pair.split('='))
+                        current_dict[dict_name][key] = value
+                else:
+                    # Handle plain strings after ':'
+                    current_dict[dict_name] = key_values
+
+            else:
+                # Stop processing this block if indentation level is not greater than base_indent
+                if current_indent <= base_indent and current_dict:
+                    all_network_dicts.append(current_dict)
+                    current_dict = None
+
+    # Append the last dictionary if it exists
+    if current_dict is not None and current_dict:
+        all_network_dicts.append(current_dict)
+
+    # Filter out empty dicts
+    result = [n for n in all_network_dicts if n]
+
+    return result
+
+
 def get_network_elements(network: pypowsybl.network,
                          element_type: pypowsybl.network.ElementType,
                          all_attributes: bool = True,
@@ -136,6 +200,11 @@ def get_network_elements(network: pypowsybl.network,
     elements = network.get_elements(element_type=element_type, all_attributes=all_attributes, attributes=attributes, **kwargs)
     elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
     elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
+
+    # Need to ensure that column 'isHvdc' is present if DANGLING_LINE type is requested
+    if element_type is pypowsybl.network.ElementType.DANGLING_LINE:
+        if 'isHvdc' not in elements.columns:
+            elements['isHvdc'] = ''
 
     return elements
 
@@ -151,11 +220,16 @@ def get_slack_generators(network: pypowsybl.network):
     return slack_generators
 
 
-def get_connected_component_counts(network: pypowsybl.network, bus_count_threshold: int | None = None):
-    counts = network.get_buses().connected_component.value_counts()
+def get_connected_components_data(network: pypowsybl.network,
+                                  bus_count_threshold: int | None = None,
+                                  country_col_name: str = 'country'):
+    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
+    data = buses.groupby('connected_component').agg(countries=(country_col_name, lambda x: list(x.unique())),
+                                                    bus_count=('name', 'size'))
     if bus_count_threshold:
-        counts = counts[counts > bus_count_threshold]
-    return counts.to_dict()
+        data = data[data.bus_count > bus_count_threshold]
+
+    return data.to_dict('index')
 
 
 def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
@@ -423,3 +497,30 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object
+
+
+def get_model_outages(network: pypowsybl.network):
+
+    outage_log = []
+    lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
+    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
+    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
+    lines = lines.merge(_voltage_levels, left_on='voltage_level1_id', right_index=True, suffixes=(None, '_voltage_level'))
+    lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
+    lines['element_type'] = 'Line'
+
+    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    dlines['element_type'] = 'Tieline'
+
+    gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
+    gens['element_type'] = 'Generator'
+
+    disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
+    disconnected_dlines = dlines[dlines['connected'] == False]
+    disconnected_gens = gens[gens['connected'] == False]
+
+    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_dlines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+
+    return outage_log

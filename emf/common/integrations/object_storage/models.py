@@ -1,17 +1,27 @@
-from emf.common.integrations.object_storage import *
+from emf.common.integrations import object_storage
 from aniso8601 import parse_datetime
 import logging
 import pandas
 import sys
+from emf.common.integrations import opdm
 
 logger = logging.getLogger(__name__)
 
-def query_data(metadata_query: dict, index: str = ELASTIC_QUERY_INDEX, return_payload: bool = False, size: str = '10000', sort: dict=None):
+
+def query_data(metadata_query: dict,
+               query_filter: str | None = None,
+               index: str = object_storage.ELASTIC_QUERY_INDEX,
+               return_payload: bool = False,
+               size: str = '10000',
+               sort: dict | None = None,
+               scroll: str = '1m',
+               ):
     """
     Queries Elasticsearch based on provided metadata queries.
 
     Args:
         metadata_query (dict): A dictionary containing metadata fields and their values to be queried.
+        query_filter (dict): Optional. A dictionary specifying parameters by which to filter the query.
         index (str): The index to query data from. Defaults to ELASTIC_QUERY_INDEX from config variables.
         return_payload (bool): Optional. If True, retrieves the full content for each hit.
             Defaults to False.
@@ -46,19 +56,33 @@ def query_data(metadata_query: dict, index: str = ELASTIC_QUERY_INDEX, return_pa
         else:
             match_and_term_list.append({"match": {key: value}})
 
-    query = {"bool": {"must": match_and_term_list}}
+    if query_filter:
+        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:creationDate": {"gte": query_filter}}}}}
+    else:
+        query = {"bool": {"must": match_and_term_list}}
 
     # Return query results
-    response = elastic_service.client.search(index=index, query=query, size=size, sort=sort)
-    content_list = [content["_source"] for content in response["hits"]["hits"]]
+    response = object_storage.elastic_service.client.search(index=index, query=query, size=size, sort=sort, scroll=scroll)
+    scroll_id = response['_scroll_id']
+    hits = response["hits"]["hits"]
+    content_list = [content["_source"] for content in hits]
+    while len(hits) > 0:
+        response = object_storage.elastic_service.client.scroll(scroll_id=scroll_id, scroll=scroll)
+        hits = response["hits"]["hits"]
+        if hits:
+            content_list.extend([content["_source"] for content in hits])
 
     if return_payload:
         for num, item in enumerate(content_list):
             content_list[num] = get_content(item)
 
+    # Delete scroll after retrieving data
+    object_storage.elastic_service.client.clear_scroll(scroll_id=scroll_id)
+
     return content_list
 
-def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
+
+def get_content(metadata: dict, bucket_name: str = object_storage.MINIO_BUCKET_NAME):
     """
     Retrieves content data from MinIO based on metadata information.
 
@@ -75,16 +99,26 @@ def get_content(metadata: dict, bucket_name=MINIO_BUCKET_NAME):
         For each component, it downloads data from MinIO and updates the 'DATA' field in the component dictionary.
     """
 
-    logger.info(f"Getting data from MinIO")
+    logger.info(f"Getting content of metadata object from MinIO: {metadata['opde:Id']}")
+    components_received = []
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
-        logger.info(f"Downloading {content_reference}")
-        component["opdm:Profile"]["DATA"] = minio_service.download_object(bucket_name, content_reference)
+        logger.info(f"Downloading object: {content_reference}")
+        content = object_storage.minio_service.download_object(bucket_name, content_reference)
+        component["opdm:Profile"]["DATA"] = content
+        components_received.append(bool(content))  # collect boolean flags of received components
+
+    if not all(components_received):  # at least one is False
+        logger.warning(f"[FALLBACK] At least some content did not exist in MinIO storage, requesting from OPDM...")
+        metadata = opdm.OPDM().download_object(metadata)  # TODO maybe to make OPDM connection instance globally
 
     return metadata
 
 
 def get_latest_boundary():
+
+    logger.info(f"Retrieving latest boundary set")
+
     # Query data from ELK
     boundaries = query_data({"opde:Object-Type.keyword": "BDS"})
 
@@ -105,7 +139,14 @@ def get_latest_boundary():
     return get_content(metadata=latest_boundary_meta)
 
 
-def get_latest_models_and_download(time_horizon: str, scenario_date: str, valid: bool = True, tso: str = None, object_type='IGM'):
+def get_latest_models_and_download(time_horizon: str,
+                                   scenario_date: str,
+                                   valid: bool = True,
+                                   tso: str | None = None,
+                                   object_type: str = 'IGM',
+                                   ):
+
+    logger.info(f"Retrieving latest network models of type: {object_type}")
 
     meta = {'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
             'pmd:timeHorizon': time_horizon,
@@ -149,11 +190,10 @@ if __name__ == "__main__":
 
     test_query = {"pmd:TSO": "TERNA",
                   "pmd:timeHorizon": "2D",
-                  "pmd:scenarioDate": "2024-02-15T22:30:00Z",
+                  "pmd:scenarioDate": "2025-02-15T22:30:00Z",
                   }
-
-    test_response = query_data(test_query, return_payload=True)
-
+    test_filter = "now-2w"
+    test_response = query_data(test_query, query_filter=test_filter, return_payload=True)
 
     #models = get_latest_models_and_download("1D", '20240526T1530Z', valid=False)
     models = get_latest_models_and_download("ID", '20240522T1530Z', valid=True)
