@@ -100,7 +100,40 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
     })
 
 
+def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
+    """
+    As pypowsybl creates its own unique uuids for the cases when the originals do not match the criteria then this
+    takes the naming_strategy.csv provided by the pypowsybl and reverts those ids back if it is applicable
+    :param exported_model: binary object from pypowsybl
+    :param triplets_data: profile(s) converted to triplets
+    :param revert_ids: True = fix, False=report only
+    :return (updated) triplets data
+    """
+
+    contents = zipfile.ZipFile(exported_model)
+    naming_strategy = pandas.DataFrame()
+
+    for file_name in contents.namelist():
+        if 'naming_strategy' in file_name:
+            naming_strategy = pandas.read_csv(filepath_or_buffer=BytesIO(contents.read(file_name)), sep=';')
+            break
+    if not naming_strategy.empty:
+        existing_values = triplets_data.merge(naming_strategy, left_on='VALUE', right_on='CgmesUuid')
+        existing_values = existing_values[existing_values['IidmId'] != 'unknown']
+        if not existing_values.empty:
+            if not revert_ids:
+                logger.error(f"Found {len(existing_values.index)} changed ids, consider dangling reference errors")
+                return triplets_data
+            logger.warning(f"Mapping {len(existing_values.index)} ids back")
+            existing_values['VALUE'] = existing_values['IidmId']
+            new_existing_values = existing_values[['ID', 'KEY', 'VALUE', 'INSTANCE_ID']]
+            triplets_data = triplets.rdf_parser.update_triplet_from_triplet(triplets_data, new_existing_values)
+    return triplets_data
+
+
+
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
+
 
     ### SV ###
     # Set Metadata
@@ -121,6 +154,9 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Load SV data
     sv_data = pandas.read_RDF([exported_model])
+
+    # Fix naming
+    sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data)
 
     # Update
     sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
