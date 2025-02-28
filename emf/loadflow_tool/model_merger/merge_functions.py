@@ -132,19 +132,6 @@ def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
     return triplets_data
 
 
-def is_valid_uuid(uuid_value):
-    """
-    Checks if input is uuid value
-    For merged SV profile the output uuid can be combination of several existing uuids
-    :param uuid_value: input value
-    :return
-    """
-    try:
-        uuid.UUID(str(uuid_value))
-        return True
-    except ValueError:
-        return False
-
 
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
