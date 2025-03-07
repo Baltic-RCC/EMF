@@ -71,6 +71,7 @@ def save_opdm_objects(opdm_objects: list) -> list:
 
     return exported_files
 
+
 def create_opdm_objects(models: list, metadata=None) -> list:
     """
     Function to create OPDM object like sturcture in memory
@@ -241,7 +242,6 @@ def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_p
     :param parameters: dictionary of desired parameters for loading models to pypowsybl
     :param skip_default_parameters: skip the default parameters
     """
-    model_data = {}
     default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
     if not skip_default_parameters:
         if not parameters:
@@ -261,19 +261,10 @@ def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_p
         #     "iidm.import.cgmes.post-processors": ["EntsoeCategory"]}
     )
 
-    logger.info(f"Loaded {network}")
+    logger.info(f"Loaded: {network}")
     logger.debug(f"{import_report}")
 
-    # Network model object data
-    model_data["network_meta"] = attr_to_dict(instance=network, sanitize_to_strings=True)
-    model_data["network"] = network
-    model_data["network_valid"] = network.validate().name
-
-    # Network model import reporter data
-    # model_data["import_report"] = json.loads(import_report.to_json())
-    # model_data["import_report"] = str(import_report)
-
-    return model_data
+    return network
 
 
 def opdmprofile_to_bytes(opdm_profile):
@@ -341,6 +332,7 @@ def metadata_from_filename(file_name):
 
     return file_metadata
 
+
 def get_xml_from_zip(zip_file_path):
 
     zipfile_object    = ZipFile(zip_file_path)
@@ -349,6 +341,7 @@ def get_xml_from_zip(zip_file_path):
     xml_tree_object   = etree.parse(file_unzipped)
 
     return xml_tree_object
+
 
 def zip_xml_file(xml_etree_object, file_metadata, destination_bath):
 
