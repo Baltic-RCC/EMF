@@ -356,7 +356,7 @@ class HandlerMergeModels:
                 logger.warning(f"Schedule reference data not available, skipping model scaling")
 
         merge_end = datetime.datetime.now(datetime.UTC)
-        logger.info(f"Loadflow status of main island: {solved_model['LOADFLOW_RESULTS'][0]['status_text']}")
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
         # TODO Margus clean up and maybe proposing to have separate function

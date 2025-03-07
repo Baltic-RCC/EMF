@@ -198,7 +198,7 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
         logger.warning(f"Missing outage mRID(s): {missing_outages['name'].values}")
 
     # Get outages already applied to the model
-    model_outages = pd.DataFrame(get_model_outages(merged_model['network']))
+    model_outages = pd.DataFrame(get_model_outages(merged_model.network))
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
     model_area_map = {"LITGRID": "LT", "AST": "LV", "ELERING": "EE"}
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
