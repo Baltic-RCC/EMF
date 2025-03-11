@@ -1,5 +1,6 @@
 import logging
 import math
+import pandas
 import pypowsybl
 import config
 import json
@@ -25,7 +26,8 @@ from emf.loadflow_tool import scaler
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, fix_model_outages
+from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
+    fix_model_outages, open_switches_in_network
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -133,7 +135,7 @@ class HandlerMergeModels:
         pre_temp_fixes = task_properties['pre_temp_fixes']
         post_temp_fixes = task_properties['post_temp_fixes']
         force_outage_fix = task_properties['force_outage_fix']
-
+        open_non_retained_switches_between_tn = json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower())
         try:
             net_interchange_threshold = int(NET_INTERCHANGE_THRESHOLD)
         except Exception:
@@ -243,8 +245,9 @@ class HandlerMergeModels:
 
         # Run pre-processing
         pre_p_start = datetime.datetime.now(datetime.UTC)
+        between_tn = pandas.DataFrame()
         if pre_temp_fixes:
-            input_models = run_pre_merge_processing(input_models, merging_area)
+            input_models, between_tn = run_pre_merge_processing(input_models, merging_area)
         pre_p_end = datetime.datetime.now(datetime.UTC)
         logger.debug(f"Pre-processing took: {(pre_p_end - pre_p_start).total_seconds()} seconds")
 
@@ -339,6 +342,11 @@ class HandlerMergeModels:
         # Run loadflow on merged model
         merged_model = merge_functions.run_lf(merged_model=merged_model,
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+
+        if open_non_retained_switches_between_tn and not between_tn.empty:
+            merged_model["network"] = open_switches_in_network(network_pre_instance=merged_model["network"],
+                                                               switches_dataframe=between_tn)
+        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
 
         # Perform scaling
         if model_scaling:
