@@ -346,7 +346,7 @@ class HandlerMergeModels:
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
 
         if open_non_retained_switches_between_tn and not between_tn.empty:
-            merged_model["network"] = open_switches_in_network(network_pre_instance=merged_model["network"],
+            merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
                                                                switches_dataframe=between_tn)
         solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
 
