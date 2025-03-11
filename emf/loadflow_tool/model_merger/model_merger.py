@@ -262,14 +262,15 @@ class HandlerMergeModels:
         valid_tso_list = [tso['pmd:TSO'] for tso in valid_models]
 
         # Update model outages
-        if force_outage_fix:
+        if force_outage_fix: #force outage fix on all models if set
             tso_list = valid_tso_list
-        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):
+        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list): #by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
-        merged_model = fix_model_outages(merged_model=merged_model,
-                                         tso_list=tso_list,
-                                         scenario_datetime=scenario_datetime,
-                                         time_horizon=time_horizon)
+        if tso_list: #if not set force and not replaced BA then nothing to fix
+            merged_model = fix_model_outages(merged_model=merged_model,
+                                             tso_list=tso_list,
+                                             scenario_datetime=scenario_datetime,
+                                             time_horizon=time_horizon)
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
