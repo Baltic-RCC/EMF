@@ -25,10 +25,10 @@ SV_INJECTION_LIMIT = 0.1
 def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
 
     # report = pypowsybl.report.Reporter()
-    result = pypowsybl.loadflow.run_ac(network=merged_model["network"],
-                                                parameters=loadflow_settings,
-                                                # reporter=loadflow_report,
-                                                )
+    result = pypowsybl.loadflow.run_ac(network=merged_model.network,
+                                       parameters=loadflow_settings,
+                                       # reporter=loadflow_report,
+                                       )
 
     result_dict = [attr_to_dict(island) for island in result]
     # Modify all nested objects to native data types
@@ -43,9 +43,10 @@ def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
             island['slack_bus_id'] = 'undefined'
             island['active_power_mismatch'] = float()
 
-    # merged_model["LOADFLOW_REPORT"] = json.loads(loadflow_report.to_json())
-    # merged_model["LOADFLOW_REPORT"] = str(loadflow_report)
-    merged_model["LOADFLOW_RESULTS"] = result_dict
+    # merged_model.loadflow = json.loads(loadflow_report.to_json())
+    # merged_model.loadflow = str(loadflow_report)
+    merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
+    merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
 
     return merged_model
 
@@ -58,8 +59,8 @@ def create_opdm_object_meta(object_id,
                             mas,
                             version,
                             profile,
-                            content_type = "CGMES",
-                            file_type ="xml"
+                            content_type="CGMES",
+                            file_type="xml"
                             ):
     opdm_object_meta = {
         'pmd:fullModel_ID': object_id,
@@ -87,7 +88,6 @@ def create_opdm_object_meta(object_id,
     return opdm_object_meta
 
 
-
 def update_FullModel_from_OpdmObject(data, opdm_object):
     return triplets.cgmes_tools.update_FullModel_from_dict(data, metadata={
         "Model.version": f"{int(opdm_object['pmd:versionNumber']):03d}",
@@ -100,11 +100,42 @@ def update_FullModel_from_OpdmObject(data, opdm_object):
     })
 
 
+def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
+    """
+    As pypowsybl creates its own unique uuids for the cases when the originals do not match the criteria then this
+    takes the naming_strategy.csv provided by the pypowsybl and reverts those ids back if it is applicable
+    :param exported_model: binary object from pypowsybl
+    :param triplets_data: profile(s) converted to triplets
+    :param revert_ids: True = fix, False=report only
+    :return (updated) triplets data
+    """
+
+    contents = zipfile.ZipFile(exported_model)
+    naming_strategy = pandas.DataFrame()
+
+    for file_name in contents.namelist():
+        if 'naming_strategy' in file_name:
+            naming_strategy = pandas.read_csv(filepath_or_buffer=BytesIO(contents.read(file_name)), sep=';')
+            break
+    if not naming_strategy.empty:
+        existing_values = triplets_data.merge(naming_strategy, left_on='VALUE', right_on='CgmesUuid')
+        existing_values = existing_values[existing_values['IidmId'] != 'unknown']
+        if not existing_values.empty:
+            if not revert_ids:
+                logger.error(f"Found {len(existing_values.index)} changed ids, consider dangling reference errors")
+                return triplets_data
+            logger.warning(f"Mapping {len(existing_values.index)} ids back")
+            existing_values['VALUE'] = existing_values['IidmId']
+            new_existing_values = existing_values[['ID', 'KEY', 'VALUE', 'INSTANCE_ID']]
+            triplets_data = triplets.rdf_parser.update_triplet_from_triplet(triplets_data, new_existing_values)
+    return triplets_data
+
+
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
     ### SV ###
     # Set Metadata
-    SV_ID = merged_model['network_meta']['id'].split("uuid:")[-1]
+    SV_ID = merged_model.network_meta['id'].split("uuid:")[-1]
 
     opdm_object_meta = create_opdm_object_meta(SV_ID,
                                                time_horizon,
@@ -115,12 +146,14 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
                                                version,
                                                profile="SV")
 
-
-    exported_model = export_model(merged_model["network"], opdm_object_meta, ["SV"])
+    exported_model = export_model(merged_model.network, opdm_object_meta, ["SV"])
     logger.info(f"Exporting merged model to {exported_model.name}")
 
     # Load SV data
     sv_data = pandas.read_RDF([exported_model])
+
+    # Fix naming
+    sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data)
 
     # Update
     sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
@@ -267,6 +300,7 @@ def fix_sv_tapsteps(sv_data, ssh_data):
         ])
 
     sv_data = pandas.concat([sv_data, pandas.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
+
     return sv_data
 
 
@@ -411,101 +445,44 @@ def export_to_cgmes_zip(triplets: list):
                                                                        export_to_memory=True)
 
 
-def generate_merge_report(merged_model, input_models, merge_data):
+def generate_merge_report(merged_model: object, task: dict):
     """
     Creates JSON type report of pypowsybl loadflow results
 
     Args:
         merged_model: merged pypowsybl network
-        input_models: individual models used to create mered model
-        merge_data: data related to cgm merge
-
+        task: task object dict
     Returns:
         dict: report of merge results
     """
-    task_properties = merge_data.get('task')['task_properties']
-    merge_report = {'loadflow': {'island': []}, 'merge': {}}
+    report = merged_model.__dict__
 
-    merge_report.update({'@timestamp': merge_data['task'].get('@timestamp'),
-                         '@process_id': merge_data['task'].get('process_id'),
-                         '@run_id': merge_data['task'].get('run_id'),
-                         '@job_id': merge_data['task'].get('job_id'),
-                         '@task_id': merge_data['task'].get('@id'),
-                         '@time_horizon': task_properties.get('time_horizon'),
-                         '@scenario_timestamp': task_properties.get('timestamp_utc'),
-                         '@version': int(task_properties.get('version')),
-                         })
+    # Pop out pypowsybl network
+    network = report.pop('network')
 
-    pp_results = [island for island in merged_model['LOADFLOW_RESULTS'] if island['reference_bus_id']]
-    # pp_report = parse_pypowsybl_report(merged_model['LOADFLOW_REPORT'])  # TODO backup if string report will be needed
+    # Include task data
+    report.update({'@timestamp': task.get('@timestamp'),
+                   '@process_id': task.get('process_id'),
+                   '@run_id': task.get('run_id'),
+                   '@job_id': task.get('job_id'),
+                   '@task_id': task.get('@id'),
+                   '@time_horizon': task['task_properties'].get('time_horizon'),
+                   '@scenario_timestamp': task['task_properties'].get('timestamp_utc'),
+                   '@version': int(task['task_properties'].get('version')),
+                   'merge_type': task['task_properties'].get('merge_type'),
+                   'merge_entity': task['task_properties'].get('merging_entity'),
+                   })
 
-    # Get buses count in each component
-    buses = get_network_elements(merged_model['network'], pypowsybl.network.ElementType.BUS)
+    # Include buses count in each component
+    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
     buses_by_component = buses.connected_component.value_counts()
+    for component in report['loadflow']:
+        component['buses'] = buses_by_component.to_dict().get(component['connected_component_num'])
 
-    # Store islands loadflow results
-    for island in pp_results:
-        if buses_by_component.loc[island['connected_component_num']] > int(merge_data.get('small_island_size')):
-            merge_report['loadflow']['island'].append(island)
+    # Count network components/islands
+    report['component_count'] = len(report['loadflow'])
 
-    # for dict1, dict2 in zip(pp_report, pp_results):
-    #     combined = {**dict1, **dict2}
-    #     if int(dict1['buses']) > int(merge_data.get('small_island_size')):
-    #         merge_report['loadflow']['island'].append(combined)
-
-    # Store network balance results
-    generators = merged_model['network'].get_generators().merge(buses, left_on='bus_id', right_index=True)
-    loads = merged_model['network'].get_loads().merge(buses, left_on='bus_id', right_index=True)
-    branches = merged_model['network'].get_branches().merge(buses, left_on='bus1_id', right_index=True)
-    generation_by_component = generators.groupby('connected_component')[['p', 'q']].sum()
-    load_by_component = loads.groupby('connected_component')[['p', 'q']].sum()
-    branches_by_component = branches.connected_component.value_counts()
-    for island in merge_report['loadflow']['island']:
-        try:
-            island['slack_bus_name'] = buses.loc[island['slack_bus_id']]['name']
-            island['slack_bus_region'] = buses.loc[island['slack_bus_id']]['country']
-        except Exception as e:
-            logger.warning(f"Unable to find name or country of slack bus id: {island['slack_bus_id']} [err: {e}]")
-            island['slack_bus_name'] = ''
-            island['slack_bus_region'] = ''
-
-        network_balance = {"generation_p": float(generation_by_component.loc[island['connected_component_num']].p),
-                           "load_p": float(load_by_component.loc[island['connected_component_num']].p) if island['connected_component_num'] in load_by_component.index else float(0),
-                           "generation_q": float(generation_by_component.loc[island['connected_component_num']].q),
-                           "load_q": float(load_by_component.loc[island['connected_component_num']].q) if island['connected_component_num'] in load_by_component.index else float(0),
-                           "buses": int(buses_by_component.loc[island['connected_component_num']]),
-                           "branches": int(branches_by_component.loc[island['connected_component_num']]),
-                           }
-
-        island.update({k: v for k, v in network_balance.items()})
-        # island.pop('Network balance')
-
-    merge_report['loadflow'].update({"island_count": len(merge_report['loadflow']['island']),
-                                     "parameters": merge_data.get('loadflow_settings'),
-                                     })
-    merge_report['network'] = merged_model['network_meta']
-    merge_report['network'].update({'name': merge_data.get('cgm_name')})
-
-    merge_report['merge'].update({
-        "type": task_properties.get('merge_type'),
-        "entity": task_properties.get('merging_entity'),
-        "status": [pp_results[0]['status']],
-        "included": [model['pmd:TSO'] for model in input_models if model['pmd:TSO']],
-        "excluded": [item for item in task_properties['included'] + task_properties['local_import'] if item not in [model['pmd:TSO'] for model in input_models]],
-        "exclusion_reason": merge_data.get('exclusion_reason'),
-        "duration_s": float(merge_data.get('merge_duration')),
-        "scaled": merge_data.get('scaled'),
-        "replaced": merge_data.get('replacement'),
-        "replaced_entity": merge_data.get('replaced_entity'),
-        "uploaded_to_opde": merge_data.get('uploaded_to_opde'),
-        "uploaded_to_minio": merge_data.get('uploaded_to_minio'),
-        "content_reference": merge_data.get('content_reference'),
-        "outages_corrected": merge_data.get('outages_corrected'),
-        "outage_fixes": merge_data.get('outage_fixes'),
-        "outages_unmapped": merge_data.get('outages_unmapped'),
-    })
-
-    return merge_report
+    return report
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
@@ -671,6 +648,7 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
         cgm_sv_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_sv_data, new_dependencies)
     return cgm_sv_data
 
+
 def remove_small_islands(solved_data, island_size_limit):
     small_island = pandas.DataFrame(solved_data.query("KEY == 'TopologicalIsland.TopologicalNodes'").ID.value_counts()).reset_index().query("count <= @island_size_limit")
     solved_data = triplets.rdf_parser.remove_triplet_from_triplet(solved_data, small_island, columns=["ID"])
@@ -744,92 +722,6 @@ def disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data,
             # terminals_in_ssh.loc[:, 'VALUE'] = 'false'
             # cgm_ssh_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_ssh_data, terminals_in_ssh)
     return cgm_sv_data, cgm_ssh_data
-
-
-def set_brell_lines_to_zero_in_models(opdm_models, magic_brell_lines: dict = None, profile_to_change: str = "SSH"):
-    """
-    Sets p and q of given  (BRELL) lines to zero
-    Copied from emf_python as is
-    Workflow:
-    1) Take models (in cgmes format)
-    2) parse profile ("SSH") to triplets
-    3) Check and set the BRELL lines
-    4) if lines were set, repackage from triplets to CGMES and replace it in given profile
-    5) return models (losses: ""->'' in header, tab -> double space, closing tags -> self-closing tags if empty)
-    Note that in test run only one of them: L309 was present in AST
-    :param opdm_models: list of opdm models
-    :param magic_brell_lines: dictionary of brell lines
-    :param profile_to_change: profile to change
-    """
-    if not magic_brell_lines:
-        magic_brell_lines = {'L373': 'cf3af93a-ad15-4db9-adc2-4e4454bb843f',
-                             'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
-                             'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
-                             'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
-    for model in opdm_models[:]:
-        logger.info(f"Checking brell lines in {model.get('pmd:content-reference'), ''}")
-        try:
-            profile = load_opdm_data(opdm_objects=[model], profile=profile_to_change)
-        except Exception as error:
-            logger.error(f"Failed to load model: {error}")
-            opdm_models.remove(model)
-            continue
-        repackage_needed = False
-        for line, line_id in magic_brell_lines.items():
-            if profile.query(f"ID == '{line_id}'").empty:
-                logger.info(f"Skipping brell line {line} as it was not found in data")
-            else:
-                repackage_needed = True
-                logger.info(f"Setting brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
-                profile.loc[
-                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = str(0)
-                profile.loc[
-                    profile.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = str(0)
-        if repackage_needed:
-            profile = triplets.cgmes_tools.update_FullModel_from_filename(profile)
-            serialized_data = export_to_cgmes_zip([profile])
-            if len(serialized_data) == 1:
-                serialized = serialized_data[0]
-                serialized.seek(0)
-                for model_profile in model.get('opde:Component', []):
-                    if model_profile.get('opdm:Profile', {}).get('pmd:cgmesProfile') == profile_to_change:
-                        model_profile['opdm:Profile']['DATA'] = serialized.read()
-
-    return opdm_models
-
-
-def set_brell_lines_to_zero_in_models_new(assembled_data, magic_brell_lines: dict = None, profile_to_change: str = "SSH"):
-    """
-    Sets p and q of given  (BRELL) lines to zero
-    Copied from emf_python as is
-    Workflow:
-    1) Take models (in cgmes format)
-    2) parse profile ("SSH") to triplets
-    3) Check and set the BRELL lines
-    4) if lines were set, repackage from triplets to CGMES and replace it in given profile
-    5) return models (losses: ""->'' in header, tab -> double space, closing tags -> self-closing tags if empty)
-    Note that in test run only one of them: L309 was present in AST
-    :param opdm_models: list of opdm models
-    :param magic_brell_lines: dictionary of brell lines
-    :param profile_to_change: profile to change
-    """
-    if not magic_brell_lines:
-        magic_brell_lines = {'L373': 'cf3af93a-ad15-4db9-adc2-4e4454bb843f',
-                             'L374': 'd98ec0d4-4e25-4667-b21f-5b816a6e8871',
-                             'L358': 'e0786c57-57ff-454e-b9e2-7a912d81c674',
-                             'L309': '7bd0deae-f000-4b15-a24d-5cf30765219f'}
-
-    for line, line_id in magic_brell_lines.items():
-        if assembled_data.query(f"ID == '{line_id}'").empty:
-            logger.info(f"Skipping brell line {line} as it was not found in data")
-        else:
-            logger.info(f"Setting brell line {line} EquivalentInjection.p and EquivalentInjection.q to 0")
-            assembled_data.loc[
-                assembled_data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.p'").index, "VALUE"] = 0
-            assembled_data.loc[
-                assembled_data.query(f"ID == '{line_id}' and KEY == 'EquivalentInjection.q'").index, "VALUE"] = 0
-
-    return assembled_data
 
 
 if __name__ == "__main__":

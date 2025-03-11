@@ -1,39 +1,48 @@
 import config
-import datetime
-from typing import Dict, List, Union
-from emf.common.integrations.object_storage import elastic_service
+from datetime import datetime, timedelta
+from emf.common.integrations import elastic
 
 
-def query_hvdc_schedules(process_type: str,
-                         utc_start: str | datetime,
-                         utc_end: str | datetime,
-                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+def query_hvdc_schedules(time_horizon: str,
+                         scenario_timestamp: str | datetime) -> dict | None:
     """
-    Method to get HVDC schedules (business type - B63)
-    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
-    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00Z'
-    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00Z'
-    :param area_eic_map: dictionary of geographical region names and control area eic code
-    :return: schedules in dict format
+    Method to get HVDC schedules (business type - B63 for PEVF, B67 - for CGMA)
+    :param time_horizon: time horizon of schedules
+    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
+    :return: DC schedules in dict format
     """
-    # Define area name to eic mapping table
-    if not area_eic_map:
+    # Create Elastic client
+    service = elastic.Elastic()
+
+    # Get area name to eic mapping
+    try:
+        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
+        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+    except Exception as e:
+        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
         import json
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
 
+    # Define utc start/end times from timestamp
+    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+
+    # Define business type by time horizon
+    business_type = "B63" if time_horizon in ["1D", "ID"] else "B67"
+
     # Define metadata dictionary
     metadata = {
-        "process.processType": process_type,
-        "TimeSeries.businessType": "B63",
+        "@time_horizon": time_horizon,
+        "TimeSeries.businessType": business_type,
     }
 
     # Get HVDC schedules
-    schedules_df = elastic_service.query_schedules_from_elk(
-        index=ELK_INDEX_PATTERN,
-        utc_start=utc_start,
-        utc_end=utc_end,
+    schedules_df = service.query_schedules_from_elk(
+        index="emfos-schedules*",
+        utc_start=utc_start.isoformat(),
+        utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
     )
@@ -46,6 +55,7 @@ def query_hvdc_schedules(process_type: str,
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
 
     # Filter to the latest revision number
+    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # TODO filter out data by reason code that take only verified tada
@@ -60,34 +70,43 @@ def query_hvdc_schedules(process_type: str,
     return schedules_dict
 
 
-def query_acnp_schedules(process_type: str,
-                         utc_start: str | datetime,
-                         utc_end: str | datetime,
-                         area_eic_map: Dict[str, str] | None = None) -> dict | None:
+def query_acnp_schedules(time_horizon: str,
+                         scenario_timestamp: str | datetime) -> dict | None:
     """
     Method to get ACNP schedules (business type - B64)
-    :param process_type: time horizon of schedules; A01 - Day-ahead, A18 - Intraday
-    :param utc_start: start time in utc. Example: '2023-08-08T23:00:00Z'
-    :param utc_end: end time in utc. Example: '2023-08-09T00:00:00Z'
-    :return:
+    :param time_horizon: time horizon of schedules
+    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
+    :return: AC schedules in dict format
     """
-    # Define area name to eic mapping table
-    if not area_eic_map:
+    # Create Elastic client
+    service = elastic.Elastic()
+
+    # Get area name to eic mapping
+    try:
+        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
+        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+    except Exception as e:
+        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
         import json
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
 
+    # Define utc start/end times from timestamp
+    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+
+    # Define metadata dictionary
     metadata = {
-        "process.processType": process_type,
+        "@time_horizon": time_horizon,
         "TimeSeries.businessType": "B64",
     }
 
     # Get AC area schedules
-    schedules_df = elastic_service.query_schedules_from_elk(
-        index=ELK_INDEX_PATTERN,
-        utc_start=utc_start,
-        utc_end=utc_end,
+    schedules_df = service.query_schedules_from_elk(
+        index="emfos-schedules*",
+        utc_start=utc_start.isoformat(),
+        utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
     )
@@ -100,6 +119,7 @@ def query_acnp_schedules(process_type: str,
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
 
     # Filter to the latest revision number
+    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # Get relevant structure and convert to dictionary
