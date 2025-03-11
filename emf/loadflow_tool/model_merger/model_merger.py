@@ -262,6 +262,7 @@ class HandlerMergeModels:
         valid_tso_list = [tso['pmd:TSO'] for tso in valid_models]
 
         # Update model outages
+        tso_list = []
         if force_outage_fix: #force outage fix on all models if set
             tso_list = valid_tso_list
         elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list): #by default do it on Baltic merge replaced models
