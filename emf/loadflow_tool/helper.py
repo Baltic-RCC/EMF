@@ -468,7 +468,7 @@ def generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type="CG
     return template.format(**meta)
 
 
-def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
+def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None, use_debugging: bool = True):
 
     if profiles:
         profiles = ",".join([str(profile) for profile in profiles])
@@ -476,6 +476,13 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
         profiles = "SV,SSH,TP,EQ"
 
     file_base_name = filename_from_metadata(opdm_object_meta).split(".xml")[0]
+
+    if use_debugging:
+        package_logger = logging.getLogger('powsybl')
+
+        if package_logger:
+            package_logger.setLevel(1)
+            package_logger.propagate = False
 
     bytes_object = network.save_to_binary_buffer(
         format="CGMES",
