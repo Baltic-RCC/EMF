@@ -18,7 +18,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever
 # RabbitMQ consumer implementation
 consumer = rabbit.RMQConsumer(
     queue=INPUT_RMQ_QUEUE,
-    routing_key=OUTPUT_RMQ_QUEUE,
+    reply_to=OUTPUT_RMQ_QUEUE,
     message_converter=opdm_metadata_to_json,
     message_handlers=[HandlerSendToElastic(index=ELK_INDEX,
                                            id_from_metadata=True,

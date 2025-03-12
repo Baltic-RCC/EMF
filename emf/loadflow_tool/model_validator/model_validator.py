@@ -19,6 +19,35 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_validator.model_validator)
 
 
+class PreLFValidator:
+
+    pass
+
+
+class PostLFValidator:
+
+    def __init__(self, network: pypowsybl.network):
+        self.network = network
+        self.loadflow_parameters = getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS)
+        self.report = {}
+
+    def validate_loadflow(self):
+        """Validate load flow convergence"""
+        logger.info(f"Solving load flow with settings: {VALIDATION_LOAD_FLOW_SETTINGS}")
+        loadflow_report = pypowsybl.report.Reporter()
+        loadflow_result = pypowsybl.loadflow.run_ac(network=self.network,
+                                                    parameters=self.loadflow_parameters,
+                                                    reporter=loadflow_report)
+
+        # Parsing results
+        self.report["components"] = len(loadflow_result)
+        self.report["solved_components"] = len(loadflow_result)
+        self.report["converged_components"] = len(loadflow_result)
+
+    def run_validation(self):
+        self.validate_loadflow()
+
+
 def validate_model_new(opdm_objects: List[dict],
                        loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS),
                        run_element_validations: bool = True):
@@ -45,13 +74,6 @@ def validate_model_new(opdm_objects: List[dict],
                 logger.warning(f"Failed {validation_type} validation with error: {error}")
                 continue
         validation_report["validations"] = _validation_status
-
-    # Validate loadflow convergence
-    logger.info(f"Solving load flow with settings: {VALIDATION_LOAD_FLOW_SETTINGS}")
-    loadflow_report = pypowsybl.report.Reporter()
-    loadflow_result = pypowsybl.loadflow.run_ac(network=network,
-                                                parameters=loadflow_parameters,
-                                                reporter=loadflow_report)
 
     # Parsing loadflow results
     validation_report["islands"] = len(loadflow_result)
@@ -145,9 +167,11 @@ def validate_model(opdm_objects: List[dict],
     # model_data["loadflow_report_str"] = str(loadflow_report)
 
     # Validation status and duration
-    # TODO check only main island component 0?
+    # TODO ONLY MAIN ISLAND
     model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
 
+
+    # TODO Keep this validation
     if check_non_retained_switches_val and not_retained_switches > 0:
         logger.error(f"Non retained switches triggered")
         model_valid = False
@@ -163,7 +187,7 @@ def validate_model(opdm_objects: List[dict],
     model_data["validation_duration_s"] = round(time.time() - start_time, 3)
     logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
 
-    # Get outages of the model
+    # Get outages of the model # TODO move to statistics
     try:
         model_data['outages'] = get_model_outages(network)
     except Exception as e:
@@ -210,11 +234,15 @@ class HandlerModelsValidator:
 
         logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
 
-        # Run network model validation
+        # Run network model validations
         for opdm_object in opdm_objects:
             try:
-                response = validate_model(opdm_objects=[opdm_object, latest_boundary])
-                opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+                # Run post load flow validation
+                network = load_model(opdm_objects=[opdm_object, latest_boundary])
+                post_lf_validation = PostLFValidator(network=network)
+                post_lf_validation.run_validation()
+
+                # opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
                 opdm_object["valid"] = False

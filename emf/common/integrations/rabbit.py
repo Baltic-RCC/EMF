@@ -174,7 +174,7 @@ class RMQConsumer:
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
                  queue: str | None = None,
-                 routing_key: str | None = None,
+                 reply_to: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC,
@@ -183,14 +183,14 @@ class RMQConsumer:
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
 
-        If 'routing_key' is provided messaged will be published to give queue name
+        If 'reply_to' is provided messaged will be published to given queue name
 
         """
         self.message_handlers = message_handlers
         self.message_converter = message_converter
         self.should_reconnect = False
         self.was_consuming = False
-        self.routing_key = routing_key
+        self.reply_to = reply_to
 
         self._connection = None
         self._channel = None
@@ -398,9 +398,9 @@ class RMQConsumer:
                     # self.stop()
 
         # Publish message to next queue if provided
-        if self.routing_key:
-            logger.info(f"Routing message to queue: {self.routing_key}")
-            self._channel.basic_publish(exchange='', routing_key=self.routing_key, body=body, properties=properties)
+        if self.reply_to:
+            logger.info(f"Publishing message to queue: {self.reply_to}")
+            self._channel.basic_publish(exchange='', routing_key=self.reply_to, body=body, properties=properties)
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
@@ -499,7 +499,7 @@ class ReconnectingConsumer:
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
                  queue: str | None = None,
-                 routing_key: str | None = None,
+                 reply_to: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  message_handler: object | None = None,
@@ -509,7 +509,7 @@ class ReconnectingConsumer:
         self._port = port
         self._vhost = vhost
         self._queue = queue
-        self._routing_key = routing_key
+        self._reply_to = reply_to
         self._username = username
         self.__password = password
         self.message_handler = message_handler
@@ -518,7 +518,7 @@ class ReconnectingConsumer:
                                      port=self._port,
                                      vhost=self._vhost,
                                      queue=self._queue,
-                                     routing_key=self._routing_key,
+                                     reply_to=self._reply_to,
                                      username=self._username,
                                      password=self.__password,
                                      message_handlers=self.message_handler,
