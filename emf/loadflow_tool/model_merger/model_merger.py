@@ -27,7 +27,7 @@ from emf.loadflow_tool import scaler
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
-    fix_model_outages, open_switches_in_network
+    fix_model_outages, open_switches_in_network, fix_igm_ssh_vs_cgm_ssh_error
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -275,70 +275,7 @@ class HandlerMergeModels:
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
-            network_pre_instance = merged_model.network
-            try:
-                all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
-                                                                   all_attributes=True).reset_index()
-                generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
-                not_generators = all_generators[~generators_mask]
-                generators = all_generators[generators_mask]
-                curve_points = (network_pre_instance
-                                .get_elements(
-                    element_type=pypowsybl.network.ElementType.REACTIVE_CAPABILITY_CURVE_POINT,
-                    all_attributes=True).reset_index())
-                curve_limits = (curve_points.merge(generators[['id']], on='id')
-                                .groupby('id').agg(curve_p_min=('p', 'min'), curve_p_max=('p', 'max'))).reset_index()
-                curve_generators = generators.merge(curve_limits, on='id')
-                # low end can be zero
-                curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max']) |
-                                                    ((curve_generators['target_p'] > 0) &
-                                                     (curve_generators['target_p'] < curve_generators['curve_p_min']))]
-                if not curve_generators.empty:
-                    logger.warning(f"Found {len(curve_generators.index)} generators for "
-                                   f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
-                    # in order this to work curve_p_min <= p_min <= target_p <= p_max <= curve_p_max
-                    # Solution 1: set max_p from curve max, it should contain p on target-p
-                    upper_limit_violated = curve_generators[
-                        (curve_generators['max_p'] > curve_generators['curve_p_max'])]
-                    if not upper_limit_violated.empty:
-                        logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
-                        upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
-                        network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].set_index('id'))
-
-                    lower_limit_violated = curve_generators[
-                        (curve_generators['min_p'] < curve_generators['curve_p_min'])]
-                    if not lower_limit_violated.empty:
-                        logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
-                        lower_limit_violated['min_p'] = lower_limit_violated['curve_p_min']
-                        network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
-
-                    # Solution 2: discard generator from participating
-                    extensions = network_pre_instance.get_extensions('activePowerControl')
-                    remove_curve_generators = extensions.merge(curve_generators[['id']],
-                                                               left_index=True, right_on='id')
-                    if not remove_curve_generators.empty:
-                        remove_curve_generators['participate'] = False
-                        network_pre_instance.update_extensions('activePowerControl',
-                                                               remove_curve_generators.set_index('id'))
-                condensers = all_generators[(all_generators['CGMES.synchronousMachineType'].str.contains('condenser'))
-                                            & (abs(all_generators['p']) > 0)
-                                            & (abs(all_generators['target_p']) == 0)]
-                # Fix condensers that have p not zero by setting their target_p to equal to p
-                if not condensers.empty:
-                    logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
-                    condensers.loc[:, 'target_p'] = condensers['p'] * (-1)
-                    network_pre_instance.update_generators(condensers[['id', 'target_p']].set_index('id'))
-                # Remove all not generators from active power distribution
-                if not not_generators.empty:
-                    logger.warning(f"Removing {len(not_generators.index)} machines from power distribution")
-                    extensions = network_pre_instance.get_extensions('activePowerControl')
-                    remove_not_generators = extensions.merge(not_generators[['id']], left_index=True, right_on='id')
-                    remove_not_generators['participate'] = False
-                    remove_not_generators = remove_not_generators.set_index('id')
-                    network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
-            except Exception as ex:
-                logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
-            merged_model.network = network_pre_instance
+            merged_model["network"] = fix_igm_ssh_vs_cgm_ssh_error(merged_model["network"])
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
