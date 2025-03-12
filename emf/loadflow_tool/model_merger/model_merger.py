@@ -275,7 +275,7 @@ class HandlerMergeModels:
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
-            merged_model["network"] = fix_igm_ssh_vs_cgm_ssh_error(merged_model["network"])
+            merged_model.network = fix_igm_ssh_vs_cgm_ssh_error(merged_model.network)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
