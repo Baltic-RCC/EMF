@@ -1,5 +1,4 @@
 import logging
-import math
 import pandas
 import pypowsybl
 import config
