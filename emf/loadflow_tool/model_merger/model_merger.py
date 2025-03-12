@@ -9,6 +9,8 @@ from uuid import uuid4
 import datetime
 from dataclasses import dataclass, field
 from typing import List
+
+from emf.loadflow_tool.model_merger.merge_functions import calculate_intraday_time_horizon
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -306,34 +308,10 @@ class HandlerMergeModels:
         logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
-        # TODO Margus clean up and maybe proposing to have separate function
         new_time_horizon = None
         if time_horizon.upper() == "ID":
-            max_time_horizon_value = 36
-            _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
-            _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
-            time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
-            time_diff = _scenario_datetime - _task_creation_time
-            # column B
-            # time_horizon = f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            # column C (original)
-            # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            # column D
-            # time_horizon = f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            if time_diff.days >= 0 and time_diff.days <= 1:
-                # column E
-                # time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # column F
-                # time_horizon_actual = int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # column G
-                time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # just in case cut it to bigger than 1 once again
-                time_horizon_actual = max(time_horizon_actual, 1)
-                if time_horizon_actual <= max_time_horizon_value:
-                    time_horizon = f"{time_horizon_actual:02d}"
+            time_horizon = calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
             new_time_horizon = time_horizon
-            # Check this, is it correct to  update the value here or it should be given to post processing"
-            # task_properties["time_horizon"] = time_horizon
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
         # Run post-processing
