@@ -184,8 +184,8 @@ class HandlerMergeModels:
                             additional_models_data.append(additional_models_data_replace)
 
                         logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                        replaced_entities_local = [{'tso': model['pmd:TSO'], 'replacement_time_horizon': model[
-                            'pmd:timeHorizon'], 'replacement_scenario_date': model[
+                        replaced_entities_local = [{'tso': model['pmd:TSO'], 'time_horizon': model[
+                            'pmd:timeHorizon'], 'scenario_timestamp': model[
                             'pmd:scenarioDate']} for model in replacement_models_local]
                         merged_model.replaced_entity.extend(replaced_entities_local)
                 except Exception as error:
@@ -219,8 +219,8 @@ class HandlerMergeModels:
                 if replacement_models:
                     logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     replaced_entities = [{'tso': model['pmd:TSO'],
-                                          'replacement_time_horizon': model['pmd:timeHorizon'],
-                                          'replacement_scenario_date': model['pmd:scenarioDate']}
+                                          'time_horizon': model['pmd:timeHorizon'],
+                                          'scenario_timestamp': model['pmd:scenarioDate']}
                                          for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     valid_models = valid_models + replacement_models
