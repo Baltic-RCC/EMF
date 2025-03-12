@@ -1,4 +1,5 @@
 import zipfile
+import math
 from io import BytesIO
 
 import config
@@ -10,6 +11,7 @@ import logging
 import json
 import sys
 from aniso8601 import parse_datetime
+from emf.task_generator.time_helper import parse_datetime as helper_parse_datetime
 from decimal import Decimal
 import datetime
 
@@ -742,8 +744,8 @@ def calculate_intraday_time_horizon(scenario_datetime, task_creation_time):
     """
     max_time_horizon_value = 36
     calculated_time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
-    _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
-    _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
+    _task_creation_time = helper_parse_datetime(task_creation_time, keep_timezone=False)
+    _scenario_datetime = helper_parse_datetime(scenario_datetime, keep_timezone=False)
     time_diff = _scenario_datetime - _task_creation_time
     if 0 <= time_diff.days <= 1:
         time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
