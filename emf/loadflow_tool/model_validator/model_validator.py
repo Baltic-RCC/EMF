@@ -173,10 +173,9 @@ class HandlerModelsValidator:
                 report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
                 report['@time_horizon'] = opdm_object['pmd:timeHorizon']
                 report['@version'] = int(opdm_object['pmd:versionNumber'])
-                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
                 report['content_reference'] = opdm_object['pmd:content-reference']
                 report['tso'] = opdm_object['pmd:TSO']
-                report["duration_s"] = round(time.time() - start_time, 3)
+                report['duration_s'] = round(time.time() - start_time, 3)
 
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
