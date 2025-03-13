@@ -51,7 +51,8 @@ jobs:
       - name: Build the Docker image
         run: |
           docker build . --file docker/Dockerfile --target ${{ env.WORKER_NAME }} --tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
+#          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
@@ -64,11 +65,11 @@ jobs:
       - name: Push Docker image to Docker Hub with date-based tag
         run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
-      - name: Push Docker image to Docker Hub with "latest" tag
-        run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
+#      - name: Push Docker image to Docker Hub with "latest" tag
+#        run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
 
       - name: Image details
         run: |
           echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}} pushed to Docker Hub"
-          echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }} pushed to Docker Hub"
+#          echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }} pushed to Docker Hub"
 
