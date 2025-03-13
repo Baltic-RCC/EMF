@@ -6,8 +6,8 @@ import config
 from typing import List
 from emf.common.config_parser import parse_app_properties
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-#from pika.adapters.asyncio_connection import AsyncioConnection
-#import asyncio
+# from pika.adapters.asyncio_connection import AsyncioConnection
+# import asyncio
 
 
 logger = logging.getLogger(__name__)
@@ -173,7 +173,8 @@ class RMQConsumer:
                  host: str = RMQ_SERVER,
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
-                 que: str | None = None,
+                 queue: str | None = None,
+                 reply_to: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC,
@@ -181,11 +182,15 @@ class RMQConsumer:
                  message_converter: object | None = None):
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
+
+        If 'reply_to' is provided messaged will be published to given queue name
+
         """
         self.message_handlers = message_handlers
         self.message_converter = message_converter
         self.should_reconnect = False
         self.was_consuming = False
+        self.reply_to = reply_to
 
         self._connection = None
         self._channel = None
@@ -195,13 +200,11 @@ class RMQConsumer:
         # In production, experiment with higher prefetch values
         # for higher consumer throughput
         self._prefetch_count = 1
-
         self._host = host
         self._port = port
         self._vhost = vhost
-        self._que = que
+        self._queue = queue
         self._username = username
-
         self._executor = ThreadPoolExecutor()
         self._executor_stopped = False
 
@@ -210,9 +213,7 @@ class RMQConsumer:
                                                                 virtual_host=self._vhost,
                                                                 credentials=pika.PlainCredentials(username, password),
                                                                 heartbeat= None if RMQ_HEARTBEAT_IN_SEC == "0" else int(RMQ_HEARTBEAT_IN_SEC))
-      
 
-    
     def connect(self):
         """This method connects to RabbitMQ, returning the connection handle.
         When the connection is established, the on_connection_open method
@@ -228,7 +229,6 @@ class RMQConsumer:
             on_open_callback=self.on_connection_open,
             on_open_error_callback=self.on_connection_open_error,
             on_close_callback=self.on_connection_closed)
-
 
     def close_connection(self):
         self._consuming = False
@@ -346,7 +346,7 @@ class RMQConsumer:
         """
         logger.info("Issuing consumer related RPC commands")
         self.add_on_cancel_callback()
-        self._consumer_tag = self._channel.basic_consume(self._que, self.on_message)
+        self._consumer_tag = self._channel.basic_consume(self._queue, self.on_message)
         self.was_consuming = True
         self._consuming = True
 
@@ -381,23 +381,26 @@ class RMQConsumer:
                 logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
                 self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
-                #self.connection.close()
+                # self.connection.close()
                 # self.stop()
-                
 
         if self.message_handlers:
 
             for message_handler in self.message_handlers:
                 try:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-                    body = message_handler.handle(body, properties=properties)
+                    body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
                 except Exception as error:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
                     self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
-                    #self.connection.close()
+                    # self.connection.close()
                     # self.stop()
-                    
+
+        # Publish message to next exchange/queue if provided
+        if self.reply_to:
+            logger.info(f"Publishing message to exchange/queue: {self.reply_to}")
+            self._channel.basic_publish(exchange='', routing_key=self.reply_to, body=body, properties=properties)
 
         if ack:
             self.acknowledge_message(basic_deliver.delivery_tag)
@@ -495,7 +498,8 @@ class ReconnectingConsumer:
                  host: str = RMQ_SERVER,
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
-                 que: str | None = None,
+                 queue: str | None = None,
+                 reply_to: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  message_handler: object | None = None,
@@ -504,19 +508,21 @@ class ReconnectingConsumer:
         self._host = host
         self._port = port
         self._vhost = vhost
-        self._que = que
+        self._queue = queue
+        self._reply_to = reply_to
         self._username = username
         self.__password = password
         self.message_handler = message_handler
         self.message_converter = message_converter
-        self._consumer = RMQConsumer(self._host,
-                                     self._port,
-                                     self._vhost,
-                                     self._que,
-                                     self._username,
-                                     self.__password,
-                                     self.message_handler,
-                                     self.message_converter)
+        self._consumer = RMQConsumer(host=self._host,
+                                     port=self._port,
+                                     vhost=self._vhost,
+                                     queue=self._queue,
+                                     reply_to=self._reply_to,
+                                     username=self._username,
+                                     password=self.__password,
+                                     message_handlers=self.message_handler,
+                                     message_converter=self.message_converter)
 
     def run(self):
         while True:
@@ -555,22 +561,22 @@ if __name__ == '__main__':
                         format="%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s",
                         level=logging.INFO)
 
-    host = r'test-rscrabbit.elering.sise'
+    host = 'access_url'
     port = 5670
     vhost = r'/'
-    que = 'object-storage.schedules.iec'
+    queue = 'queue-name'
     username = None
     password = None
 
     # Blocking client
     client = BlockingClient()
-    method_frame, properties, body = client.get_single_message(queue=que)
+    method_frame, properties, body = client.get_single_message(queue=queue)
 
     # Consumer
     consumer = RMQConsumer(host=host,
                            port=port,
                            vhost=vhost,
-                           que=que,
+                           queue=queue,
                            username=username,
                            password=password,
                            message_handler=None)

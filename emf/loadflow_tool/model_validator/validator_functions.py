@@ -1,8 +1,6 @@
 import logging
-
 import pandas
 import triplets
-
 from emf.loadflow_tool.model_merger.merge_functions import SV_INJECTION_LIMIT, get_opdm_data_from_models
 
 logger = logging.getLogger(__name__)
@@ -108,4 +106,5 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             open_switches = closed_switches.merge(between_tn[['ID']], on='ID')
             open_switches.loc[:, 'VALUE'] = 'true'
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
+
     return original_data, updated_switches
