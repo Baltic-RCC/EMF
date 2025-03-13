@@ -1,4 +1,5 @@
 import zipfile
+import math
 from io import BytesIO
 
 import config
@@ -10,6 +11,7 @@ import logging
 import json
 import sys
 from aniso8601 import parse_datetime
+from emf.task_generator.time_helper import parse_datetime as helper_parse_datetime
 from decimal import Decimal
 import datetime
 
@@ -722,6 +724,36 @@ def disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data,
             # terminals_in_ssh.loc[:, 'VALUE'] = 'false'
             # cgm_ssh_data = triplets.rdf_parser.update_triplet_from_triplet(cgm_ssh_data, terminals_in_ssh)
     return cgm_sv_data, cgm_ssh_data
+
+
+def calculate_intraday_time_horizon(scenario_datetime, task_creation_time):
+    """
+    Finds time difference between task creation time and scenario timestamp. Converts it to hours and finds the hour
+    number corresponding to intraday run (number of hours that scenario timestamp is ahead from task creation time)
+    Here are multiple ways to calculate (must keep in mind start and end times/dates)
+    1) Ceil: f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+    2) Round: f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+    3) Floor: f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
+    Take into account date change
+    4) Min(max(Ceil)): max(math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600), 1)
+    5) Min(max(Round)): max(int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600), 1)
+    6) Min(max(Floor)): max(math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600), 1)
+    :param scenario_datetime: scenario timestamp for intraday run
+    :param task_creation_time: timestamp when the task was created
+    :return: time horizon for intraday run as a string
+    """
+    max_time_horizon_value = 36
+    calculated_time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
+    _task_creation_time = helper_parse_datetime(task_creation_time, keep_timezone=False)
+    _scenario_datetime = helper_parse_datetime(scenario_datetime, keep_timezone=False)
+    time_diff = _scenario_datetime - _task_creation_time
+    if 0 <= time_diff.days <= 1:
+        time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
+        # just in case cut it to bigger than 1 once again
+        time_horizon_actual = max(time_horizon_actual, 1)
+        if time_horizon_actual <= max_time_horizon_value:
+            calculated_time_horizon = f"{time_horizon_actual:02d}"
+    return calculated_time_horizon
 
 
 if __name__ == "__main__":

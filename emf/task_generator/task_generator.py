@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
 
 
-def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None):
+def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None, set_manual_version=False):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
 
@@ -163,9 +163,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
 
                     # Check if task already exists, then set version number accordingly
                     if TASK_ELK_INDEX:
-                        set_task_version(task, TASK_ELK_INDEX)
+                        set_task_version(task, set_manual_version, TASK_ELK_INDEX)
                     else:
-                        set_task_version(task)
+                        set_task_version(task, set_manual_version)
 
                     # Update task status
                     update_task_status(task, "created")
@@ -250,24 +250,27 @@ def update_task_status(task, status_text, publish=True):
 #            logger.warning("Task Publication to ELK failed")
 
 
-def set_task_version(task, elk_index='emfos-tasks*'):
+def set_task_version(task, set_manual_version, elk_index='emfos-tasks*'):
     query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
              'task_properties.time_horizon': task['task_properties']['time_horizon'],
              'task_properties.merge_type': task['task_properties']['merge_type']}
 
     try:
         task_list = query_data(query, index=elk_index)
-    except:
-        task_list = None
-        logger.error("ELK query unsuccessful.")
-
-    if task_list:
-        try:
+        if task_list:
             latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
-            if str(int(latest_version)) == task['task_properties']['version']:
-                task['task_properties']['version'] = str(int(latest_version) + 1)
-        except:
-            logger.warning(f"Failed to find latest task version, task versio set to: {task['task_properties']['version']}")
+            if not set_manual_version:
+                task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
+            elif set_manual_version:
+                if int(latest_version) > int(task['task_properties']['version']):
+                    logger.error("Set task version was too low, for next run increase task version")
+                    raise Exception
+    except:
+        task = None
+        logger.error("ELK query for versioning unsuccessful, no tasks generated")
+        sys.exit()
+
+
 
 
 if __name__ == "__main__":

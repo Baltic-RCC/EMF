@@ -1,5 +1,4 @@
 import logging
-import math
 import pandas
 import pypowsybl
 import config
@@ -9,6 +8,8 @@ from uuid import uuid4
 import datetime
 from dataclasses import dataclass, field
 from typing import List
+
+from emf.loadflow_tool.model_merger.merge_functions import calculate_intraday_time_horizon
 from emf.task_generator.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -27,7 +28,7 @@ from emf.loadflow_tool import scaler
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
-    fix_model_outages, open_switches_in_network
+    fix_model_outages, open_switches_in_network, fix_igm_ssh_vs_cgm_ssh_error
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -275,80 +276,16 @@ class HandlerMergeModels:
 
         # Various fixes from igmsshvscgmssh error
         if remove_non_generators_from_slack_participation:
-            network_pre_instance = merged_model.network
-            try:
-                all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
-                                                                   all_attributes=True).reset_index()
-                generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
-                not_generators = all_generators[~generators_mask]
-                generators = all_generators[generators_mask]
-                curve_points = (network_pre_instance
-                                .get_elements(
-                    element_type=pypowsybl.network.ElementType.REACTIVE_CAPABILITY_CURVE_POINT,
-                    all_attributes=True).reset_index())
-                curve_limits = (curve_points.merge(generators[['id']], on='id')
-                                .groupby('id').agg(curve_p_min=('p', 'min'), curve_p_max=('p', 'max'))).reset_index()
-                curve_generators = generators.merge(curve_limits, on='id')
-                # low end can be zero
-                curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max']) |
-                                                    ((curve_generators['target_p'] > 0) &
-                                                     (curve_generators['target_p'] < curve_generators['curve_p_min']))]
-                if not curve_generators.empty:
-                    logger.warning(f"Found {len(curve_generators.index)} generators for "
-                                   f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
-                    # in order this to work curve_p_min <= p_min <= target_p <= p_max <= curve_p_max
-                    # Solution 1: set max_p from curve max, it should contain p on target-p
-                    upper_limit_violated = curve_generators[
-                        (curve_generators['max_p'] > curve_generators['curve_p_max'])]
-                    if not upper_limit_violated.empty:
-                        logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
-                        upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
-                        network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].set_index('id'))
+            merged_model.network = fix_igm_ssh_vs_cgm_ssh_error(merged_model.network)
 
-                    lower_limit_violated = curve_generators[
-                        (curve_generators['min_p'] < curve_generators['curve_p_min'])]
-                    if not lower_limit_violated.empty:
-                        logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
-                        lower_limit_violated['min_p'] = lower_limit_violated['curve_p_min']
-                        network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
-
-                    # Solution 2: discard generator from participating
-                    extensions = network_pre_instance.get_extensions('activePowerControl')
-                    remove_curve_generators = extensions.merge(curve_generators[['id']],
-                                                               left_index=True, right_on='id')
-                    if not remove_curve_generators.empty:
-                        remove_curve_generators['participate'] = False
-                        network_pre_instance.update_extensions('activePowerControl',
-                                                               remove_curve_generators.set_index('id'))
-                condensers = all_generators[(all_generators['CGMES.synchronousMachineType'].str.contains('condenser'))
-                                            & (abs(all_generators['p']) > 0)
-                                            & (abs(all_generators['target_p']) == 0)]
-                # Fix condensers that have p not zero by setting their target_p to equal to p
-                if not condensers.empty:
-                    logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
-                    condensers.loc[:, 'target_p'] = condensers['p'] * (-1)
-                    network_pre_instance.update_generators(condensers[['id', 'target_p']].set_index('id'))
-                # Remove all not generators from active power distribution
-                if not not_generators.empty:
-                    logger.warning(f"Removing {len(not_generators.index)} machines from power distribution")
-                    extensions = network_pre_instance.get_extensions('activePowerControl')
-                    remove_not_generators = extensions.merge(not_generators[['id']], left_index=True, right_on='id')
-                    remove_not_generators['participate'] = False
-                    remove_not_generators = remove_not_generators.set_index('id')
-                    network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
-            except Exception as ex:
-                logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
-            merged_model.network = network_pre_instance
+        if open_non_retained_switches_between_tn and not between_tn.empty:
+            merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
+                                                            switches_dataframe=between_tn)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = merge_functions.run_lf(merged_model=merged_model,
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-
-        if open_non_retained_switches_between_tn and not between_tn.empty:
-            merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
-                                                               switches_dataframe=between_tn)
-        solved_model = merge_functions.run_lf(merged_model, loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
 
         # Perform scaling
         if model_scaling:
@@ -369,34 +306,10 @@ class HandlerMergeModels:
         logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
-        # TODO Margus clean up and maybe proposing to have separate function
         new_time_horizon = None
         if time_horizon.upper() == "ID":
-            max_time_horizon_value = 36
-            _task_creation_time = parse_datetime(task_creation_time, keep_timezone=False)
-            _scenario_datetime = parse_datetime(scenario_datetime, keep_timezone=False)
-            time_horizon = '01'  # DEFAULT VALUE, CHANGE THIS
-            time_diff = _scenario_datetime - _task_creation_time
-            # column B
-            # time_horizon = f"{math.ceil((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            # column C (original)
-            # time_horizon = f"{int((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            # column D
-            # time_horizon = f"{math.floor((_scenario_datetime - _task_creation_time).seconds / 3600):02d}"
-            if time_diff.days >= 0 and time_diff.days <= 1:
-                # column E
-                # time_horizon_actual = math.ceil((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # column F
-                # time_horizon_actual = int((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # column G
-                time_horizon_actual = math.floor((time_diff.days * 24 * 3600 + time_diff.seconds) / 3600)
-                # just in case cut it to bigger than 1 once again
-                time_horizon_actual = max(time_horizon_actual, 1)
-                if time_horizon_actual <= max_time_horizon_value:
-                    time_horizon = f"{time_horizon_actual:02d}"
+            time_horizon = calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
             new_time_horizon = time_horizon
-            # Check this, is it correct to  update the value here or it should be given to post processing"
-            # task_properties["time_horizon"] = time_horizon
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
         # Run post-processing
