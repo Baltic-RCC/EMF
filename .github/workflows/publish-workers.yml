@@ -51,7 +51,6 @@ jobs:
       - name: Build the Docker image
         run: |
           docker build . --file docker/Dockerfile --target ${{ env.WORKER_NAME }} --tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 #          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.LATEST_TAG }}
 
       # Log in to Docker Hub
