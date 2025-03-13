@@ -294,25 +294,20 @@ def filename_from_metadata(metadata):
 
     return file_name
 
-meta_separator = "_"
-
 
 def metadata_from_filename(file_name):
 
     file_metadata = {} # Meta container
 
+    meta_separator = "_"
     file_name, file_metadata["file_type"] = file_name.split(".")
     meta_list = file_name.split(meta_separator)
 
     if len(meta_list) == 4:   #try: #if "_EQ_" in file_name or "_BD_" in file_name:
-
         file_metadata['pmd:validFrom'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
         file_metadata['pmd:timeHorizon'] = ""
-
     elif len(meta_list) == 5:
-
         file_metadata['pmd:validFrom'], file_metadata['pmd:timeHorizon'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
-
     else:
         logger.warning("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
 
@@ -320,13 +315,10 @@ def metadata_from_filename(file_name):
 
     if len(model_authority_list) == 1:
         file_metadata['pmd:modelPartReference'] = model_authority
-
     elif len(model_authority_list) == 2:
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'] = model_authority_list
-
     elif len(model_authority_list) == 3:
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'], file_metadata['pmd:modelPartReference'] = model_authority_list
-
     else:
         logger.error(f"Parsing error {model_authority}")
 
@@ -335,10 +327,10 @@ def metadata_from_filename(file_name):
 
 def get_xml_from_zip(zip_file_path):
 
-    zipfile_object    = ZipFile(zip_file_path)
-    xml_file_name     = zipfile_object.namelist()[0]
-    file_unzipped     = zipfile_object.open(xml_file_name, mode="r")
-    xml_tree_object   = etree.parse(file_unzipped)
+    zipfile_object = ZipFile(zip_file_path)
+    xml_file_name = zipfile_object.namelist()[0]
+    file_unzipped = zipfile_object.open(xml_file_name, mode="r")
+    xml_tree_object = etree.parse(file_unzipped)
 
     return xml_tree_object
 

@@ -28,6 +28,7 @@ WORKDIR /src
 
 # Copy files to container
 COPY emf/model_retriever/ ./emf/model_retriever/
+COPY emf/loadflow_tool/ ./emf/loadflow_tool/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
