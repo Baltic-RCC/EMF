@@ -389,7 +389,7 @@ class RMQConsumer:
             for message_handler in self.message_handlers:
                 try:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
-                    body = message_handler.handle(body, properties=properties)
+                    body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
                 except Exception as error:
                     logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
@@ -397,9 +397,9 @@ class RMQConsumer:
                     # self.connection.close()
                     # self.stop()
 
-        # Publish message to next queue if provided
+        # Publish message to next exchange/queue if provided
         if self.reply_to:
-            logger.info(f"Publishing message to queue: {self.reply_to}")
+            logger.info(f"Publishing message to exchange/queue: {self.reply_to}")
             self._channel.basic_publish(exchange='', routing_key=self.reply_to, body=body, properties=properties)
 
         if ack:

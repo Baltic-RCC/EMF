@@ -2,14 +2,10 @@ import logging
 import config
 from io import BytesIO
 from zipfile import ZipFile
-from typing import List
 import json
 
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
-from emf.common.integrations.object_storage import models
-from emf.common.converters import opdm_metadata_to_json
-from emf.loadflow_tool.helper import load_opdm_data
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +18,8 @@ class HandlerModelsToMinio:
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio_api.ObjectStorage()
 
-    def handle(self, message: bytes, **kwargs):
+    def handle(self, message: bytes, properties: dict, **kwargs):
+
         # Load from binary to json
         opdm_objects = json.loads(message)
 
@@ -59,62 +56,31 @@ class HandlerModelsToMinio:
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
-        return message
+        return message, properties
 
 
-class HandlerModelsStat:
+class HandlerModelsToValidator:
 
     def __init__(self):
-        self.opdm_service = opdm.OPDM()
+        pass
 
-    def handle(self, opdm_objects: List[dict], **kwargs):
+    def handle(self, message: bytes, properties: dict, **kwargs):
 
-        # Get the latest boundary set for validation
-        latest_boundary = models.get_latest_boundary()
+        # Load from binary to json
+        opdm_objects = json.loads(message)
 
-        if not latest_boundary:
-            latest_boundary = self.opdm_service.get_latest_boundary()
-
-        # Extract statistics
         for opdm_object in opdm_objects:
-            stat = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
-            opdm_object['total_load'] = stat['total_load']
-            opdm_object['generation'] = stat['generation']
-            opdm_object['losses'] = stat['losses']
-            opdm_object['losses_coefficient'] = stat['losses_coefficient']
-            opdm_object['acnp'] = stat['tieflow_acnp']['EquivalentInjection.p']
-            opdm_object['hvdc'] = {key: value['EquivalentInjection.p'] for key, value in stat["tieflow_hvdc"].items()}
+            # Append message headers with OPDM root metadata
+            extracted_meta = {key: value for key, value in opdm_object.items() if isinstance(value, str)}
+            properties.headers.update(extracted_meta)
 
-        return opdm_objects
+        # Publish to other queue/exchange
+        rmq_channel = kwargs.get('channel', None)
+        if rmq_channel:
+            logger.info(f"Publishing message to exchange/queue: {OUTPUT_RMQ_QUEUE}")
+            rmq_channel.basic_publish(exchange='', routing_key=OUTPUT_RMQ_QUEUE, body=message, properties=properties)
 
-
-def get_opdm_object_from_edx(message_type: str, edx_service: object):
-
-    message = edx_service.receive_message(message_type)
-    if not message.receivedMessage:
-        logger.info(f"No messages available with message type: {message_type}")
-        return None, None
-
-    logger.info(f"Downloading message with ID: {message.receivedMessage.messageID}")
-
-    # Extract data
-    body = message.receivedMessage.content
-
-    # Extract metadata
-    properties = dict(message.receivedMessage.__values__)
-    properties.pop('content', None)
-
-    logger.info(f'Received message with metadata {properties}', extra=properties)
-
-    # Convert message to json
-    body, content_type = opdm_metadata_to_json.convert(body)
-    logger.info(f"Message converted to: {content_type}")
-
-    # ACK/Mark message received and move to next one
-    edx_service.confirm_received_message(message.receivedMessage.messageID)
-    logger.info(f"Number of messages left {message.remainingMessagesCount}")
-
-    return body, properties
+        return message, properties
 
 
 if __name__ == "__main__":

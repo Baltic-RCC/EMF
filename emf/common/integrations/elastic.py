@@ -134,6 +134,9 @@ class Elastic:
 
         return response
 
+    def update_document(self, index: str, id: str, body: dict):
+        return self.client.update(index=index, id=id, body={'doc': body})
+
     def get_docs_by_query(self, index: str, query: dict, size: int | None = None, return_df: bool = True):
 
         response = self.client.search(index=index, query=query, size=size)
@@ -220,9 +223,7 @@ class HandlerSendToElastic:
         self.session.headers.update(headers)
         self.session.auth = auth
 
-    def handle(self, message: bytes, **kwargs):
-        # Try to get properties from kwargs
-        properties = kwargs.get('properties')
+    def handle(self, message: bytes, properties: dict,  **kwargs):
 
         # Send to Elastic
         response = Elastic.send_to_elastic_bulk(index=self.index,
@@ -234,7 +235,7 @@ class HandlerSendToElastic:
 
         logger.info(f"Message sending to Elastic successful: {response}")
 
-        return message
+        return message, properties
 
 
 if __name__ == '__main__':

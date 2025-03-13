@@ -1,18 +1,18 @@
 import logging
+import pandas as pd
 import config
-from io import BytesIO
-from zipfile import ZipFile
-from typing import List
 import json
 import time
-import pypowsybl
+import math
+import pypowsybl as pp
+import uuid
 from emf.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, opdm, minio_api
+from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
-from emf.common.converters import opdm_metadata_to_json
 from emf.loadflow_tool.helper import load_opdm_data
 from emf.loadflow_tool import loadflow_settings
+from emf.loadflow_tool.model_validator import validator_functions
 
 logger = logging.getLogger(__name__)
 
@@ -21,207 +21,124 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_validator
 
 class PreLFValidator:
 
-    pass
+    def __init__(self, network: pd.DataFrame):
+        self.network = network
+        self.report = {'pre_validations': {}}
+
+    def validate_non_retained_switches(self):
+        # TODO Use carefully as this might change switch statuses in the original model
+        # TODO Currently disabled returning modified data
+        non_retained_switched_valid = True
+        non_retained_switches = validator_functions.check_not_retained_switches_between_nodes(self.network)[1]
+        if non_retained_switches:
+            non_retained_switched_valid = False
+        self.report['pre_validations']['non_retained_switches'] = non_retained_switched_valid
+
+    def validate_kirchhoff_first_law(self):
+        violated_nodes = validator_functions.get_nodes_against_kirchhoff_first_law(original_models=self.network)
+        kirchhoff_first_law_valid = True if violated_nodes.empty else False
+        self.report['pre_validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
+
+    def run_validation(self):
+        if json.loads(CHECK_NON_RETAINED_SWITCHES.lower()):
+            self.validate_non_retained_switches()
+        if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
+            self.validate_kirchhoff_first_law()
 
 
 class PostLFValidator:
 
-    def __init__(self, network: pypowsybl.network):
+    def __init__(self, network: pp.network, network_triplets: pd.DataFrame):
         self.network = network
+        self.network_triplets = network_triplets
         self.loadflow_parameters = getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS)
-        self.report = {}
+        self.report = {'validations': {}}
 
     def validate_loadflow(self):
         """Validate load flow convergence"""
         logger.info(f"Solving load flow with settings: {VALIDATION_LOAD_FLOW_SETTINGS}")
-        loadflow_report = pypowsybl.report.Reporter()
-        loadflow_result = pypowsybl.loadflow.run_ac(network=self.network,
-                                                    parameters=self.loadflow_parameters,
-                                                    reporter=loadflow_report)
+        loadflow_report = pp.report.Reporter()
+        loadflow_result = pp.loadflow.run_ac(network=self.network,
+                                             parameters=self.loadflow_parameters,
+                                             reporter=loadflow_report)
 
-        # Parsing results
-        self.report["components"] = len(loadflow_result)
-        self.report["solved_components"] = len(loadflow_result)
-        self.report["converged_components"] = len(loadflow_result)
+        # Parsing aggregated results
+        self.report['components'] = len(loadflow_result)
+        self.report['solved_components'] = len(loadflow_result)  # TODO
+        self.report['converged_components'] = len([res for res in loadflow_result if res.status_text == 'Converged'])
 
-    def run_validation(self):
-        self.validate_loadflow()
+        # Components results
+        # TODO currently storing only main island results
+        main_component = loadflow_result[0]
+        component_results = attr_to_dict(main_component)
+        component_results['status'] = component_results.get('status').value
+        component_results['distributed_active_power'] = 0.0 if math.isnan(component_results['distributed_active_power'])\
+            else component_results['distributed_active_power']
+        self.report['loadflow'] = component_results
 
+        # Validation status
+        self.report['loadflow_parameters'] = VALIDATION_LOAD_FLOW_SETTINGS
+        self.report['validations']['loadflow'] = True if main_component.status.value == 0 else False
 
-def validate_model_new(opdm_objects: List[dict],
-                       loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS),
-                       run_element_validations: bool = True):
-
-    # Define placeholder for validation report data
-    validation_report = {}
-
-    # Load network model
-    start_time = time.time()
-    network = load_model(opdm_objects=opdm_objects)
-
-    # Run all network element validations
-    if run_element_validations:
-        validations = list(set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
-        _validation_status = {}
+    def validate_network_elements(self):
+        """Run all network element validations"""
+        validations = list(set(attr_to_dict(pp._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
+        _status = {}
         for validation in validations:
-            validation_type = getattr(pypowsybl._pypowsybl.ValidationType, validation)
+            validation_type = getattr(pp._pypowsybl.ValidationType, validation)
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
-                _validation_status[validation] = pypowsybl.loadflow.run_validation(network=network,
-                                                                                   validation_types=[validation_type])._valid.__bool__()
+                _status[validation] = pp.loadflow.run_validation(network=self.network,
+                                                                 validation_types=[validation_type]).valid.__bool__()
             except Exception as error:
                 logger.warning(f"Failed {validation_type} validation with error: {error}")
                 continue
-        validation_report["validations"] = _validation_status
+        self.report['element_validation'] = _status
 
-    # Parsing loadflow results
-    validation_report["islands"] = len(loadflow_result)
-    loadflow_result_dict = {}
-    for island in loadflow_result:
-        island_results = attr_to_dict(island)
-        island_results['status'] = island_results.get('status').name
-        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
-        loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
-    model_data["loadflow_results"] = loadflow_result_dict
+    def validate_kirchhoff_first_law(self):
+        """Validates possible Kirchhoff first law errors after loadflow"""
+        violated_nodes = pd.DataFrame()
 
-    # Validation status and duration
-    model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
-
-    validation_report["duration_s"] = round(time.time() - start_time, 3)
-    logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
-
-
-def validate_model(opdm_objects: List[dict],
-                   loadflow_parameters=getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS),
-                   run_element_validations: bool = True):
-
-    # Load network model
-    start_time = time.time()
-    network = load_model(opdm_objects=opdm_objects)
-
-    # Pre check
-    opdm_model_triplets = get_opdm_data_from_models(model_data=opdm_objects)
-    not_retained_switches = 0
-    kirchhoff_first_law_detected = False
-    check_non_retained_switches_val = json.loads(CHECK_NON_RETAINED_SWITCHES.lower())
-    check_kirchhoff_first_law_val = json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower())
-    if check_non_retained_switches_val:
-        not_retained_switches = check_not_retained_switches_between_nodes(opdm_model_triplets)[1]
-    # violated_nodes_pre = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets)
-    # kirchhoff_first_law_detected = False if violated_nodes_pre.empty else True
-    # End of pre check
-
-    # Run all validations
-    if run_element_validations:
-        validations = list(set(attr_to_dict(pypowsybl._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
-
-        model_data["validations"] = {}
-
-        for validation in validations:
-            validation_type = getattr(pypowsybl._pypowsybl.ValidationType, validation)
-            logger.info(f"Running validation: {validation_type}")
-            try:
-                # TODO figure out how to store full validation results if needed. Currently only status is taken
-                model_data["validations"][validation] = pypowsybl.loadflow.run_validation(network=network,
-                                                                                          validation_types=[validation_type])._valid.__bool__()
-            except Exception as error:
-                logger.warning(f"Failed {validation_type} validation with error: {error}")
-                continue
-
-    # Validate if loadflow can be run
-    logger.info(f"Solving load flow")
-    loadflow_report = pypowsybl.report.Reporter()
-    loadflow_result = pypowsybl.loadflow.run_ac(network=network,
-                                                parameters=loadflow_parameters,
-                                                reporter=loadflow_report)
-
-    violated_nodes_post = pandas.DataFrame()
-    if check_kirchhoff_first_law_val:
         # Export sv profile and check it for Kirchhoff 1st law
         export_parameters = {"iidm.export.cgmes.profiles": 'SV',
                              "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
-        bytes_object = network.save_to_binary_buffer(format="CGMES",
-                                                     parameters=export_parameters)
+        bytes_object = self.network.save_to_binary_buffer(format="CGMES", parameters=export_parameters)
         bytes_object.name = f"{uuid.uuid4()}.zip"
+
         # Load SV data
-        sv_data = pandas.read_RDF([bytes_object])
+        sv_data = pd.read_RDF([bytes_object])
+
         # Check violations after loadflow
-        violated_nodes_post = get_nodes_against_kirchhoff_first_law(original_models=opdm_model_triplets,
-                                                                    cgm_sv_data=sv_data,
-                                                                    nodes_only=True,
-                                                                    consider_sv_injection=True)
-        kirchhoff_first_law_detected = kirchhoff_first_law_detected or (False if violated_nodes_post.empty else True)
-        # End of post check
+        violated_nodes = validator_functions.get_nodes_against_kirchhoff_first_law(original_models=self.network_triplets,
+                                                                                   cgm_sv_data=sv_data,
+                                                                                   nodes_only=True,
+                                                                                   consider_sv_injection=True)
+        kirchhoff_first_law_valid = True if violated_nodes.empty else False
+        self.report['validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
 
-    # Parsing loadflow results
-    # TODO move sanitization to Elastic integration
-    loadflow_result_dict = {}
-    for island in loadflow_result:
-        island_results = attr_to_dict(island)
-        island_results['status'] = island_results.get('status').name
-        island_results['distributed_active_power'] = 0.0 if math.isnan(island_results['distributed_active_power']) else island_results['distributed_active_power']
-        loadflow_result_dict[f"component_{island.connected_component_num}"] = island_results
-    model_data["loadflow_results"] = loadflow_result_dict
-    # model_data["loadflow_report"] = json.loads(loadflow_report.to_json())
-    # model_data["loadflow_report_str"] = str(loadflow_report)
-
-    # Validation status and duration
-    # TODO ONLY MAIN ISLAND
-    model_valid = any([True if val["status"] == "CONVERGED" else False for key, val in loadflow_result_dict.items()])
-
-
-    # TODO Keep this validation
-    if check_non_retained_switches_val and not_retained_switches > 0:
-        logger.error(f"Non retained switches triggered")
-        model_valid = False
-        model_data["not_retained_switches_between_tn_present"] = not_retained_switches
-    if check_kirchhoff_first_law_val and kirchhoff_first_law_detected:
-        logger.error(f"Kirchhoff first law triggered")
-        model_valid = False
-        kirchhoff_string = violated_nodes_post.to_string(index=False, header=False)
-        kirchhoff_string = kirchhoff_string.replace('\n', ', ')
-        model_data["Kirchhoff_first_law_error"] = kirchhoff_string
-
-    model_data["valid"] = model_valid
-    model_data["validation_duration_s"] = round(time.time() - start_time, 3)
-    logger.info(f"Load flow validation status: {model_valid} [duration {model_data['validation_duration_s']}s]")
-
-    # Get outages of the model # TODO move to statistics
-    try:
-        model_data['outages'] = get_model_outages(network)
-    except Exception as e:
-        logger.error(f'Failed to log model outages: {e}')
-
-    try:
-        model_metadata = next(d for d in opdm_objects if d.get('opde:Object-Type') == 'IGM')
-    except:
-        logger.error("Failed to get model metadata")
-        model_metadata = {'pmd:scenarioDate': '', 'pmd:timeHorizon': '', 'pmd:versionNumber': ''}
-
-    model_data['@scenario_timestamp'] = model_metadata['pmd:scenarioDate']
-    model_data['@time_horizon'] = model_metadata['pmd:timeHorizon']
-    model_data['@version'] = model_metadata['pmd:versionNumber']
-    model_data['tso'] = model_metadata['pmd:TSO']
-
-    # Pop out pypowsybl network object
-    model_data.pop('network')
-
-    # Send validation data to Elastic
-    try:
-        response = elastic.Elastic.send_to_elastic(index=VALIDATOR_ELK_INDEX, json_message=model_data)
-    except Exception as error:
-        logger.error(f"Validation report sending to Elastic failed: {error}")
-
-    return model_data
+    def run_validation(self):
+        self.validate_loadflow()
+        self.validate_network_elements()
+        if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
+            self.validate_kirchhoff_first_law()
 
 
 class HandlerModelsValidator:
 
     def __init__(self):
         self.minio_service = minio_api.ObjectStorage()
+        self.elastic_service = elastic.Elastic()
 
-    def handle(self, message, **kwargs):
+    def update_opdm_metadata_object(self, id: str, body: dict):
+        search_query = {"ids": {"values": [id]}}
+        response = self.elastic_service.client.search(index=f"{METADATA_ELK_INDEX}*", query=search_query, size=1)
+        index = response['hits']['hits'][0]['_index']
+        self.elastic_service.update_document(index=index, id=id, body=body)
+
+    def handle(self, message: bytes, properties: dict, **kwargs):
+
+        start_time = time.time()
 
         # Load OPDM metadata objects from binary to json
         opdm_objects = json.loads(message)
@@ -236,15 +153,94 @@ class HandlerModelsValidator:
 
         # Run network model validations
         for opdm_object in opdm_objects:
+            report = {}
             try:
-                # Run post load flow validation
+                # Run pre-loadflow validations
+                network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+                pre_lf_validation = PreLFValidator(network=network_triplets)
+                pre_lf_validation.run_validation()
+
+                # Run post-loadflow validations
                 network = load_model(opdm_objects=[opdm_object, latest_boundary])
-                post_lf_validation = PostLFValidator(network=network)
+                post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
 
-                # opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
+                # Collect both pre and post loadflow validation reports and merge
+                report.update(pre_lf_validation.report)
+                report.update(post_lf_validation.report)
+
+                # Include relevant metadata fields
+                report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
+                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
+                report['@version'] = int(opdm_object['pmd:versionNumber'])
+                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
+                report['content_reference'] = opdm_object['pmd:content-reference']
+                report['tso'] = opdm_object['pmd:TSO']
+                report["duration_s"] = round(time.time() - start_time, 3)
+
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
-                opdm_object["valid"] = False
 
-        return opdm_objects
+            # Define model validity
+            valid = all(report['validations'].values())
+
+            # Update OPDM metadata object with validity status
+            try:
+                logger.info("Updating OPDM metadata in Elastic with model valid status")
+                self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
+            except Exception as error:
+                logger.error(f"Updated OPDM metadata object failed: {error}")
+
+            # Send validation report to Elastic
+            try:
+                response = self.elastic_service.send_to_elastic(index=VALIDATION_ELK_INDEX, json_message=report)
+            except Exception as error:
+                logger.error(f"Validation report sending to Elastic failed: {error}")
+
+            logger.info(f"Model validation status: {valid} [duration {report['duration_s']}s]")
+
+        return message, properties
+
+
+if __name__ == "__main__":
+    # TESTING
+    import sys
+    from emf.common.integrations.opdm import OPDM
+    logging.basicConfig(
+        format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+        level=logging.INFO,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    #logging.getLogger('powsybl').setLevel(1)
+
+    opdm = OPDM()
+    latest_boundary = opdm.get_latest_boundary()
+    available_models = opdm.get_latest_models_and_download(time_horizon='1D',
+                                                           scenario_date="2025-01-01T09:30",
+                                                           tso="AST")
+    validated_models = []
+
+    # Validate models
+    for model in available_models:
+        network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+        network = load_model(opdm_objects=[model, latest_boundary])
+        post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
+        post_lf_validation.run_validation()
+
+        model["validation_report"] = post_lf_validation.report
+        validated_models.append(model)
+
+    # Print validation statuses
+    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
+
+    # With EMF IGM Validation settings
+    # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}
+    # {'tso': 'D7', 'valid': None, 'duration': None}
+    # {'tso': 'ELERING', 'valid': True, 'duration': 2.1578593254089355}
+    # {'tso': 'ELES', 'valid': False, 'duration': 1.6410691738128662}
+    # {'tso': 'ELIA', 'valid': True, 'duration': 5.016804456710815}
+    # {'tso': 'REE', 'valid': None, 'duration': None}
+    # {'tso': 'SEPS', 'valid': None, 'duration': None}
+    # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
+    # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}

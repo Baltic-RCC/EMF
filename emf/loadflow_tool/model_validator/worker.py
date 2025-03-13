@@ -2,7 +2,6 @@ import logging
 from uuid import uuid4
 from emf.common.logging import custom_logger
 from emf.loadflow_tool.model_validator.model_validator import HandlerModelsValidator
-from emf.common.integrations.elastic import HandlerSendToElastic
 
 # Initialize custom logger
 logger = logging.getLogger(__name__)
@@ -19,9 +18,8 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_validator
 
 # RabbitMQ consumer implementation
 consumer = rabbit.RMQConsumer(queue=INPUT_RMQ_QUEUE,
-                              message_handlers=[HandlerModelsValidator(),
-                                                # HandlerSendToElastic(),
-                                                ])
+                              message_handlers=[HandlerModelsValidator()],
+                              )
 
 try:
     consumer.run()
