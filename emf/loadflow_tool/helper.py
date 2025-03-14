@@ -109,17 +109,21 @@ def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     :return: dict
     """
 
-    attribs = [attr for attr in dir(instance) if (not ismethod(getattr(instance, attr)) and not attr.startswith("_"))]
-    result_dict = {attr_key: getattr(instance, attr_key) for attr_key in attribs}
+    def convert_value(value):
+        if isinstance(value, datetime):
+            return value.isoformat() if sanitize_to_strings else value
+        elif isinstance(value, list):
+            return [convert_value(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        elif hasattr(value, '__dict__'):
+            return attr_to_dict(value, sanitize_to_strings)
+        elif sanitize_to_strings:
+            return str(value)
+        return value
 
-    if sanitize_to_strings:
-        sanitized_dict = {}
-        for k, v in result_dict.items():
-            if isinstance(v, datetime):
-                sanitized_dict[k] = v.isoformat()
-            else:
-                sanitized_dict[k] = str(v)
-        result_dict = sanitized_dict
+    attribs = [attr for attr in dir(instance) if (not callable(getattr(instance, attr)) and not attr.startswith("_"))]
+    result_dict = {attr_key: convert_value(getattr(instance, attr_key)) for attr_key in attribs}
 
     return result_dict
 
