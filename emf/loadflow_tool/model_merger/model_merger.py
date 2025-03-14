@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from emf.loadflow_tool.model_merger.merge_functions import calculate_intraday_time_horizon
-from emf.task_generator.time_helper import parse_datetime
+from emf.common.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties

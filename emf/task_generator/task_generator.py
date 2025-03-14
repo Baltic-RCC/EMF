@@ -1,7 +1,7 @@
 import aniso8601
 from datetime import datetime
 
-from emf.task_generator.time_helper import parse_duration, convert_to_utc, timezone, reference_times
+from emf.common.time_helper import parse_duration, convert_to_utc, timezone, reference_times
 from emf.common.integrations.object_storage.tasks import publish_tasks
 from emf.common.integrations.object_storage.models import query_data
 from emf.common.config_parser import parse_app_properties
