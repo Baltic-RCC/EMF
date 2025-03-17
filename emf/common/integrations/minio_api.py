@@ -15,7 +15,7 @@ from zipfile import ZipFile
 from datetime import datetime, timedelta
 from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.helper import metadata_from_filename
+from emf.loadflow_tool.helper import opdm_metadata_from_filename
 urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)
@@ -283,7 +283,7 @@ class ObjectStorage:
                                     "pmd:fileName": file_name,
                                     "DATA": source_zip.open(file_name).read()}
 
-                        metadata.update(metadata_from_filename(file_name))
+                        metadata.update(opdm_metadata_from_filename(file_name))
                         opdm_profile = {'opdm:Profile': metadata}
                         opdm_object['opde:Component'].append(opdm_profile)
 
