@@ -88,7 +88,7 @@ def create_opdm_objects(models: list, metadata=None) -> list:
 
         for profile_instance in model:
 
-            opdm_profile = metadata_from_filename(profile_instance.name)
+            opdm_profile = opdm_metadata_from_filename(profile_instance.name)
             opdm_profile['pmd:fileName'] = profile_instance.name
             opdm_profile['DATA'] = profile_instance.getvalue()
 
@@ -299,7 +299,7 @@ def filename_from_metadata(metadata):
     return file_name
 
 
-def metadata_from_filename(file_name):
+def opdm_metadata_from_filename(file_name):
 
     file_metadata = {} # Meta container
 
