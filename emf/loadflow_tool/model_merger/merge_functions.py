@@ -1,3 +1,4 @@
+import uuid
 import zipfile
 import math
 from io import BytesIO
@@ -131,6 +132,20 @@ def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
     return triplets_data
 
 
+def is_valid_uuid(uuid_value):
+    """
+    Checks if input is uuid value
+    For merged SV profile the output uuid can be combination of several existing uuids
+    :param uuid_value: input value
+    :return
+    """
+    try:
+        uuid.UUID(str(uuid_value))
+        return True
+    except ValueError:
+        return False
+
+
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
     ### SV ###
@@ -164,6 +179,15 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Update filename
     sv_data = triplets.cgmes_tools.update_filename_from_FullModel(sv_data)
+
+    # Check and fix SV id
+    updated_sv_id_map = {}
+    for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
+        if not is_valid_uuid(old_id):
+            new_id = str(uuid4())
+            updated_sv_id_map[old_id] = new_id
+            logger.info(f"Assigned new UUID for updated SSH: {old_id} -> {new_id}")
+    sv_data = sv_data.replace(updated_sv_id_map)
 
     ### SSH ##
 
