@@ -92,7 +92,7 @@ class HandlerMergeModels:
         self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
 
-    def handle(self, task_object: dict, **kwargs):
+    def handle(self, task_object: dict, properties: dict, **kwargs):
 
         start_time = datetime.datetime.now(datetime.UTC)
 
@@ -408,7 +408,7 @@ class HandlerMergeModels:
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
 
-        return task
+        return task, properties
 
 
 if __name__ == "__main__":
