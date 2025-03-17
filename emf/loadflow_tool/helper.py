@@ -299,34 +299,89 @@ def filename_from_metadata(metadata):
     return file_name
 
 
-def opdm_metadata_from_filename(file_name):
+def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
+    """
+    Parse OPDM metadata from a filename string into a dictionary.
 
-    file_metadata = {} # Meta container
+    Args:
+        :param file_name: (str): The filename containing metadata separated by underscores
+            and a file extension
+        :param meta_separator: (str): How the elements are seperated in the string, usually by "_"
 
-    meta_separator = "_"
-    file_name, file_metadata["file_type"] = file_name.split(".")
+    Returns:
+        dict: Dictionary containing parsed metadata with OPDM-specific keys.
+
+    Raises:
+        AssertionError: If file_name is not a string.
+        ValueError: If metadata parsing fails due to incorrect format.
+    """
+    # Constants for opdm metadata keys
+    VALID_FROM = 'pmd:validFrom'
+    TIME_HORIZON = 'pmd:timeHorizon'
+    CGMES_PROFILE = 'pmd:cgmesProfile'
+    VERSION_NUMBER = 'pmd:versionNumber'
+    MERGING_ENTITY = 'pmd:mergingEntity'
+    MERGING_AREA = 'pmd:mergingArea'
+    MODEL_PART = 'pmd:modelPartReference'
+
+    # Constant for file type
+    FILE_TYPE = 'file_type'
+
+    # Input validation
+    assert isinstance(file_name, str), "file_name must be a string"
+
+    metadata = {}  # Meta container
+
+    # Split filename into name and extension
+    file_name, metadata[FILE_TYPE] = file_name.split(".")
     meta_list = file_name.split(meta_separator)
 
-    if len(meta_list) == 4:   #try: #if "_EQ_" in file_name or "_BD_" in file_name:
-        file_metadata['pmd:validFrom'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
-        file_metadata['pmd:timeHorizon'] = ""
+    # Parse main metadata components
+    if len(meta_list) == 4:
+        metadata[VALID_FROM], model_authority, metadata[CGMES_PROFILE], metadata[VERSION_NUMBER] = meta_list
+        metadata[TIME_HORIZON] = ""
     elif len(meta_list) == 5:
-        file_metadata['pmd:validFrom'], file_metadata['pmd:timeHorizon'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
+        metadata[VALID_FROM], metadata[TIME_HORIZON], model_authority, metadata[CGMES_PROFILE], metadata[VERSION_NUMBER] = meta_list
     else:
-        logger.warning("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
+        logger.warning(f"Parsing error, number of allowed meta in filename is 4 or 5 separated by {meta_separator} -> {file_name}")
+        return metadata
 
+    # Parse model authority components
     model_authority_list = model_authority.split("-")
 
     if len(model_authority_list) == 1:
-        file_metadata['pmd:modelPartReference'] = model_authority
+        metadata[MODEL_PART] = model_authority
     elif len(model_authority_list) == 2:
-        file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'] = model_authority_list
+        metadata[MERGING_ENTITY], metadata[MERGING_AREA] = model_authority_list
     elif len(model_authority_list) == 3:
-        file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'], file_metadata['pmd:modelPartReference'] = model_authority_list
+        metadata[MERGING_ENTITY], metadata[MERGING_AREA], metadata[MODEL_PART] = model_authority_list
     else:
         logger.error(f"Parsing error {model_authority}")
 
-    return file_metadata
+    return metadata
+
+def opdm_metadata_from_rdfxml(parsed_xml):
+    """Parse model metadata form xml, retruns a dictionary"""
+    #parsed_xml = etree.parse(filepath_or_fileobject)
+
+    opdm_metadata_map = {
+
+    }
+
+    header = parsed_xml.find("{*}FullModel")
+    meta_elements = header.getchildren()
+
+    # Add model ID
+    meta_dict = {"mRID":header.attrib.values()[0].split(":")[-1]}
+
+    # Add all other metadata
+    for element in meta_elements:
+        if element.text:
+            meta_dict[element.tag.split("}")[1]] = element.text
+        else:
+            meta_dict[element.tag.split("}")[1]] = element.attrib.values()[0]
+
+    return meta_dict
 
 
 def get_xml_from_zip(zip_file_path):
@@ -358,24 +413,7 @@ def zip_xml_file(xml_etree_object, file_metadata, destination_bath):
     return zip_file_path
 
 
-def get_metadata_from_xml(parsed_xml):
-    """Parse model metadata form xml, retruns a dictionary"""
-    #parsed_xml = etree.parse(filepath_or_fileobject)
 
-    header = parsed_xml.find("{*}FullModel")
-    meta_elements = header.getchildren()
-
-    # Add model ID
-    meta_dict = {"mRID":header.attrib.values()[0].split(":")[-1]}
-
-    # Add all other metadata
-    for element in meta_elements:
-        if element.text:
-            meta_dict[element.tag.split("}")[1]] = element.text
-        else:
-            meta_dict[element.tag.split("}")[1]] = element.attrib.values()[0]
-
-    return meta_dict
 
 
 def get_metadata_from_filename(file_name):
