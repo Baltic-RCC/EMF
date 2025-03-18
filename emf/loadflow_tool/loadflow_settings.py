@@ -143,6 +143,30 @@ __CGM_RELAXED_3_CUSTOM_PROVIDER = {
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 
+__CGM_S_CC_COMP_PROVIDER = {
+    # 'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    'loadPowerFactorConstant': 'True',
+    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
+    'lowImpedanceThreshold': '3.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
+    'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
+    'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
+    'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
+    'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
+    'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
+    'slackBusPMaxMismatch': '0.1',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'True',
+    'transformerReactivePowerControl': 'True',
+    'generatorReactivePowerRemoteControl': 'True',
+    'svcVoltageMonitoring': 'False',
+    'minRealisticVoltage': '0.4',
+    'maxRealisticVoltage': '4.0',
+    'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'phaseShifterControlMode': 'INCREMENTAL',
+    'stateVectorScalingMode': 'MAX_VOLTAGE_CHANGE',
+    'newtonRaphsonConvEpsPerEq': '1.0E-2',
+}
+
 # Preparing CGM PROVIDER settings options from default settings
 IGM_VALIDATION_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 IGM_VALIDATION_PROVIDER.update(__IGM_VALIDATION_PROVIDER)
@@ -158,6 +182,10 @@ CGM_RELAXED_2_PROVIDER.update(__CGM_RELAXED_2_PROVIDER)
 
 CGM_RELAXED_3_CUSTOM_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 CGM_RELAXED_3_CUSTOM_PROVIDER.update(__CGM_RELAXED_3_CUSTOM_PROVIDER)
+
+
+CGM_S_CC_COMP_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
+CGM_S_CC_COMP_PROVIDER.update(__CGM_S_CC_COMP_PROVIDER)
 
 # Prepare pypowsybl loadflow parameters classes
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
@@ -243,4 +271,24 @@ CGM_RELAXED_3_CUSTOM = pypowsybl.loadflow.Parameters(
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=CGM_RELAXED_3_CUSTOM_PROVIDER,
+)
+
+CGM_S_CC_COMP = pypowsybl.loadflow.Parameters(
+    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true" ;
+    transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0" ;
+    use_reactive_limits=True,
+    # no_generator_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "false" ;
+    phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0":
+    twt_split_shunt_admittance=None,
+    shunt_compensator_voltage_control_on=True,
+    # simul_shunt=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0" ;
+    read_slack_bus=True,
+    write_slack_bus=False,
+    distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
+    # balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly ;
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN,
+    dc_use_transformer_ratio=None,
+    countries_to_balance=None,
+    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
+    provider_parameters=CGM_S_CC_COMP_PROVIDER,
 )
