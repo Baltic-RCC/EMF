@@ -156,6 +156,9 @@ CGM_RELAXED_1_PROVIDER.update(__CGM_RELAXED_1_PROVIDER)
 CGM_RELAXED_2_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 CGM_RELAXED_2_PROVIDER.update(__CGM_RELAXED_2_PROVIDER)
 
+CGM_RELAXED_3_CUSTOM_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
+CGM_RELAXED_3_CUSTOM_PROVIDER.update(__CGM_RELAXED_3_CUSTOM_PROVIDER)
+
 # Prepare pypowsybl loadflow parameters classes
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
