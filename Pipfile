@@ -20,6 +20,8 @@ requests = "*"
 pika = "*"
 saxonche = "*"
 croniter = "*"
+openpyxl = "*"
+xlsxwriter = "*"
 
 [dev-packages]
 tabulate = "*"

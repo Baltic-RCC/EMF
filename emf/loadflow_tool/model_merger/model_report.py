@@ -34,11 +34,69 @@ def parse_filenames(original_models: pandas.DataFrame):
     return original_models
 
 
-if __name__ == '__main__':
+LINE_SHEET_NAME = 'line'
+TIE_LINE_SHEET_NAME = 'tieline'
+TWO_WINDINGS_TRANSFORMER_SHEET_NAME = 'two_windings_transformer'
+THREE_WINDINGS_TRANSFORMER_SHEET_NAME = 'three_windings_transformer'
+BUS_SHEET_NAME = 'bus'
+BUS_ORIGINAL_SHEET_NAME = 'bus_original'
+GENERATOR_SHEET_NAME = 'generator'
+LOAD_SHEET_NAME = 'load'
+SHUNT_COMPENSATOR_SHEET_NAME = 'shunt_compensator'
 
-    # merged_model = r"../workgroup_merge/models/CGM_merge_one"
-    # merged_model = r"../workgroup_merge/models/CGM_merge_two"
-    merged_model = r"../workgroup_merge/models/CGM_merge_three"
+attribute_keys = {LINE_SHEET_NAME: 'final_lines_report',
+                  TIE_LINE_SHEET_NAME: 'final_tie_lines_report',
+                  TWO_WINDINGS_TRANSFORMER_SHEET_NAME: 'final_two_windings_report',
+                  THREE_WINDINGS_TRANSFORMER_SHEET_NAME: 'final_three_windings_report',
+                  BUS_SHEET_NAME: 'final_buses_report',
+                  BUS_ORIGINAL_SHEET_NAME: 'buses',
+                  GENERATOR_SHEET_NAME: 'final_generators_report',
+                  LOAD_SHEET_NAME: 'final_loads_report',
+                  SHUNT_COMPENSATOR_SHEET_NAME: 'final_shunt_compensator_report'}
+
+
+class ModelReport:
+    def __init__(self, full_file_name: str = None, model_author: str = None):
+        self.network = None
+        self.model_author = model_author
+        self.final_lines_report = pandas.DataFrame()
+        self.final_tie_lines_report = pandas.DataFrame()
+        self.final_two_windings_report = pandas.DataFrame()
+        self.final_three_windings_report = pandas.DataFrame()
+        self.final_buses_report = pandas.DataFrame()
+        self.buses = pandas.DataFrame()
+        self.final_generators_report = pandas.DataFrame()
+        self.final_loads_report = pandas.DataFrame()
+        self.final_shunt_compensator_report = pandas.DataFrame()
+
+        self.attribute_keys = attribute_keys
+        if full_file_name:
+            self.get_data_from_excel(full_file_name=full_file_name)
+
+    def write_data_to_excel(self, full_file_name: str):
+        with pandas.ExcelWriter(full_file_name) as writer:
+            self.final_lines_report.to_excel(writer, sheet_name=LINE_SHEET_NAME)
+            self.final_tie_lines_report.to_excel(writer, sheet_name=TIE_LINE_SHEET_NAME)
+            self.final_two_windings_report.to_excel(writer, sheet_name=TWO_WINDINGS_TRANSFORMER_SHEET_NAME)
+            self.final_three_windings_report.to_excel(writer, sheet_name=THREE_WINDINGS_TRANSFORMER_SHEET_NAME)
+            self.final_buses_report.to_excel(writer, sheet_name=BUS_SHEET_NAME)
+            self.buses.to_excel(writer, sheet_name=BUS_ORIGINAL_SHEET_NAME)
+            self.final_generators_report.to_excel(writer, sheet_name=GENERATOR_SHEET_NAME)
+            self.final_loads_report.to_excel(writer, sheet_name=LOAD_SHEET_NAME)
+            self.final_shunt_compensator_report.to_excel(writer, sheet_name=SHUNT_COMPENSATOR_SHEET_NAME)
+
+    def get_data_from_excel(self, full_file_name: str):
+        with pandas.ExcelFile(full_file_name) as excel_content:
+            for sheet_name in excel_content.sheet_names:
+                input_data = pandas.read_excel(excel_content, sheet_name=sheet_name)
+                attribute = self.attribute_keys.get(sheet_name)
+                if attribute:
+                    self.__setattr__(attribute, input_data)
+        print("Done")
+
+
+def generate_report(path_to_input: str):
+    merged_model = path_to_input
     pypowsybl_file_list = get_list_of_xml_zip_files_from_dir(merged_model)
     # overwrite this if multiple rcc are in same folder
     rcc = None
@@ -437,7 +495,6 @@ if __name__ == '__main__':
     folder_to_store = r"../workgroup_merge/reports"
     folder_to_store = check_and_create_the_folder_path(folder_to_store)
     time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-    file_name_all = f"fixes_{time_moment_now}.csv"
     try:
         sv_file_name = os.path.basename(str(sv_files[0]))
     except Exception:
@@ -450,15 +507,189 @@ if __name__ == '__main__':
     full_file_name = f"merge_report_{sv_meta.get('pmd:mergingEntity', '1')}_{time_moment_now}.xlsx"
     full_file_name = folder_to_store.removesuffix('/') + '/' + full_file_name.removeprefix('/')
     print(f"Saving {full_file_name}")
-    with pandas.ExcelWriter(full_file_name) as writer:
-        final_lines_report.to_excel(writer, sheet_name='line')
-        final_tie_lines_report.to_excel(writer, sheet_name='tieline')
-        final_two_windings_report.to_excel(writer, sheet_name='two_windings_transformer')
-        final_three_windings_report.to_excel(writer, sheet_name='three_windings_transformer')
-        final_buses_report.to_excel(writer, sheet_name='bus')
-        buses.to_excel(writer, sheet_name='bus_original')
-        final_generators_report.to_excel(writer, sheet_name='generator')
-        final_loads_report.to_excel(writer, sheet_name='load')
-        final_shunt_compensator_report.to_excel(writer, sheet_name='shunt_compensator')
+    report_instance = ModelReport()
+    report_instance.network = network_instance
+    report_instance.final_lines_report = final_lines_report
+    report_instance.final_tie_lines_report = final_tie_lines_report
+    report_instance.final_two_windings_report = final_two_windings_report
+    report_instance.final_three_windings_report = final_three_windings_report
+    report_instance.final_buses_report = final_buses_report
+    report_instance.buses = buses
+    report_instance.final_generators_report = final_generators_report
+    report_instance.final_loads_report = final_loads_report
+    report_instance.final_shunt_compensator_report = final_shunt_compensator_report
+    report_instance.write_data_to_excel(full_file_name=full_file_name)
+    return report_instance
+
+
+def compare_two_dataframes(report_one: ModelReport,
+                           report_two: ModelReport,
+                           index_columns: list | str,
+                           data_columns: list,
+                           name_columns: list,
+                           sheet_name: str,
+                           writer: pandas.ExcelWriter,
+                           all_attribute_keys=None):
+    if all_attribute_keys is None:
+        all_attribute_keys = attribute_keys
+    left_side = " " + report_one.model_author
+    right_side = " " + report_two.model_author
+    sides = [left_side, right_side]
+    left_dataframe = pandas.DataFrame()
+    right_dataframe = pandas.DataFrame()
+    if attribute_name := all_attribute_keys.get(sheet_name):
+        left_dataframe = getattr(report_one, attribute_name)
+        right_dataframe = getattr(report_two, attribute_name)
+    if left_dataframe.empty and right_dataframe.empty:
+        raise Exception(f"Attribute for {sheet_name} not found")
+    merged_dataframe = left_dataframe.merge(right_dataframe,
+                                            on=index_columns,
+                                            how='outer',
+                                            suffixes=(left_side, right_side),
+                                            indicator=True).set_index(index_columns)
+    # get counts
+    both_all = merged_dataframe[merged_dataframe['_merge'] == 'both']
+    left_only = merged_dataframe[merged_dataframe['_merge'] == 'left_only']
+    right_only = merged_dataframe[merged_dataframe['_merge'] == 'right_only']
+    both_all_count = len(both_all.index)
+    left_only_count = len(left_only.index)
+    right_only_count = len(right_only.index)
+    count_dataframe = pandas.DataFrame([{'Both': both_all_count,
+                                         left_side + ' unique': left_only_count,
+                                         right_side + ' unique': right_only_count}])
+
+    count_dataframe.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=0)
+    row_counter = 3
+    col_counter = 5
+
+    if not left_only.empty:
+        left_only_columns = [column for column in left_only.columns.to_list() if column.endswith(left_side)]
+        left_only_columns = [column for column in left_only_columns if not ' id' in column]
+        left_only = left_only[left_only_columns].reset_index(drop=True)
+        col_count = len(left_only.columns.to_list())
+        row_count = len(left_only.index)
+        left_only.to_excel(writer, sheet_name=sheet_name, startrow=row_counter, startcol=0)
+        col_counter = max(col_counter, col_count + 2)
+        row_counter = row_counter + 2 + row_count
+
+    if not right_only.empty:
+        right_only_columns = [column for column in right_only.columns.to_list() if column.endswith(right_side)]
+        right_only_columns = [column for column in right_only_columns if not ' id' in column]
+        right_only = right_only[right_only_columns].reset_index(drop=True)
+        col_count = len(left_only.columns.to_list())
+        # row_count = len(left_only.index)
+        right_only.to_excel(writer, sheet_name=sheet_name, startrow=row_counter, startcol=0)
+        col_counter = max(col_counter, col_count + 2)
+        # row_counter = row_counter + 2 + row_count
+
+    calc_columns = {}
+
+    name_left_columns = {name_column + left_side: name_column for name_column in name_columns}
+    for data_column in data_columns:
+        diff_column = data_column + '_diff'
+        calc_columns[data_column] = diff_column
+        both_all[diff_column] = abs(both_all[data_column + left_side] - both_all[data_column + right_side])
+    diff_data_frame = both_all[list(name_left_columns.keys()) +
+                               list(calc_columns.values())].rename(columns=name_left_columns)
+    diff_data_frame = diff_data_frame.reset_index(drop=True)
+    diff_data_frame.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=col_counter)
+
+    col_counter = col_counter + len(diff_data_frame.columns.to_list()) + 2
+    diff_data_frame_description = diff_data_frame.describe().reset_index()
+    diff_data_frame_description.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=col_counter)
+    row_counter = len(diff_data_frame_description.index) + 2
+
+    worksheet = writer.sheets[sheet_name]
+    largest_rows = 10
+    for data_column in calc_columns.keys():
+        max_rows = diff_data_frame.nlargest(largest_rows, columns=[calc_columns[data_column]])
+        worksheet.write_string(row_counter, col_counter, f"{data_column} {largest_rows} rows")
+        row_counter = row_counter + 1
+        max_rows.to_excel(writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+        row_counter = row_counter + 2 + len(max_rows.index)
+
+    corr_dataframe = both_all[[data_column + side for data_column in data_columns for side in sides]]
+    corr_matrix = corr_dataframe.corr()
+    corr_matrix.to_excel(writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+
+
+if __name__ == '__main__':
+    # merged_model_1 = r"../workgroup_merge/models/CGM_merge_one"
+    # merged_model_2 = r"../workgroup_merge/models/CGM_merge_two"
+
+    # cgm_report_one = generate_report(merged_model_1)
+    # cgm_report_two = generate_report(merged_model_2)
+    file_one = r"../workgroup_merge/models/merge_report_1.xlsx"
+    file_two = r"../workgroup_merge/models/merge_report_2.xlsx"
+    cgm_report_one = ModelReport(file_one, 'RCC1')
+    cgm_report_two = ModelReport(file_two, 'RCC2')
+
+    report_name = r"./workgroup_merge/models"
+
+    time_moment_now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+    report_name = report_name.removesuffix('/') + '/' + f"merge_report_{time_moment_now}.xlsx"
+    with pandas.ExcelWriter(report_name) as excel_writer:
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['TF id', 'Side'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['TF name', 'country', 'GEO Tags'],
+                               sheet_name=TWO_WINDINGS_TRANSFORMER_SHEET_NAME,
+                               writer=excel_writer)
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['TF id', 'Side'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['TF name', 'country', 'GEO Tags'],
+                               sheet_name=THREE_WINDINGS_TRANSFORMER_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['Line id', 'Side'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['Line name', 'country'],
+                               sheet_name=LINE_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['TieLine id'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['TieLine name', 'country', 'GEO Tags'],
+                               sheet_name=TIE_LINE_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['Generator id'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['Generator name', 'country'],
+                               sheet_name=GENERATOR_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['Load id'],
+                               data_columns=['P', 'Q'],
+                               name_columns=['Load name', 'country', 'GEO Tags'],
+                               sheet_name=LOAD_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['ShuntCompensator id'],
+                               data_columns=['Q'],
+                               name_columns=['ShuntCompensator name', 'country', 'GEO Tags'],
+                               sheet_name=SHUNT_COMPENSATOR_SHEET_NAME,
+                               writer=excel_writer)
+
+        compare_two_dataframes(report_one=cgm_report_two,
+                               report_two=cgm_report_one,
+                               index_columns=['Bus id'],
+                               data_columns=['Bus V', 'Bus angle'],
+                               name_columns=['Bus name'],
+                               sheet_name=BUS_ORIGINAL_SHEET_NAME,
+                               writer=excel_writer)
 
     print("Done")
