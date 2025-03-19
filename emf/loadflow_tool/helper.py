@@ -72,9 +72,10 @@ def save_opdm_objects(opdm_objects: list) -> list:
     return exported_files
 
 
-def create_opdm_objects(models: list, metadata=None) -> list:
+def create_opdm_objects(models: list, metadata=None, key_profile="SV") -> list:
     """
-    Function to create OPDM object like sturcture in memory
+    Function to create OPDM object like structure in memory
+    input models, is a nested list [[EQ, SSH, TP, SV], [EQ, SSH, TP, SC]] where upper list will become opdm:Object and nested will be opdm:Profile
 
     :return: list of OPDM objects
     """
@@ -83,16 +84,26 @@ def create_opdm_objects(models: list, metadata=None) -> list:
     for model in models:
         opdm_object = {'opde:Component': []}
 
-        if metadata:
-            opdm_object.update(metadata)
-
         for profile_instance in model:
 
+            # Build profile instance metadata
             opdm_profile = opdm_metadata_from_filename(profile_instance.name)
+            opdm_profile.update(opdm_metadata_from_rdfxml(get_xml_from_zip(profile_instance)))
             opdm_profile['pmd:fileName'] = profile_instance.name
+
+            # Check if key profile and add to main object metadata
+            if opdm_profile.get('pmd:cgmesProfile') == key_profile:
+               opdm_object.update(opdm_profile)
+
+            # Add DATA
             opdm_profile['DATA'] = profile_instance.getvalue()
 
+            # Add component to main object
             opdm_object['opde:Component'].append({'opdm:Profile': opdm_profile})
+
+        # If metadata provided, overwrite existing
+        if metadata:
+            opdm_object.update(metadata)
 
         opdm_objects.append(opdm_object)
 
@@ -283,7 +294,7 @@ def load_opdm_data(opdm_objects, profile=None):
     return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
 
 
-def filename_from_metadata(metadata):
+def filename_from_opdm_metadata(metadata):
 
     model_part = metadata.get('pmd:modelPartReference', None)
 
@@ -360,60 +371,92 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
 
     return metadata
 
-def opdm_metadata_from_rdfxml(parsed_xml):
-    """Parse model metadata form xml, retruns a dictionary"""
-    #parsed_xml = etree.parse(filepath_or_fileobject)
+def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
+    """Parse model metadata form xml, returns a dictionary with metadata"""
 
-    opdm_metadata_map = {
+    assert isinstance(parsed_xml, etree._ElementTree)
 
-    }
+    rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
-    header = parsed_xml.find("{*}FullModel")
+    header = parsed_xml.find("{*}FullModel") # Verion update proof, as long as element name remains the same
     meta_elements = header.getchildren()
 
-    # Add model ID
-    meta_dict = {"mRID":header.attrib.values()[0].split(":")[-1]}
+    # Add model ID from FullModel@about
+    metadata = {"Model.mRID": header.attrib.get(f'{{{rdf}}}about').split(":")[-1]}
 
     # Add all other metadata
     for element in meta_elements:
-        if element.text:
-            meta_dict[element.tag.split("}")[1]] = element.text
-        else:
-            meta_dict[element.tag.split("}")[1]] = element.attrib.values()[0]
 
-    return meta_dict
+        key = element.tag.split("}")[1]
+
+        value = element.text if element.text else element.attrib.get(f"{{{rdf}}}resource")
+
+        if existing_value := metadata.get(key):
+            value = existing_value + [value] if isinstance(existing_value, list) else [existing_value, value]
+
+        metadata[key] = value
+
+    return metadata
+
+def opdm_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
+
+    opdm_metadata_map = {
+
+        "Model.mRID": ["opde:Id", "pmd:modelid", "pmd:fullModel_ID"],
+        "Model.scenarioTime": ["pmd:scenarioDate"],
+        "Model.created": ["pmd:creationDate"],
+        "Model.description": ["pmd:description"],
+        "Model.version": ["pmd:version"],
+        "Model.DependentOn": ["opde:DependsOn"],
+        "Model.profile": ["pmd:modelProfile"],
+        "Model.modelingAuthoritySet": ["pmd:modelingAuthoritySet"],
+
+    }
+
+    metadata = {}
+
+    for key, value in metadata_from_rdfxml(parsed_xml).items():
+        if opdm_keys := opdm_metadata_map.get(key):
+            for opdm_key in opdm_keys:
+                metadata[opdm_key] = value
+
+    return metadata
+
+
+# TODO
+# "pmd:modelPartReference": "D7",
+# "pmd:sourcingActor": "D7", # From filename
+# "pmd:TSO": "D7", # From filename
+# "pmd:fileName": "20250317T2230Z_14_D7_SSH_011.zip",
+# "pmd:content-reference": "CGMES/14/D7/20250317/223000/SSH/20250317T2230Z_14_D7_SSH_011.zip",
+# "pmd:Content-Type": "CGMES",
 
 
 def get_xml_from_zip(zip_file_path):
 
-    zipfile_object = ZipFile(zip_file_path)
-    xml_file_name = zipfile_object.namelist()[0]
-    file_unzipped = zipfile_object.open(xml_file_name, mode="r")
-    xml_tree_object = etree.parse(file_unzipped)
+    with ZipFile(zip_file_path, 'r') as zipfile_object:
+        xml_file_name = zipfile_object.namelist()[0]
+        file_bytes = zipfile_object.read(xml_file_name)
+        # Convert bytes to file-like object for parsing
+        xml_tree_object = etree.parse(BytesIO(file_bytes))
 
     return xml_tree_object
 
 
-def zip_xml_file(xml_etree_object, file_metadata, destination_bath):
+def zip_xml(xml_file_object):
 
-    # Get meta and path
-    file_metadata["file_type"] = "zip"
-    zip_file_name = filename_from_metadata(file_metadata)
+    xml_file_name = xml_file_object.name
+    xml_file_extension = xml_file_name.split(".")[-1]
+    zip_file_name = xml_file_name.replace(f".{xml_file_extension}", ".zip")
 
-    file_metadata["file_type"] = "xml"
-    xml_file_name = filename_from_metadata(file_metadata)
-
-    zip_file_path = os.path.join(destination_bath, zip_file_name)
+    zip_file_object = BytesIO()
+    zip_file_object.name = zip_file_name
 
     # Create and save ZIP
-    out_zipped_file = ZipFile(zip_file_path, 'w', ZIP_DEFLATED)
-    out_zipped_file.writestr(xml_file_name, etree.tostring(xml_etree_object))#, pretty_print=True))
-    out_zipped_file.close()
+    with ZipFile(zip_file_object, 'w', ZIP_DEFLATED) as zipfile:
+        zipfile.writestr(xml_file_name, xml_file_object.getvalue())
 
-    return zip_file_path
-
-
-
+    return zip_file_object
 
 
 def get_metadata_from_filename(file_name):
@@ -453,7 +496,7 @@ def get_metadata_from_filename(file_name):
     else:
         logger.error("Non CGMES file {}".format(file_name))
 
-    if file_metadata.get("Model.modelingEntity", False):
+    if file_metadata.get("Model.modelingEntity"):
 
         entity_and_area_list = file_metadata["Model.modelingEntity"].split(entity_and_domain_separator)
 
@@ -509,7 +552,7 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
     else:
         profiles = "SV,SSH,TP,EQ"
 
-    file_base_name = filename_from_metadata(opdm_object_meta).split(".xml")[0]
+    file_base_name = filename_from_opdm_metadata(opdm_object_meta).split(".xml")[0]
 
     bytes_object = network.save_to_binary_buffer(
         format="CGMES",
@@ -551,3 +594,25 @@ def get_model_outages(network: pypowsybl.network):
     outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
 
     return outage_log
+
+
+if __name__ == "__main__":
+
+    example_file_path = r"C:\Users\kristjan.vilgo\OneDrive - Elering AS\Documents\GitHub\igm_publication\20250314T2330Z_1D_ELERING_012.zip"
+
+    # Find all XML regardless the zip folder depth
+    rdfxml_files = triplets.rdf_parser.find_all_xml([example_file_path])
+
+    # Repackage to form zip(xml)
+    rdfzip_files = []
+    for xml in rdfxml_files:
+        rdfzip_files.append(zip_xml(xml))
+
+    # Create OPDM objects
+    opdm_object = create_opdm_objects([rdfzip_files])
+
+
+
+
+
+
