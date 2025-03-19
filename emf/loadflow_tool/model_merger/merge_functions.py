@@ -148,6 +148,7 @@ def is_valid_uuid(uuid_value):
 
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
+
     ### SV ###
     # Set Metadata
     SV_ID = merged_model.network_meta['id'].split("uuid:")[-1]
