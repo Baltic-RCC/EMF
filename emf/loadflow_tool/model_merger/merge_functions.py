@@ -11,7 +11,7 @@ import triplets
 import pandas
 from uuid import uuid4
 import config
-from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, \
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, export_model, \
     get_network_elements
 from emf.loadflow_tool import loadflow_settings
 from aniso8601 import parse_datetime
@@ -156,7 +156,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
     sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data)
 
     # Update
-    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
+    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_opdm_metadata(opdm_object_meta))
     sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
 
     # Update metadata
