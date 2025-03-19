@@ -17,7 +17,7 @@ logging.getLogger('triplets').setLevel(logging.WARNING)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 
 # RabbitMQ consumer implementation
-consumer = rabbit.RMQConsumer(que=INPUT_RABBIT_QUE, message_handlers=[HandlerMergeModels()])
+consumer = rabbit.RMQConsumer(queue=INPUT_RABBIT_QUE, message_handlers=[HandlerMergeModels()])
 
 try:
     consumer.run()

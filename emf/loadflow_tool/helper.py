@@ -71,6 +71,7 @@ def save_opdm_objects(opdm_objects: list) -> list:
 
     return exported_files
 
+
 def create_opdm_objects(models: list, metadata=None) -> list:
     """
     Function to create OPDM object like sturcture in memory
@@ -108,17 +109,21 @@ def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
     :return: dict
     """
 
-    attribs = [attr for attr in dir(instance) if (not ismethod(getattr(instance, attr)) and not attr.startswith("_"))]
-    result_dict = {attr_key: getattr(instance, attr_key) for attr_key in attribs}
+    def convert_value(value):
+        if isinstance(value, datetime):
+            return value.isoformat() if sanitize_to_strings else value
+        elif isinstance(value, list):
+            return [convert_value(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        elif hasattr(value, '__dict__'):
+            return attr_to_dict(value, sanitize_to_strings)
+        elif sanitize_to_strings:
+            return str(value)
+        return value
 
-    if sanitize_to_strings:
-        sanitized_dict = {}
-        for k, v in result_dict.items():
-            if isinstance(v, datetime):
-                sanitized_dict[k] = v.isoformat()
-            else:
-                sanitized_dict[k] = str(v)
-        result_dict = sanitized_dict
+    attribs = [attr for attr in dir(instance) if (not callable(getattr(instance, attr)) and not attr.startswith("_"))]
+    result_dict = {attr_key: convert_value(getattr(instance, attr_key)) for attr_key in attribs}
 
     return result_dict
 
@@ -241,7 +246,6 @@ def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_p
     :param parameters: dictionary of desired parameters for loading models to pypowsybl
     :param skip_default_parameters: skip the default parameters
     """
-    model_data = {}
     default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
     if not skip_default_parameters:
         if not parameters:
@@ -261,19 +265,10 @@ def load_model(opdm_objects: List[dict], parameters: dict = None, skip_default_p
         #     "iidm.import.cgmes.post-processors": ["EntsoeCategory"]}
     )
 
-    logger.info(f"Loaded {network}")
+    logger.info(f"Loaded: {network}")
     logger.debug(f"{import_report}")
 
-    # Network model object data
-    model_data["network_meta"] = attr_to_dict(instance=network, sanitize_to_strings=True)
-    model_data["network"] = network
-    model_data["network_valid"] = network.validate().name
-
-    # Network model import reporter data
-    # model_data["import_report"] = json.loads(import_report.to_json())
-    # model_data["import_report"] = str(import_report)
-
-    return model_data
+    return network
 
 
 def opdmprofile_to_bytes(opdm_profile):
@@ -303,25 +298,20 @@ def filename_from_metadata(metadata):
 
     return file_name
 
-meta_separator = "_"
-
 
 def metadata_from_filename(file_name):
 
     file_metadata = {} # Meta container
 
+    meta_separator = "_"
     file_name, file_metadata["file_type"] = file_name.split(".")
     meta_list = file_name.split(meta_separator)
 
     if len(meta_list) == 4:   #try: #if "_EQ_" in file_name or "_BD_" in file_name:
-
         file_metadata['pmd:validFrom'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
         file_metadata['pmd:timeHorizon'] = ""
-
     elif len(meta_list) == 5:
-
         file_metadata['pmd:validFrom'], file_metadata['pmd:timeHorizon'], model_authority, file_metadata['pmd:cgmesProfile'], file_metadata['pmd:versionNumber'] = meta_list
-
     else:
         logger.warning("Parsing error, number of allowed meta in filename is 4 or 5 separated by '_' -> {} ".format(file_name))
 
@@ -329,26 +319,25 @@ def metadata_from_filename(file_name):
 
     if len(model_authority_list) == 1:
         file_metadata['pmd:modelPartReference'] = model_authority
-
     elif len(model_authority_list) == 2:
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'] = model_authority_list
-
     elif len(model_authority_list) == 3:
         file_metadata['pmd:mergingEntity'], file_metadata['pmd:mergingArea'], file_metadata['pmd:modelPartReference'] = model_authority_list
-
     else:
         logger.error(f"Parsing error {model_authority}")
 
     return file_metadata
 
+
 def get_xml_from_zip(zip_file_path):
 
-    zipfile_object    = ZipFile(zip_file_path)
-    xml_file_name     = zipfile_object.namelist()[0]
-    file_unzipped     = zipfile_object.open(xml_file_name, mode="r")
-    xml_tree_object   = etree.parse(file_unzipped)
+    zipfile_object = ZipFile(zip_file_path)
+    xml_file_name = zipfile_object.namelist()[0]
+    file_unzipped = zipfile_object.open(xml_file_name, mode="r")
+    xml_tree_object = etree.parse(file_unzipped)
 
     return xml_tree_object
+
 
 def zip_xml_file(xml_etree_object, file_metadata, destination_bath):
 
@@ -490,7 +479,7 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
             "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
             "iidm.export.cgmes.base-name": file_base_name,
             "iidm.export.cgmes.profiles": profiles,
-            "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
+            # "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
             "iidm.export.cgmes.export-sv-injections-for-slacks": "False",
         })
 

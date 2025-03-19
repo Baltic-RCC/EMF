@@ -31,7 +31,7 @@ from typing import Dict, List, Union
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
-from emf.common.integrations import elastic
+from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
     get_connected_components_data
 from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_RELAXED_2
@@ -44,137 +44,11 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 _country_col: str = 'CGMES.regionName'
 
 
-def query_hvdc_schedules(time_horizon: str,
-                         scenario_timestamp: str | datetime) -> dict | None:
-    """
-    Method to get HVDC schedules (business type - B63 for PEVF, B67 - for CGMA)
-    :param time_horizon: time horizon of schedules
-    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
-    :return: DC schedules in dict format
-    """
-    # Create Elastic client
-    service = elastic.Elastic()
-
-    # Get area name to eic mapping
-    try:
-        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
-    except Exception as e:
-        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
-        # Using default mapping table from config
-        import json
-        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
-            area_eic_map = json.loads(f.read())
-
-    # Define utc start/end times from timestamp
-    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
-    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
-
-    # Define business type by time horizon
-    business_type = "B63" if time_horizon in ["1D", "ID"] else "B67"
-
-    # Define metadata dictionary
-    metadata = {
-        "@time_horizon": time_horizon,
-        "TimeSeries.businessType": business_type,
-    }
-
-    # Get HVDC schedules
-    schedules_df = service.query_schedules_from_elk(
-        index=ELK_INDEX_PATTERN,
-        utc_start=utc_start.isoformat(),
-        utc_end=utc_end.isoformat(),
-        metadata=metadata,
-        period_overlap=True,
-    )
-
-    if schedules_df is None:
-        return None
-
-    # Map eic codes to area names
-    schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
-    schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
-
-    # Filter to the latest revision number
-    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
-    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
-
-    # TODO filter out data by reason code that take only verified tada
-
-    # Get relevant structure and convert to dictionary
-    _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID"]
-    schedules_df = schedules_df[_cols]
-    schedules_df.rename(columns={"TimeSeries.connectingLine_RegisteredResource.mRID": "registered_resource"},
-                        inplace=True)
-    schedules_dict = schedules_df.to_dict('records')
-
-    return schedules_dict
-
-
-def query_acnp_schedules(time_horizon: str,
-                         scenario_timestamp: str | datetime) -> dict | None:
-    """
-    Method to get ACNP schedules (business type - B64)
-    :param time_horizon: time horizon of schedules
-    :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
-    :return: AC schedules in dict format
-    """
-    # Create Elastic client
-    service = elastic.Elastic()
-
-    # Get area name to eic mapping
-    try:
-        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
-    except Exception as e:
-        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
-        # Using default mapping table from config
-        import json
-        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
-            area_eic_map = json.loads(f.read())
-
-    # Define utc start/end times from timestamp
-    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
-    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
-
-    # Define metadata dictionary
-    metadata = {
-        "@time_horizon": time_horizon,
-        "TimeSeries.businessType": "B64",
-    }
-
-    # Get AC area schedules
-    schedules_df = service.query_schedules_from_elk(
-        index=ELK_INDEX_PATTERN,
-        utc_start=utc_start.isoformat(),
-        utc_end=utc_end.isoformat(),
-        metadata=metadata,
-        period_overlap=True,
-    )
-
-    if schedules_df is None:
-        return None
-
-    # Map eic codes to area names
-    schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
-    schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
-
-    # Filter to the latest revision number
-    schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
-    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
-
-    # Get relevant structure and convert to dictionary
-    _cols = ["value", "in_domain", "out_domain"]
-    schedules_df = schedules_df[_cols]
-    schedules_dict = schedules_df.to_dict('records')
-
-    return schedules_dict
-
-
 def get_areas_losses(network: pp.network.Network):
     # Calculate ACNP with losses (from cross-border lines)
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).p.sum()
+    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
 
     # Calculate ACNP without losses (from generation and consumption)
     gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
@@ -184,7 +58,7 @@ def get_areas_losses(network: pp.network.Network):
     ## Need to ensure that all series in substraction has same index values. For example when area does not have HVDC connections
     ## Otherwise we will get NaN values for areas without HVDC after regular substraction
     present_areas = generation.index.union(consumption.index)
-    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby(_country_col).p0.sum().reindex(present_areas, fill_value=0)
+    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby(_country_col).boundary_p.sum().reindex(present_areas, fill_value=0)
     acnp_without_losses = generation - consumption - dcnp
 
     # Calculate losses by regions
@@ -194,7 +68,7 @@ def get_areas_losses(network: pp.network.Network):
 
 
 @performance_counter(units='seconds')
-def scale_balance(network: pp.network.Network,
+def scale_balance(model: object,
                   ac_schedules: List[Dict[str, Union[str, float, None]]],
                   dc_schedules: List[Dict[str, Union[str, float, None]]],
                   lf_settings: pp.loadflow.Parameters = CGM_RELAXED_1,
@@ -209,8 +83,12 @@ def scale_balance(network: pp.network.Network,
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
+    # Get pypowsybl network
+    network = model.network
+
     _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
     _scaling_results = []
+    _hvdc_results = []
     _iteration = 0
 
     # Defining logging level
@@ -233,10 +111,13 @@ def scale_balance(network: pp.network.Network,
 
     # Get pre-scale HVDC setpoints
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['ucte_xnode_code', 'p']]
+    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p']]
+    prescale_hvdc_sp = prescale_hvdc_sp.rename(columns={'boundary_p': 'value'})
+    _hvdc_results.append(pd.concat([prescale_hvdc_sp.set_index('lineEnergyIdentificationCodeEIC').value,
+                                    pd.Series({'KEY': 'prescale-setpoint'})]).to_dict())
     for dclink in prescale_hvdc_sp.to_dict('records'):
-        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['ucte_xnode_code']}: {round(dclink['p'], 2)} MW")
-
+        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
     # Mapping HVDC schedules to network
     scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code']]
     scalable_hvdc.reset_index(inplace=True)
@@ -252,11 +133,13 @@ def scale_balance(network: pp.network.Network,
     scalable_hvdc = scalable_hvdc.set_index('id')
 
     # Updating HVDC network elements to scheduled values
-    scalable_hvdc_target = scalable_hvdc[['value', 'ucte_xnode_code']]
+    scalable_hvdc_target = scalable_hvdc[['value', 'lineEnergyIdentificationCodeEIC']]
     network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value)
-    logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['ucte_xnode_code'].values}")
+    _hvdc_results.append(pd.concat([scalable_hvdc_target.set_index('lineEnergyIdentificationCodeEIC').value,
+                                    pd.Series({'KEY': 'postscale-setpoint'})]).to_dict())
+    logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].values}")
     for dclink in scalable_hvdc_target.to_dict('records'):
-        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['ucte_xnode_code']}: {round(dclink['value'], 2)} MW")
+        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
@@ -310,21 +193,16 @@ def scale_balance(network: pp.network.Network,
     # _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
     # logger.info(f"[INITIAL] Distributed active power after network balancing: {distributed_power} MW")
 
-    # Get pre-scale AC net positions for each control area
-    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).p.sum()
-    _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
-    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.round().to_dict()}")
-
     # Get pre-scale total network balance by each component -> AC+DC net position
-    prescale_network_np = {k: round(dangling_lines[dangling_lines.country.isin(v['countries'])].p.sum()) for k, v in converged_components.items()}
+    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+    prescale_network_np = {k: round(dangling_lines[dangling_lines.country.isin(v['countries'])].boundary_p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-np', 'GLOBAL': prescale_network_np, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
 
     # Get pre-scale total network balance by each component -> AC net position
     unpaired_dangling_lines = (dangling_lines.isHvdc == '') & (dangling_lines.tie_line_id == '')
-    # TODO discuss which one to use p or p0
-    prescale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").p.sum()) for k, v in converged_components.items()}
+    prescale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").boundary_p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-acnp', 'GLOBAL': prescale_network_acnp, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP by component: {prescale_network_acnp}")
 
@@ -337,7 +215,7 @@ def scale_balance(network: pp.network.Network,
         scheduled_component_acnp = float(target_acnp[target_acnp.index.isin(v['countries'])].sum())
         target_network_acnp[component_key] = round(scheduled_component_acnp)  # preserve for scaling report
         relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("country in @v['countries']")
-        relevant_dangling_lines['participation'] = relevant_dangling_lines.p.abs() / relevant_dangling_lines.p.abs().sum()
+        relevant_dangling_lines['participation'] = relevant_dangling_lines.boundary_p.abs() / relevant_dangling_lines.boundary_p.abs().sum()
         offset_network_acnp = prescale_network_acnp.get(component_key) - scheduled_component_acnp
         prescale_network_acnp_diff = offset_network_acnp * relevant_dangling_lines.participation
         prescale_network_acnp_target = relevant_dangling_lines.p0 - prescale_network_acnp_diff
@@ -356,7 +234,8 @@ def scale_balance(network: pp.network.Network,
 
     # Validate total network AC net position alignment
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").p.sum()) for k, v in converged_components.items()}
+    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+    postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").boundary_p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'postscale-network-acnp', 'GLOBAL': postscale_network_acnp, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP by component: {postscale_network_acnp}")
 
@@ -368,6 +247,11 @@ def scale_balance(network: pp.network.Network,
         prescale_consumption = loads.groupby(_country_col).p.sum()
         _scaling_results.append(pd.concat([prescale_generation, pd.Series({'KEY': 'generation', 'ITER': _iteration})]).to_dict())
         _scaling_results.append(pd.concat([prescale_consumption, pd.Series({'KEY': 'consumption', 'ITER': _iteration})]).to_dict())
+
+    # Get pre-scale AC net positions for each control area
+    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
+    _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
+    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.round().to_dict()}")
 
     # Filtering target AC net positions series by present regions in network
     target_acnp = target_acnp[target_acnp.index.isin(prescale_acnp.index)]
@@ -443,12 +327,13 @@ def scale_balance(network: pp.network.Network,
 
         # Get post-scale AC net position
         dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).p.sum()
+        dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
         _scaling_results.append(pd.concat([postscale_acnp, pd.Series({'KEY': 'postscale-acnp', 'ITER': _iteration})]).to_dict())
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {postscale_acnp.round().to_dict()}")
 
         # Get post-scale total network balance
-        prescale_total_np = dangling_lines.p.sum()
+        prescale_total_np = dangling_lines.boundary_p.sum()
         logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
 
         # Get offset between target and post-scale AC net position
@@ -467,9 +352,30 @@ def scale_balance(network: pp.network.Network,
 
     # Post-processing scaling results dataframe
     ac_scaling_results_df = pd.DataFrame(_scaling_results).set_index('ITER').sort_index().round(2)
-    network.ac_scaling_results_df = ac_scaling_results_df
+    hvdc_results_df = pd.DataFrame(_hvdc_results).round(2)
 
-    return network
+    # Process data for merge report
+    filtered_df = ac_scaling_results_df.query("KEY in ['prescale-acnp', 'postscale-acnp', 'offset-acnp']")
+    filtered_df = filtered_df.loc[[0, filtered_df.index.max()]]
+    filtered_df = filtered_df.drop(columns='GLOBAL')
+    filtered_df.loc[(filtered_df.index == 0) & (filtered_df['KEY'] == 'offset-acnp'), 'KEY'] = 'initial-offset-acnp'
+    filtered_df.loc[(filtered_df.index != 0) & (filtered_df['KEY'] == 'offset-acnp'), 'KEY'] = 'final-offset-acnp'
+    filtered_df['KEY'] = filtered_df['KEY'].str.replace('-', '_')
+    ac_melted_df = filtered_df.melt(id_vars=['KEY'], var_name='area', value_name='value')
+    ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
+    ac_pivoted_df['success'] = abs(ac_pivoted_df['final_offset_acnp']) <= int(BALANCE_THRESHOLD)
+    ac_scale_report_dict = ac_pivoted_df.to_dict('records')
+
+    hvdc_results_df['KEY'] = hvdc_results_df['KEY'].str.replace('-', '_')
+    hvdc_melted_df = hvdc_results_df.melt(id_vars=['KEY'], var_name='name', value_name='value')
+    hvdc_pivoted_df = hvdc_melted_df.pivot(index='name', columns='KEY', values='value').reset_index()
+    hvdc_scale_report_dict = hvdc_pivoted_df.astype(object).where(pd.notna(hvdc_pivoted_df), None).to_dict('records')
+
+    # Include data in merge report
+    model.scaled_entity = ac_scale_report_dict
+    model.scaled_hvdc = hvdc_scale_report_dict
+
+    return model
 
 
 def hvdc_schedule_mapper(row, country_col_name: str = 'country'):
@@ -497,6 +403,9 @@ if __name__ == "__main__":
     # Testing
     import sys
 
+    class MergedModel:
+        pass
+
     logging.basicConfig(
         format='%(levelname) -10s %(asctime) -20s %(name) -35s %(funcName) -35s %(lineno) -5d: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
@@ -504,12 +413,14 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    model_path = r"C:\Users\martynas.karobcikas\Documents\models\cgm\cgm.zip"
+    model_path = r"C:\Users\martynas.karobcikas\Documents\models\rmm\rmm_05_001_20250214T0330Z.zip"
     network = pp.network.load(model_path, parameters={"iidm.import.cgmes.source-for-iidm-id": "rdfID"})
+    merged_model = MergedModel()
+    merged_model.network = network
 
     # Query target schedules
-    ac_schedules = query_acnp_schedules(time_horizon="1D", scenario_timestamp="2025-01-03T13:30:00Z")
-    dc_schedules = query_hvdc_schedules(time_horizon="1D", scenario_timestamp="2025-01-03T13:30:00Z")
+    ac_schedules = query_acnp_schedules(time_horizon="ID", scenario_timestamp="2025-02-14T03:30:00Z")
+    dc_schedules = query_hvdc_schedules(time_horizon="ID", scenario_timestamp="2025-02-14T03:30:00Z")
 
     # dc_schedules = [{'value': 350,
     #                  'in_domain': None,
@@ -527,13 +438,13 @@ if __name__ == "__main__":
     #     {"value": 100, "in_domain": None, "out_domain": "LV"},
     # ]
 
-    network = scale_balance(network=network, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
-    print(network.ac_scaling_results_df)
+    network = scale_balance(model=merged_model, ac_schedules=ac_schedules, dc_schedules=dc_schedules, debug=True)
+    # print(network.ac_scaling_results_df)
 
-    # Results analysis
-    print(network.ac_scaling_results_df.query("KEY == 'generation'"))
-    print(network.ac_scaling_results_df.query("KEY == 'consumption'"))
-    print(network.ac_scaling_results_df.query("KEY == 'offset-acnp'"))
+    # # Results analysis
+    # print(network.ac_scaling_results_df.query("KEY == 'generation'"))
+    # print(network.ac_scaling_results_df.query("KEY == 'consumption'"))
+    # print(network.ac_scaling_results_df.query("KEY == 'offset-acnp'"))
 
     # Other examples
     # loads = network.get_loads(id=network.get_elements_ids(element_type=pp.network.ElementType.LOAD, countries=['LT'])
