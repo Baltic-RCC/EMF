@@ -37,6 +37,21 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
+FROM emfos-base as emfos-model-validator
+
+# Set working directory
+WORKDIR /src
+
+# Copy files to container
+COPY emf/loadflow_tool/ ./emf/loadflow_tool/
+COPY emf/common/ ./emf/common/
+COPY config/ ./config/
+
+# Start process
+ENV PYTHONPATH="${PYTHONPATH}:/src"
+ENTRYPOINT ["python", "emf/loadflow_tool/model_validator/worker.py"]
+#ENTRYPOINT ["/bin/bash"]
+
 FROM emfos-base as emfos-model-merger
 
 # Set working directory

@@ -2,20 +2,14 @@ import logging
 import config
 from io import BytesIO
 from zipfile import ZipFile
-from typing import List
 import json
 
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
-from emf.common.integrations.object_storage import models
-from emf.common.converters import opdm_metadata_to_json
-from emf.loadflow_tool.model_validator.validator import validate_model
-from emf.loadflow_tool.helper import load_opdm_data
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
-parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.validator)
 
 
 class HandlerModelsToMinio:
@@ -24,12 +18,12 @@ class HandlerModelsToMinio:
         self.opdm_service = opdm.OPDM()
         self.minio_service = minio_api.ObjectStorage()
 
-    def handle(self, opdm_objects: dict, **kwargs):
+    def handle(self, message: bytes, properties: dict, **kwargs):
+
         # Load from binary to json
-        opdm_objects = json.loads(opdm_objects)
+        opdm_objects = json.loads(message)
 
         # Download each OPDM object network model from OPDE
-        updated_opdm_objects = []
         for opdm_object in opdm_objects:
 
             # Get model from OPDM
@@ -62,128 +56,31 @@ class HandlerModelsToMinio:
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
-            # TODO backup solution
-            # Put all components to bytesio zip (all components to one zip)
-            # output_object = BytesIO()
-            # with ZipFile(output_object, "w") as global_zip:
-            #     for instance in response['opde:Component']:
-            #         with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
-            #             for file_name in instance_zip.namelist():
-            #                 logger.debug(f"Adding file: {file_name}")
-            #                 global_zip.writestr(file_name, instance_zip.open(file_name).read())
-
-            # Upload model to minio storage
-            # _name = f"{opdm_object['opde:Object-Type']}_{opdm_object['pmd:validFrom']}_{opdm_object['pmd:timeHorizon']}_{opdm_object['pmd:TSO']}_{opdm_object['pmd:versionNumber']}.zip"
-            # output_object.name = opdm_object['pmd:content-reference']
-            # minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
-
-            updated_opdm_objects.append(opdm_object)
-
-        return updated_opdm_objects
+        return message, properties
 
 
-class HandlerModelsStat:
+class HandlerModelsToValidator:
 
     def __init__(self):
-        self.opdm_service = opdm.OPDM()
+        pass
 
-    def handle(self, opdm_objects: List[dict], **kwargs):
+    def handle(self, message: bytes, properties: dict, **kwargs):
 
-        # Get the latest boundary set for validation
-        latest_boundary = models.get_latest_boundary()
+        # Load from binary to json
+        opdm_objects = json.loads(message)
 
-        if not latest_boundary:
-            latest_boundary = self.opdm_service.get_latest_boundary()
-
-        # Extract statistics
         for opdm_object in opdm_objects:
-            stat = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
-            opdm_object['total_load'] = stat['total_load']
-            opdm_object['generation'] = stat['generation']
-            opdm_object['losses'] = stat['losses']
-            opdm_object['losses_coefficient'] = stat['losses_coefficient']
-            opdm_object['acnp'] = stat['tieflow_acnp']['EquivalentInjection.p']
-            opdm_object['hvdc'] = {key: value['EquivalentInjection.p'] for key, value in stat["tieflow_hvdc"].items()}
+            # Append message headers with OPDM root metadata
+            extracted_meta = {key: value for key, value in opdm_object.items() if isinstance(value, str)}
+            properties.headers.update(extracted_meta)
 
-        return opdm_objects
+        # Publish to other queue/exchange
+        rmq_channel = kwargs.get('channel', None)
+        if rmq_channel:
+            logger.info(f"Publishing message to exchange/queue: {OUTPUT_RMQ_QUEUE}")
+            rmq_channel.basic_publish(exchange='', routing_key=OUTPUT_RMQ_QUEUE, body=message, properties=properties)
 
-
-class HandlerModelsValidator:
-
-    def __init__(self):
-        self.opdm_service = opdm.OPDM()
-
-    def handle(self, opdm_objects: List[dict], **kwargs):
-
-        # Get the latest boundary set for validation
-        latest_boundary = models.get_latest_boundary()
-
-        if not latest_boundary:
-            latest_boundary = self.opdm_service.get_latest_boundary()
-
-        logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
-
-        # Run network model validation
-        for opdm_object in opdm_objects:
-            try:
-                response = validate_model(opdm_objects=[opdm_object, latest_boundary])
-                opdm_object["valid"] = response["valid"]  # taking only relevant data from validation step
-            except Exception as error:
-                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
-                opdm_object["valid"] = False
-
-        return opdm_objects
-
-
-class HandlerMetadataToElastic:
-    # TODO might be one generic elastic handler
-    """Handler to send OPDM metadata object to Elastic"""
-    def __init__(self):
-        self.elastic_service = elastic.HandlerSendToElastic(index=ELK_INDEX,
-                                                            id_from_metadata=True,
-                                                            id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','))
-
-    def handle(self, opdm_objects: List[dict], **kwargs):
-
-        # pop out initial binary network model data
-        for opdm_object in opdm_objects:
-            for component in opdm_object['opde:Component']:
-                component['opdm:Profile'].pop('DATA')
-
-        self.elastic_service.handle(byte_string=json.dumps(opdm_objects, default=str).encode('utf-8'),
-                                    properties=kwargs.get('properties'))
-        logger.info(f"Network model metadata sent to object-storage.elk")
-
-        return opdm_objects
-
-
-def get_opdm_object_from_edx(message_type: str, edx_service: object):
-
-    message = edx_service.receive_message(message_type)
-    if not message.receivedMessage:
-        logger.info(f"No messages available with message type: {message_type}")
-        return None, None
-
-    logger.info(f"Downloading message with ID: {message.receivedMessage.messageID}")
-
-    # Extract data
-    body = message.receivedMessage.content
-
-    # Extract metadata
-    properties = dict(message.receivedMessage.__values__)
-    properties.pop('content', None)
-
-    logger.info(f'Received message with metadata {properties}', extra=properties)
-
-    # Convert message to json
-    body, content_type = opdm_metadata_to_json.convert(body)
-    logger.info(f"Message converted to: {content_type}")
-
-    # ACK/Mark message received and move to next one
-    edx_service.confirm_received_message(message.receivedMessage.messageID)
-    logger.info(f"Number of messages left {message.remainingMessagesCount}")
-
-    return body, properties
+        return message, properties
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@ import config
 import uuid
 from emf.common.logging import custom_logger
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import edx, elastic, rabbit
+from emf.common.integrations import edx, rabbit
+from emf.common.integrations.elastic import HandlerSendToElastic
 from emf.common.converters import iec_schedule_to_ndjson
 
 import sys
@@ -25,13 +26,13 @@ parse_app_properties(caller_globals=globals(), path=config.paths.schedule_retrie
 # service.run()
 
 # Transfer schedules from RabbitMQ to Elk
-elk_handler = elastic.HandlerSendToElastic(index=ELK_INDEX,
+consumer = rabbit.RMQConsumer(
+    queue=RMQ_QUEUE,
+    message_converter=iec_schedule_to_ndjson,
+    message_handlers=[HandlerSendToElastic(index=ELK_INDEX,
                                            id_from_metadata=True,
                                            id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','))
-consumer = rabbit.RMQConsumer(
-    que=RMQ_QUEUE,
-    message_converter=iec_schedule_to_ndjson,
-    message_handlers=[elk_handler],
+                      ]
 )
 try:
     consumer.run()
