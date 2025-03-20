@@ -90,6 +90,7 @@ def create_opdm_objects(models: list, metadata=None, key_profile="SV") -> list:
             opdm_profile = opdm_metadata_from_filename(profile_instance.name)
             opdm_profile.update(opdm_metadata_from_rdfxml(get_xml_from_zip(profile_instance)))
             opdm_profile['pmd:fileName'] = profile_instance.name
+            opdm_profile["pmd:content-reference"] = generate_OPDM_ContentReference_from_filename(profile_instance.name)
 
             # Check if key profile and add to main object metadata
             if opdm_profile.get('pmd:cgmesProfile') == key_profile:
