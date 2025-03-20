@@ -264,7 +264,7 @@ def set_task_version(task, set_manual_version, elk_index='emfos-tasks*'):
                 task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
             elif set_manual_version:
                 if int(latest_version) > int(task['task_properties']['version']):
-                    logger.error("Set task version was too low, for next run increase task version")
+                    logger.error(f"Set task version {int(task['task_properties']['version'])} was too low (index gave {int(latest_version)}, for next run increase task version")
                     raise Exception
     except:
         task = None
