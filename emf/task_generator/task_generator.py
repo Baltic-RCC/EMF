@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 import logging
 from os import getlogin
+import sys
 
 logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
