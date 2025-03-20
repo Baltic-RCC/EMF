@@ -557,12 +557,17 @@ def compare_two_dataframes(report_one: ModelReport,
     count_dataframe = pandas.DataFrame([{'Both': both_all_count,
                                          left_side + ' unique': left_only_count,
                                          right_side + ' unique': right_only_count}])
-
-    count_dataframe.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=0)
-    row_counter = 3
+    workbook = writer.book
+    worksheet = workbook.add_worksheet(sheet_name)
+    # worksheet = writer.sheets[sheet_name]
+    worksheet.write_string(0, 0, f"Count of elements")
+    count_dataframe.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=0)
+    row_counter = 4
     col_counter = 5
 
     if not left_only.empty:
+        worksheet.write_string(row_counter, 0, f"Unique elements from {left_side}")
+        row_counter = row_counter + 1
         left_only_columns = [column for column in left_only.columns.to_list() if column.endswith(left_side)]
         left_only_columns = [column for column in left_only_columns if not ' id' in column]
         left_only = left_only[left_only_columns].reset_index(drop=True)
@@ -573,6 +578,8 @@ def compare_two_dataframes(report_one: ModelReport,
         row_counter = row_counter + 2 + row_count
 
     if not right_only.empty:
+        worksheet.write_string(row_counter, 0, f"Unique elements from {right_side}")
+        row_counter = row_counter + 1
         right_only_columns = [column for column in right_only.columns.to_list() if column.endswith(right_side)]
         right_only_columns = [column for column in right_only_columns if not ' id' in column]
         right_only = right_only[right_only_columns].reset_index(drop=True)
@@ -592,14 +599,14 @@ def compare_two_dataframes(report_one: ModelReport,
     diff_data_frame = both_all[list(name_left_columns.keys()) +
                                list(calc_columns.values())].rename(columns=name_left_columns)
     diff_data_frame = diff_data_frame.reset_index(drop=True)
-    diff_data_frame.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=col_counter)
+    worksheet.write_string(0, col_counter, f"Calculated difference from common elements")
+    diff_data_frame.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=col_counter)
 
     col_counter = col_counter + len(diff_data_frame.columns.to_list()) + 2
     diff_data_frame_description = diff_data_frame.describe().reset_index()
-    diff_data_frame_description.to_excel(writer, sheet_name=sheet_name, startrow=0, startcol=col_counter)
-    row_counter = len(diff_data_frame_description.index) + 2
-
-    worksheet = writer.sheets[sheet_name]
+    worksheet.write_string(0, col_counter, f"Statistics of difference of common elements")
+    diff_data_frame_description.to_excel(writer, sheet_name=sheet_name, startrow=1, startcol=col_counter)
+    row_counter = len(diff_data_frame_description.index) + 3
     largest_rows = 10
     for data_column in calc_columns.keys():
         max_rows = diff_data_frame.nlargest(largest_rows, columns=[calc_columns[data_column]])
@@ -610,7 +617,8 @@ def compare_two_dataframes(report_one: ModelReport,
 
     corr_dataframe = both_all[[data_column + side for data_column in data_columns for side in sides]]
     corr_matrix = corr_dataframe.corr()
-    corr_matrix.to_excel(writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+    worksheet.write_string(row_counter, col_counter, f"Correlation matrix of difference of common elements")
+    corr_matrix.to_excel(writer, sheet_name=sheet_name, startrow=row_counter + 1, startcol=col_counter)
 
 
 if __name__ == '__main__':
