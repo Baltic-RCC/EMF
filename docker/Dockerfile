@@ -34,7 +34,7 @@ COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/model_retriever/worker.py"]
+ENTRYPOINT ["python", "emf/model_retriever/opdm_worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
 FROM emfos-base as emfos-model-validator

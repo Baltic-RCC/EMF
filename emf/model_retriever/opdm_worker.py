@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid4())})
 
 import config
-from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsToValidator
+from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsToValidator, HandlerModelsFromOPDM
 from emf.common.integrations.elastic import HandlerSendToElastic
 from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
@@ -22,6 +22,7 @@ consumer = rabbit.RMQConsumer(
     message_handlers=[HandlerSendToElastic(index=METADATA_ELK_INDEX,
                                            id_from_metadata=True,
                                            id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(',')),
+                      HandlerModelsFromOPDM(),
                       HandlerModelsToMinio(),
                       HandlerModelsToValidator()],
 )
