@@ -12,7 +12,7 @@ import triplets
 import pandas
 from uuid import uuid4
 import config
-from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, \
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, export_model, \
     get_network_elements
 from emf.loadflow_tool import loadflow_settings
 from aniso8601 import parse_datetime
@@ -132,19 +132,6 @@ def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
     return triplets_data
 
 
-def is_valid_uuid(uuid_value):
-    """
-    Checks if input is uuid value
-    For merged SV profile the output uuid can be combination of several existing uuids
-    :param uuid_value: input value
-    :return
-    """
-    try:
-        uuid.UUID(str(uuid_value))
-        return True
-    except ValueError:
-        return False
-
 
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
@@ -172,7 +159,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
     sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data)
 
     # Update
-    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
+    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_opdm_metadata(opdm_object_meta))
     sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
 
     # Update metadata

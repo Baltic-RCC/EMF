@@ -1,7 +1,7 @@
 import os
 
 import logging
-from emf.loadflow_tool.helper import metadata_from_filename
+from emf.loadflow_tool.helper import opdm_metadata_from_filename
 
 OPDE_COMPONENT_KEYWORD = 'opde:Component'
 OPDM_PROFILE_KEYWORD = 'opdm:Profile'
@@ -69,7 +69,7 @@ def get_meta_from_filename(file_name: str):
             if key in fixed_file_name:
                 fixed_file_name = fixed_file_name.replace(key, BOUNDARY_FILE_TYPE_FIX[key])
         # meta_data = get_metadata_from_filename(fixed_file_name)
-        meta_data = metadata_from_filename(fixed_file_name)
+        meta_data = opdm_metadata_from_filename(fixed_file_name)
         # Revert back cases where there is a '-' in TSO's name like ENTSO-E
         for case in SPECIAL_TSO_NAME:
             if case in fixed_file_name:
