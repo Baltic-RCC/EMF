@@ -3,6 +3,9 @@ import config
 from io import BytesIO
 from zipfile import ZipFile
 import json
+import triplets
+
+from emf.loadflow_tool.helper import zip_xml, create_opdm_objects
 
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
@@ -22,13 +25,31 @@ class HandlerModelsFromOPDM:
         for opdm_object in opdm_objects:
             self.opdm_service.download_object(opdm_object=opdm_object)
 
-        return opdm_object, properties
+        return opdm_objects, properties
+
+
+class HandlerModelsFromBytesIO:
+    def handle(self, message: bytes, properties: dict, **kwargs):
+
+        rdfxml_files = triplets.rdf_parser.find_all_xml([BytesIO(message)])
+
+        # Repackage to form of zip(xml)
+        rdfzip_files = []
+        for xml in rdfxml_files:
+            rdfzip_files.append(zip_xml(xml))
+
+        # Create OPDM objects
+        opdm_objects = create_opdm_objects([rdfzip_files])
+
+        for opdm_object in opdm_objects:
+            self.opdm_service.download_object(opdm_object=opdm_object)
+
+        return opdm_objects, properties
 
 
 class HandlerModelsToMinio:
 
     def __init__(self):
-        self.opdm_service = opdm.OPDM()
         self.minio_service = minio_api.ObjectStorage()
 
     def handle(self, message: bytes, properties: dict, **kwargs):
@@ -56,6 +77,7 @@ class HandlerModelsToMinio:
                         continue
 
                 # Put content data into bytes object
+                # TODO: This seems excessive should be just output_object = BytesIO(component['opdm:Profile']['DATA'])
                 output_object = BytesIO()
                 with ZipFile(output_object, "w") as component_zip:
                     with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
@@ -63,12 +85,15 @@ class HandlerModelsToMinio:
                             logger.debug(f"Adding file: {file_name}")
                             component_zip.writestr(file_name, profile_zip.open(file_name).read())
 
+                # Deleta data
+                component['opdm:Profile']['DATA'] = ""
+
                 # Upload components to minio storage
                 output_object.name = content_reference
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
-        return message, properties
+        return json.dumps(opdm_objects), properties
 
 
 class HandlerModelsToValidator:
