@@ -11,6 +11,19 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
+class HandlerModelsFromOPDM:
+    def __init__(self):
+        self.opdm_service = opdm.OPDM()
+
+    def handle(self, message: bytes, properties: dict, **kwargs):
+        # Load from binary to json
+        opdm_objects = json.loads(message)
+
+        for opdm_object in opdm_objects:
+            self.opdm_service.download_object(opdm_object=opdm_object)
+
+        return opdm_object, properties
+
 
 class HandlerModelsToMinio:
 
@@ -20,14 +33,13 @@ class HandlerModelsToMinio:
 
     def handle(self, message: bytes, properties: dict, **kwargs):
 
-        # Load from binary to json
-        opdm_objects = json.loads(message)
+        opdm_objects = message
+
+        if isinstance(message, bytes):
+            opdm_objects = json.loads(message)
 
         # Download each OPDM object network model from OPDE
         for opdm_object in opdm_objects:
-
-            # Get model from OPDM
-            self.opdm_service.download_object(opdm_object=opdm_object)
 
             # Put all components to bytesio zip (each component to different zip)
             for component in opdm_object['opde:Component']:
