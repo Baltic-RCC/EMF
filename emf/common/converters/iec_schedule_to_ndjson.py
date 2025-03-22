@@ -25,6 +25,27 @@ def convert(input_document):
         logger.error(f"Could not parse {input_document}")
 
 
+def expand_dotted_keys(data: dict):
+    expanded = {}
+    for key, value in data.items():
+        if "." not in key:
+            expanded[key] = value
+            continue
+
+        parts = key.split(".")
+        d = expanded
+
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:
+                d[part] = value
+            else:
+                if part not in d or not isinstance(d[part], dict):
+                    d[part] = {}
+                d = d[part]
+
+    return expanded
+
+
 def get_metadata_from_xml(xml, include_namespace=True, prefix_root=False):
     """Extract all metadata present in XML root element
     Input -> xml as lxml tree
@@ -78,7 +99,7 @@ def get_metadata_from_xml(xml, include_namespace=True, prefix_root=False):
     return properties_dict
 
 
-def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H'):
+def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H', dot_expander: bool = True):
     """Parses iec xml to dictionary, meta on the same row with value and start/end time"""
     # TODO make return_values_per_mtu argument in parameters
     # TODO - maybe first analyse the xml, by getting all elements and try to match names, ala point_element_name = unique_element_namelist.contains("point") etc.
@@ -107,9 +128,8 @@ def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_r
         # whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta, **source_meta}
         whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta}
 
-        # DEBUG
-        #for key, value in whole_meta.items():
-        #    logger.debug(key, value)
+        if dot_expander:
+            whole_meta = expand_dotted_keys(whole_meta)
 
         curve_type = whole_meta.get("TimeSeries.curveType", "A01")
         resolution = aniso8601.parse_duration(period.find('{*}resolution').text)
