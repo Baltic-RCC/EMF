@@ -387,7 +387,7 @@ class HandlerMergeModels:
 
         # Update merged model attributes
         merged_model.loadflow_settings = MERGE_LOAD_FLOW_SETTINGS
-        merged_model.duration_s = (merge_end - merge_start).total_seconds()
+        merged_model.duration_s = (end_time - merge_start).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
         # Send merge report to Elastic
