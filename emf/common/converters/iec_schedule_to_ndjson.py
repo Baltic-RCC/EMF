@@ -99,7 +99,7 @@ def get_metadata_from_xml(xml, include_namespace=True, prefix_root=False):
     return properties_dict
 
 
-def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H', dot_expander: bool = True):
+def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H'):
     """Parses iec xml to dictionary, meta on the same row with value and start/end time"""
     # TODO make return_values_per_mtu argument in parameters
     # TODO - maybe first analyse the xml, by getting all elements and try to match names, ala point_element_name = unique_element_namelist.contains("point") etc.
@@ -127,9 +127,6 @@ def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_r
 
         # whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta, **source_meta}
         whole_meta = {**message_header, **message_status, **timeseries_meta, **period_meta, **reason_meta}
-
-        if dot_expander:
-            whole_meta = expand_dotted_keys(whole_meta)
 
         curve_type = whole_meta.get("TimeSeries.curveType", "A01")
         resolution = aniso8601.parse_duration(period.find('{*}resolution').text)
