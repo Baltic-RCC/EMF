@@ -297,6 +297,7 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
         except Exception as e:
             logger.error((e, outage['name']))
             merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages = False
             continue
 
     return merged_model

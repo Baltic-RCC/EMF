@@ -2,6 +2,7 @@ import uuid
 import zipfile
 import math
 from io import BytesIO
+from typing import List, Dict
 import pypowsybl
 import logging
 import json
@@ -506,6 +507,50 @@ def generate_merge_report(merged_model: object, task: dict):
 
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
+
+    # Evaluate model trustability based on defined config and report keys
+    task_properties = task['task_properties']
+    report_keys = ['scaled', 'replaced', 'outages']
+    property_keys = ['scaling', 'replacement', 'force_outage_fix']
+    report = evaluate_trustability(report, task_properties, report_keys, property_keys)
+
+    return report
+
+
+def evaluate_trustability(report: Dict, properties: Dict, report_keys: List[str], property_keys: List[str]) -> Dict:
+    # Fix non bool values
+
+    # Inline logic functions
+    key_true = lambda key: lambda d: bool(d.get(key))
+    not_ = lambda rule: lambda d: not rule(d)
+    all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
+    any_ = lambda *rules: lambda d: any(rule(d) for rule in rules)
+
+    # Compose conditions
+    config_all_true = all_(*(key_true(k) for k in property_keys))
+    success_all_false = all_(*(not_(key_true(k)) for k in report_keys))
+    success_all_true = all_(*(key_true(k) for k in report_keys))
+
+    failures_all_false = None
+    scaling_successful = None
+    loadflow_converged = None
+    all_models_present = None
+    outages_fixed = None
+
+    no_failures = True
+
+    # Evaluate logic
+    config_true = config_all_true(properties)
+    success_all_false = success_all_false(report)
+    success_all_true = success_all_true(report)
+
+    # Decide trust level
+    if config_true and success_all_false and no_failures:
+        report["trustability"] = "trusted"
+    elif config_true and success_all_true and no_failures:
+        report["trustability"] = "semi-trusted"
+    else:
+        report["trustability"] = "untrusted"
 
     return report
 
