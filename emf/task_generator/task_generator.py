@@ -94,11 +94,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
 
                 # Get the reference time for the current timestamp in the time frame.
-                reference_time = reference_times[time_frame["reference_time"]](run_timestamp)
+                reference_time_start = reference_times[time_frame["reference_time_start"]](run_timestamp)
+                reference_time_end = reference_times[time_frame["reference_time_end"]](run_timestamp)
 
                 # Calculate the start and end of the period for the current task.
-                job_period_start = reference_time + parse_duration(time_frame["period_start"])
-                job_period_end = job_period_start + parse_duration(time_frame["period_duration"])
+                job_period_start = reference_time_start + parse_duration(time_frame["period_start"])
+                job_period_end = reference_time_end + parse_duration(time_frame["period_end"])
 
                 # Convert the period start and end times to UTC.
                 job_period_start_utc = convert_to_utc(job_period_start)
