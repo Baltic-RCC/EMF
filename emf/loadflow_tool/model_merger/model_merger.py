@@ -286,6 +286,7 @@ class HandlerMergeModels:
         # Run loadflow on merged model
         merged_model = merge_functions.run_lf(merged_model=merged_model,
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Perform scaling
         if model_scaling:
@@ -301,8 +302,8 @@ class HandlerMergeModels:
             else:
                 logger.warning(f"Schedule reference data not available, skipping model scaling")
 
+        # Record main merging process end
         merge_end = datetime.datetime.now(datetime.UTC)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
         new_time_horizon = None
