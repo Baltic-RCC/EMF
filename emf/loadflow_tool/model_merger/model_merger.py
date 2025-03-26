@@ -298,7 +298,6 @@ class HandlerMergeModels:
                                                     ac_schedules=ac_schedules,
                                                     dc_schedules=dc_schedules,
                                                     lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-                merged_model.scaled = True
             else:
                 logger.warning(f"Schedule reference data not available, skipping model scaling")
 
