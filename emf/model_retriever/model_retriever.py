@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
+
 class HandlerModelsFromOPDM:
+
     def __init__(self):
         self.opdm_service = opdm.OPDM()
 
@@ -29,9 +31,15 @@ class HandlerModelsFromOPDM:
 
 
 class HandlerModelsFromBytesIO:
+
+    def __init__(self):
+        pass
+
     def handle(self, message: bytes, properties: dict, **kwargs):
 
-        rdfxml_files = triplets.rdf_parser.find_all_xml([BytesIO(message)])
+        message_content = BytesIO(message)
+        message_content.name = 'unknown.zip'
+        rdfxml_files = triplets.rdf_parser.find_all_xml([message_content])
 
         # Repackage to form of zip(xml)
         rdfzip_files = []
@@ -39,10 +47,7 @@ class HandlerModelsFromBytesIO:
             rdfzip_files.append(zip_xml(xml))
 
         # Create OPDM objects
-        opdm_objects = create_opdm_objects([rdfzip_files])
-
-        for opdm_object in opdm_objects:
-            self.opdm_service.download_object(opdm_object=opdm_object)
+        opdm_objects = create_opdm_objects([rdfzip_files], metadata={"data-source": "PDN"})
 
         return opdm_objects, properties
 
@@ -74,19 +79,14 @@ class HandlerModelsToMinio:
                     profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
                     if profile_exist:
                         logger.info(f"Profile already stored in object storage: {content_reference}")
+                        component['opdm:Profile']['DATA'] = None
                         continue
 
                 # Put content data into bytes object
-                # TODO: This seems excessive should be just output_object = BytesIO(component['opdm:Profile']['DATA'])
-                output_object = BytesIO()
-                with ZipFile(output_object, "w") as component_zip:
-                    with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
-                        for file_name in profile_zip.namelist():
-                            logger.debug(f"Adding file: {file_name}")
-                            component_zip.writestr(file_name, profile_zip.open(file_name).read())
+                output_object = BytesIO(component['opdm:Profile']['DATA'])
 
-                # Deleta data
-                component['opdm:Profile']['DATA'] = ""
+                # Delete data
+                component['opdm:Profile']['DATA'] = None
 
                 # Upload components to minio storage
                 output_object.name = content_reference
