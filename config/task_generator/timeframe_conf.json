@@ -3,10 +3,20 @@
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/ID",
         "@type": "https://example.com/timeHorizon",
-        "description": "Process running continuously within given day, covering the rest of the day",
+        "description": "Process running for current day, covering from next hour until end of the day",
         "reference_time_start": "currentHourStart",
         "reference_time_end": "currentDayStart",
         "period_start": "PT1H",
+        "period_end": "P1D"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/D-0",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running for current day, covering the whole day",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
+        "period_start": "P0D",
         "period_end": "P1D"
     },
     {
