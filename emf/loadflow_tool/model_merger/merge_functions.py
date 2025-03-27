@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 SV_INJECTION_LIMIT = 0.1
 
 
+def is_valid_uuid(uuid_value):
+    """
+    Checks if input is uuid value
+    For merged SV profile the output uuid can be combination of several existing uuids
+    :param uuid_value: input value
+    :return
+    """
+    try:
+        uuid.UUID(str(uuid_value))
+        return True
+    except ValueError:
+        return False
+
+
 def run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT):
 
     # report = pypowsybl.report.Reporter()
