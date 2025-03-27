@@ -12,8 +12,11 @@ import datetime
 import triplets
 import pandas
 from uuid import uuid4
+
+from zeep.xsd import Boolean
+
 import config
-from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_metadata, attr_to_dict, export_model, \
+from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, export_model, \
     get_network_elements
 from emf.loadflow_tool import loadflow_settings
 from aniso8601 import parse_datetime
@@ -133,19 +136,6 @@ def revert_ids_back(exported_model, triplets_data, revert_ids: bool = True):
     return triplets_data
 
 
-def is_valid_uuid(uuid_value):
-    """
-    Checks if input is uuid value
-    For merged SV profile the output uuid can be combination of several existing uuids
-    :param uuid_value: input value
-    :return
-    """
-    try:
-        uuid.UUID(str(uuid_value))
-        return True
-    except ValueError:
-        return False
-
 
 def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets, scenario_date, time_horizon, version, merging_area, merging_entity, mas):
 
@@ -173,7 +163,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
     sv_data = revert_ids_back(exported_model=exported_model, triplets_data=sv_data)
 
     # Update
-    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_metadata(opdm_object_meta))
+    sv_data.set_VALUE_at_KEY(key='label', value=filename_from_opdm_metadata(opdm_object_meta))
     sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
 
     # Update metadata
@@ -184,12 +174,12 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Check and fix SV id
     updated_sv_id_map = {}
-    for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
-        if not is_valid_uuid(old_id):
-            new_id = str(uuid4())
-            updated_sv_id_map[old_id] = new_id
-            logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
-    sv_data = sv_data.replace(updated_sv_id_map)
+    # for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
+    #     if not is_valid_uuid(old_id):
+    #         new_id = str(uuid4())
+    #         updated_sv_id_map[old_id] = new_id
+    #         logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
+    # sv_data = sv_data.replace(updated_sv_id_map)
 
     ### SSH ##
 
@@ -508,51 +498,44 @@ def generate_merge_report(merged_model: object, task: dict):
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
 
-    # Evaluate model trustability based on defined config and report keys
-    task_properties = task['task_properties']
-    report_keys = ['scaled', 'replaced', 'outages']
-    property_keys = ['scaling', 'replacement', 'force_outage_fix']
-    report = evaluate_trustability(report, task_properties, report_keys, property_keys)
+    report["trustability"] = evaluate_trustability(report, task['task_properties'])
 
     return report
 
 
-def evaluate_trustability(report: Dict, properties: Dict, report_keys: List[str], property_keys: List[str]) -> Dict:
-    # Fix non bool values
+def evaluate_trustability(report, properties):
 
-    # Inline logic functions
-    key_true = lambda key: lambda d: bool(d.get(key))
-    not_ = lambda rule: lambda d: not rule(d)
-    all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
-    any_ = lambda *rules: lambda d: any(rule(d) for rule in rules)
+    if properties["merge_type"] == "BA":
+        # Evaluate model trustability based on defined config and report keys
+        report_keys = ['scaled', 'replaced', 'outages']
+        property_keys = ['scaling', 'replacement']
 
-    # Compose conditions
-    config_all_true = all_(*(key_true(k) for k in property_keys))
-    success_all_false = all_(*(not_(key_true(k)) for k in report_keys))
-    success_all_true = all_(*(key_true(k) for k in report_keys))
+        # Inline logic functions
+        key_true = lambda key: lambda d: bool(d.get(key))
+        all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
+        all_none = lambda *keys: lambda d: all(d.get(k) is None for k in keys)
 
-    failures_all_false = None
-    scaling_successful = None
-    loadflow_converged = None
-    all_models_present = None
-    outages_fixed = None
+        # Compose conditions
+        config_all_true = all_(*(key_true(k) for k in property_keys))
+        success_all_true = all_(*(key_true(k) for k in report_keys))
+        success_all_none = all_none(*report_keys)
 
-    no_failures = True
+        # Evaluate logic
+        config_enabled = config_all_true(properties)
+        success_all_true = success_all_true(report)
+        success_all_none = success_all_none(report)
 
-    # Evaluate logic
-    config_true = config_all_true(properties)
-    success_all_false = success_all_false(report)
-    success_all_true = success_all_true(report)
-
-    # Decide trust level
-    if config_true and success_all_false and no_failures:
-        report["trustability"] = "trusted"
-    elif config_true and success_all_true and no_failures:
-        report["trustability"] = "semi-trusted"
+        # Decide trust level
+        if config_enabled and success_all_none:
+            trustability = "trusted"
+        elif config_enabled and success_all_true:
+            trustability = "semi-trusted"
+        else:
+            trustability = "untrusted"
     else:
-        report["trustability"] = "untrusted"
+        trustability = 'not_evaluated'
 
-    return report
+    return trustability
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):

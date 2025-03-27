@@ -18,6 +18,7 @@ jobs:
       matrix:
         worker:
           - emfos-model-retriever
+          - emfos-local-model-retriever
           - emfos-model-validator
           - emfos-model-merger
           - emfos-task-generator
