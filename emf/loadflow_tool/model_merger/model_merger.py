@@ -278,9 +278,10 @@ class HandlerMergeModels:
         if remove_non_generators_from_slack_participation:
             merged_model.network = fix_igm_ssh_vs_cgm_ssh_error(merged_model.network)
 
-        if open_non_retained_switches_between_tn and not between_tn.empty:
-            merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
-                                                            switches_dataframe=between_tn)
+        if open_non_retained_switches_between_tn and isinstance(between_tn, pandas.DataFrame):
+            if not between_tn.empty:
+                merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
+                                                                switches_dataframe=between_tn)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
