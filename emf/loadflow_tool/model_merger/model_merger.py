@@ -68,9 +68,9 @@ class MergedModel:
     loadflow_status: str | None = None
 
     # Status flags
-    scaled: bool = False
-    replaced: bool = False
-    outages: bool = False
+    scaled: bool = None
+    replaced: bool = None
+    outages: bool = None
     uploaded_to_opde: bool = False
     uploaded_to_minio: bool = False
 
@@ -226,9 +226,11 @@ class HandlerMergeModels:
                     merged_model.replaced_entity.extend(replaced_entities)
                     valid_models = valid_models + replacement_models
                     merged_model.replaced = True
-                    # TODO put exclusion_reason logging under replacement
+                else:
+                    merged_model.replaced = False
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
+                merged_model.replaced = False
 
         # Store all relevant models for loading
         valid_models = valid_models + additional_models_data
@@ -278,14 +280,16 @@ class HandlerMergeModels:
         if remove_non_generators_from_slack_participation:
             merged_model.network = fix_igm_ssh_vs_cgm_ssh_error(merged_model.network)
 
-        if open_non_retained_switches_between_tn and not between_tn.empty:
-            merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
-                                                            switches_dataframe=between_tn)
+        if open_non_retained_switches_between_tn and isinstance(between_tn, pandas.DataFrame):
+            if not between_tn.empty:
+                merged_model.network = open_switches_in_network(network_pre_instance=merged_model.network,
+                                                                switches_dataframe=between_tn)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = merge_functions.run_lf(merged_model=merged_model,
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Perform scaling
         if model_scaling:
@@ -294,16 +298,20 @@ class HandlerMergeModels:
             dc_schedules = query_hvdc_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
             # Scale balance if all schedules were received
             if all([ac_schedules, dc_schedules]):
-                merged_model = scaler.scale_balance(model=merged_model,
-                                                    ac_schedules=ac_schedules,
-                                                    dc_schedules=dc_schedules,
-                                                    lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-                merged_model.scaled = True
+                try:
+                    merged_model = scaler.scale_balance(model=merged_model,
+                                                        ac_schedules=ac_schedules,
+                                                        dc_schedules=dc_schedules,
+                                                        lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+                except Exception as e:
+                    logger.error(e)
+                    merged_model.scaled = False
             else:
                 logger.warning(f"Schedule reference data not available, skipping model scaling")
+                merged_model.scaled = False
 
+        # Record main merging process end
         merge_end = datetime.datetime.now(datetime.UTC)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
         new_time_horizon = None
@@ -441,14 +449,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-02-15T08:30:00+00:00",
+            "timestamp_utc": "2025-03-25T08:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ['PSE', 'AST', 'LITGRID'],
+            "included": ["LITGRID"],
             "excluded": [],
-            "local_import": ['ELERING'],
-            "time_horizon": "ID",
-            "version": "99",
+            "local_import": ["ELERING"],
+            "time_horizon": "1D",
+            "version": "00",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
@@ -458,10 +466,10 @@ if __name__ == "__main__":
             "scaling": "True",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
-            "send_merge_report": "False",
-            "force_outage_fix": "True",
+            "send_merge_report": "True",
+            "force_outage_fix": "False",
         }
     }
 
     worker = HandlerMergeModels()
-    finished_task = worker.handle(sample_task)
+    finished_task = worker.handle(sample_task, {})
