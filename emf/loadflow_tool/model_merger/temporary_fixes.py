@@ -277,6 +277,8 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
                     logger.info(f"{outage['name']} {outage['grid_id']} is already connected")
                 else:
                     logger.error(f"Failed to connect outage: {outage['name']} {outage['grid_id']}")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+
         except Exception as e:
             logger.error((e, outage['name']))
             merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
@@ -294,10 +296,16 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
                     logger.info(f"{outage['name']} {outage['grid_id']} is already in outage")
                 else:
                     logger.error(f"Failed to disconnect outage: {outage['name']} {outage['grid_id']}")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+
         except Exception as e:
             logger.error((e, outage['name']))
             merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages = False
             continue
+
+    if merged_model.outages_unmapped:
+        merged_model.outages = False
 
     return merged_model
 

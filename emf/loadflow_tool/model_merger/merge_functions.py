@@ -2,6 +2,7 @@ import uuid
 import zipfile
 import math
 from io import BytesIO
+from typing import List, Dict
 import pypowsybl
 import logging
 import json
@@ -170,12 +171,12 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Check and fix SV id
     updated_sv_id_map = {}
-    for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
-        if not is_valid_uuid(old_id):
-            new_id = str(uuid4())
-            updated_sv_id_map[old_id] = new_id
-            logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
-    sv_data = sv_data.replace(updated_sv_id_map)
+    # for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
+    #     if not is_valid_uuid(old_id):
+    #         new_id = str(uuid4())
+    #         updated_sv_id_map[old_id] = new_id
+    #         logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
+    # sv_data = sv_data.replace(updated_sv_id_map)
 
     ### SSH ##
 
@@ -494,7 +495,44 @@ def generate_merge_report(merged_model: object, task: dict):
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
 
+    report["trustability"] = evaluate_trustability(report, task['task_properties'])
+
     return report
+
+
+def evaluate_trustability(report, properties):
+
+    if properties["merge_type"] == "BA":
+        # Evaluate model trustability based on defined config and report keys
+        report_keys = ['scaled', 'replaced', 'outages']
+        property_keys = ['scaling', 'replacement']
+
+        # Inline logic functions
+        key_true = lambda key: lambda d: bool(d.get(key))
+        all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
+        all_none = lambda *keys: lambda d: all(d.get(k) is None for k in keys)
+
+        # Compose conditions
+        config_all_true = all_(*(key_true(k) for k in property_keys))
+        success_all_true = all_(*(key_true(k) for k in report_keys))
+        success_all_none = all_none(*report_keys)
+
+        # Evaluate logic
+        config_enabled = config_all_true(properties)
+        success_all_true = success_all_true(report)
+        success_all_none = success_all_none(report)
+
+        # Decide trust level
+        if config_enabled and success_all_none:
+            trustability = "trusted"
+        elif config_enabled and success_all_true:
+            trustability = "semi-trusted"
+        else:
+            trustability = "untrusted"
+    else:
+        trustability = 'not_evaluated'
+
+    return trustability
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
