@@ -594,7 +594,7 @@ def get_model_outages(network: pypowsybl.network):
     outage_log.extend(disconnected_dlines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
     outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
 
-    return outage_log
+    return {"outages": outage_log}
 
 
 if __name__ == "__main__":

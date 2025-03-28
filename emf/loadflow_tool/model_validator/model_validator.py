@@ -6,7 +6,7 @@ import time
 import math
 import pypowsybl as pp
 import uuid
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
@@ -164,10 +164,12 @@ class HandlerModelsValidator:
                 network = load_model(opdm_objects=[opdm_object, latest_boundary])
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
+                model_outages = get_model_outages(network)
 
                 # Collect both pre and post loadflow validation reports and merge
                 report.update(pre_lf_validation.report)
                 report.update(post_lf_validation.report)
+                report.update(model_outages)
 
                 # Include relevant metadata fields
                 report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
