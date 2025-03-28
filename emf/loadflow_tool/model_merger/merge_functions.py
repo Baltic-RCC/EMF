@@ -12,9 +12,6 @@ import datetime
 import triplets
 import pandas
 from uuid import uuid4
-
-from zeep.xsd import Boolean
-
 import config
 from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, export_model, \
     get_network_elements
