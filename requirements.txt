@@ -39,3 +39,4 @@ urllib3==2.2.2; python_version >= '3.8'
 wcwidth==0.2.13
 xmltodict==0.13.0; python_version >= '3.4'
 zeep==4.2.1; python_version >= '3.7'
+croniter==6.0.0
