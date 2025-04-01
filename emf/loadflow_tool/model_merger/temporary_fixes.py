@@ -4,7 +4,8 @@ import pandas as pd
 import logging
 
 from emf.common.integrations import elastic
-from emf.loadflow_tool.helper import create_opdm_objects, get_model_outages
+from emf.loadflow_tool.helper import create_opdm_objects
+from emf.loadflow_tool.model_validator.model_statistics import get_model_outages
 from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
                                                             fix_sv_tapsteps, remove_duplicate_sv_voltages,
                                                             remove_small_islands, check_and_fix_dependencies,

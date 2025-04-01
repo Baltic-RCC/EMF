@@ -1,14 +1,11 @@
 from zipfile import ZipFile, ZIP_DEFLATED
 from uuid import uuid4
 from io import BytesIO
-from inspect import ismethod
 from typing import List
 from datetime import datetime
 import pypowsybl
-import json
 import logging
 import pandas
-import os
 from lxml import etree
 import triplets
 import uuid
@@ -568,33 +565,6 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object
-
-
-def get_model_outages(network: pypowsybl.network):
-
-    outage_log = []
-    lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
-    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
-    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
-    lines = lines.merge(_voltage_levels, left_on='voltage_level1_id', right_index=True, suffixes=(None, '_voltage_level'))
-    lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
-    lines['element_type'] = 'Line'
-
-    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    dlines['element_type'] = 'Tieline'
-
-    gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
-    gens['element_type'] = 'Generator'
-
-    disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
-    disconnected_dlines = dlines[dlines['connected'] == False]
-    disconnected_gens = gens[gens['connected'] == False]
-
-    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
-    outage_log.extend(disconnected_dlines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
-    outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
-
-    return {"outages": outage_log}
 
 
 if __name__ == "__main__":

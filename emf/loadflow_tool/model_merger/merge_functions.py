@@ -17,6 +17,7 @@ from emf.loadflow_tool.helper import load_model, load_opdm_data, filename_from_o
 from emf.loadflow_tool import loadflow_settings
 from aniso8601 import parse_datetime
 from emf.common.time_helper import parse_datetime as helper_parse_datetime
+from emf.loadflow_tool.model_validator.model_statistics import get_model_outages
 
 
 logger = logging.getLogger(__name__)
@@ -493,6 +494,10 @@ def generate_merge_report(merged_model: object, task: dict):
 
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
+
+    # Get model outages
+    model_outages = get_model_outages(network)
+    report.update(model_outages)
 
     return report
 

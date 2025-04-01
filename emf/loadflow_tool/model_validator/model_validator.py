@@ -6,7 +6,8 @@ import time
 import math
 import pypowsybl as pp
 import uuid
-from emf.loadflow_tool.helper import attr_to_dict, load_model, get_model_outages
+from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.loadflow_tool.model_validator.model_statistics import get_model_outages
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
@@ -218,17 +219,17 @@ if __name__ == "__main__":
     opdm = OPDM()
     latest_boundary = opdm.get_latest_boundary()
     available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-01-01T09:30",
+                                                           scenario_date="2025-03-29T09:30",
                                                            tso="AST")
     validated_models = []
 
     # Validate models
     for model in available_models:
-        network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+        network_triplets = load_opdm_data(opdm_objects=[model, latest_boundary])
         network = load_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
-
+        model_outages = get_model_outages(network)
         model["validation_report"] = post_lf_validation.report
         validated_models.append(model)
 

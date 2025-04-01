@@ -1,5 +1,7 @@
 import logging
 import sys
+import pypowsybl
+from emf.loadflow_tool.helper import get_network_elements
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,37 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         'tieflow_hvdc': tieflow_hvdc,
 
     }
+
+
+def get_model_outages(network: pypowsybl.network):
+
+    outage_log = []
+    lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
+    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
+    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
+
+    lines = lines.merge(_voltage_levels, left_on='voltage_level1_id', right_index=True, suffixes=(None, '_voltage_level'))
+    lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
+    lines['element_type'] = 'Line'
+    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    dlines['element_type'] = 'Tieline'
+    gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
+    gens['element_type'] = 'Generator'
+
+    disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
+    disconnected_dlines = dlines[dlines['connected'] == False]
+    disconnected_gens = gens[gens['connected'] == False]
+
+    disconnected_lines_330 = disconnected_lines[disconnected_lines['nominal_v'] >= 330]
+    disconnected_dlines_330 = disconnected_dlines[disconnected_dlines['nominal_v'] >= 330]
+    disconnected_gens_330 = disconnected_gens[disconnected_gens['nominal_v'] >= 330]
+
+    outage_log.extend(disconnected_lines_330[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_dlines_330[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    outage_log.extend(disconnected_gens_330[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+
+    return {"outages": outage_log}
+
 
 if __name__ == "__main__":
     import triplets
