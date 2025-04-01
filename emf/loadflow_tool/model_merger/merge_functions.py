@@ -495,13 +495,15 @@ def generate_merge_report(merged_model: object, task: dict):
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
 
-    report["trustability"] = evaluate_trustability(report, task['task_properties'])
+    # Set trustability tag
+    report.update(evaluate_trustability(report, task['task_properties']))
 
     return report
 
 
-def evaluate_trustability(report, properties):
+def evaluate_trustability(report, properties) -> dict:
 
+    reason = None
     if properties["merge_type"] == "BA":
         # Evaluate model trustability based on defined config and report keys
         report_keys = ['scaled', 'replaced', 'outages']
@@ -522,6 +524,12 @@ def evaluate_trustability(report, properties):
         success_all_true = success_all_true(report)
         success_all_none = success_all_none(report)
 
+        reason_map = {
+            "scaled": "scaling failed",
+            "replaced": "replacement failed",
+            "outages": "outage fixing failed",
+        }
+
         # Decide trust level
         if config_enabled and success_all_none:
             trustability = "trusted"
@@ -529,10 +537,17 @@ def evaluate_trustability(report, properties):
             trustability = "semi-trusted"
         else:
             trustability = "untrusted"
+            if not config_enabled:
+                reason = "config is disabled"
+            else:
+                # From reason map get correct reason
+                for key, value in report.items():
+                    if key in reason_map and not report[key]:
+                        reason = reason_map[key]
     else:
         trustability = 'not_evaluated'
 
-    return trustability
+    return {"trustability": trustability, "untrustability_reason": reason}
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
