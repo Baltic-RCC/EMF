@@ -144,6 +144,8 @@ __CGM_RELAXED_3_CUSTOM_PROVIDER = {
     # For loadflow
     'stateVectorScalingMode': 'LINE_SEARCH',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
+    # Fix Kirchoff 1st law error
+    'slackDistributionFailureBehavior': 'FAIL',
 }
 
 # Preparing CGM PROVIDER settings options from default settings
