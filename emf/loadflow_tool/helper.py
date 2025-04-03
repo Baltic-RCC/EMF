@@ -4,6 +4,7 @@ from io import BytesIO
 from inspect import ismethod
 from typing import List
 from datetime import datetime
+import pandas as pd
 import pypowsybl
 import json
 import logging
@@ -490,7 +491,6 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
 
 def get_model_outages(network: pypowsybl.network):
 
-    outage_log = []
     lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
     _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
     _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
@@ -508,8 +508,7 @@ def get_model_outages(network: pypowsybl.network):
     disconnected_dlines = dlines[dlines['connected'] == False]
     disconnected_gens = gens[gens['connected'] == False]
 
-    outage_log.extend(disconnected_lines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
-    outage_log.extend(disconnected_dlines[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
-    outage_log.extend(disconnected_gens[['grid_id', 'name', 'element_type', 'country']].to_dict('records'))
+    disconnected_elements = pd.concat([disconnected_lines, disconnected_dlines, disconnected_gens])
+    disconnected_elements_330 = disconnected_elements[disconnected_elements['nominal_v'] >= 330]
 
-    return outage_log
+    return disconnected_elements_330.to_dict('records')
