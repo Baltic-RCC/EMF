@@ -4,7 +4,7 @@ import pandas as pd
 import logging
 
 from emf.common.integrations import elastic
-from emf.loadflow_tool.helper import create_opdm_objects, get_model_outages
+from emf.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements
 from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
                                                             fix_sv_tapsteps, remove_duplicate_sv_voltages,
                                                             remove_small_islands, check_and_fix_dependencies,
@@ -244,24 +244,29 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
     uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
                                    {"match": {"Merge": merge_type}}]}}
     uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
-    uap_outages = uap_outages.merge(mrid_map[['eic', 'mrid']], how='left', on='eic').rename(columns={"mrid": 'grid_id'})
+    uap_outages = uap_outages.merge(mrid_map[['eic', 'mrid']], how='left', on='eic', indicator=True).rename(columns={"mrid": 'grid_id'})
+    unmapped_outages = uap_outages[uap_outages['_merge'] == 'left_only']
+
+    if not unmapped_outages.empty:
+        logger.error(f"Unable to map these outage mRIDs: {unmapped_outages['name'].values}")
 
     # Filter outages according to model scenario date and replaced area
     filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
     filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
 
     mapped_outages = filtered_outages[~filtered_outages['grid_id'].isna()]
-    missing_outages = filtered_outages[filtered_outages['grid_id'].isna()]
-
-    if not missing_outages.empty:
-        logger.warning(f"Missing outage mRID(s): {missing_outages['name'].values}")
 
     # Get outages already applied to the model
     model_outages = pd.DataFrame(get_model_outages(merged_model.network))
+    # Tieline pairing for reconnection
+    tielines = get_network_elements(merged_model.network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    paired_tielines = tielines[tielines['pairing_key'].isin(model_outages['pairing_key'])]
+
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
     model_area_map = {"LITGRID": "LT", "AST": "LV", "ELERING": "EE"}
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
+    filtered_model_outages = pd.concat([filtered_model_outages, paired_tielines]).drop_duplicates(subset='grid_id')
 
     logger.info("Fixing outages inside merged model")
 
