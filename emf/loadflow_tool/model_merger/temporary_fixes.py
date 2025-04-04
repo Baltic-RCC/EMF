@@ -176,6 +176,107 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
     return cgm_ssh_data
 
 
+def check_non_boundary_equivalent_injections(cgm_sv_data,
+                                             cgm_ssh_data,
+                                             original_models,
+                                             threshold: float = 0,
+                                             fix_errors: bool = False):
+    """
+    Checks equivalent injections that are not on boundary topological nodes
+    :param cgm_sv_data: merged SV profile
+    :param cgm_ssh_data: merged SSH profile
+    :param original_models: igms
+    :param threshold: threshold for checking
+    :param fix_errors: if true then copies values from sv profile to ssh profile
+    :return cgm_ssh_data
+    """
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    boundary_nodes = original_models.query('KEY == "TopologicalNode.boundaryPoint" & VALUE == "true"')[['ID']]
+    terminals = (original_models.type_tableview('Terminal').rename_axis('SvPowerFlow.Terminal').reset_index()
+                 .merge(boundary_nodes.rename(columns={'ID': 'Terminal.TopologicalNode'}),
+                        on='Terminal.TopologicalNode', how='outer', indicator=True))[['SvPowerFlow.Terminal',
+                                                                                      'Terminal.ConductingEquipment',
+                                                                                      '_merge']]
+    terminals = terminals[terminals['_merge'] == 'left_only'][['SvPowerFlow.Terminal', 'Terminal.ConductingEquipment']]
+    return check_all_kind_of_injections(cgm_sv_data=cgm_sv_data,
+                                        cgm_ssh_data=cgm_ssh_data,
+                                        original_models=original_models,
+                                        injection_name='EquivalentInjection',
+                                        fields_to_check={'SvPowerFlow.p': 'EquivalentInjection.p'},
+                                        threshold=threshold,
+                                        terminals=terminals,
+                                        fix_errors=fix_errors)
+
+
+def check_all_kind_of_injections(cgm_sv_data,
+                                 cgm_ssh_data,
+                                 original_models,
+                                 injection_name: str = 'ExternalNetworkInjection',
+                                 fields_to_check: dict = None,
+                                 fix_errors: bool = False,
+                                 threshold: float = 0,
+                                 terminals: pd.DataFrame = None,
+                                 report_sum: bool = True):
+    """
+    Compares the given cgm ssh injection values to the corresponding sv powerflow values in cgm sv
+    :param cgm_sv_data: merged SV profile
+    :param cgm_ssh_data: merged SSH profile
+    :param original_models: igms
+    :param injection_name: name of the injection
+    :param fields_to_check: dictionary where key is the field in powerflow and value is the field in injection
+    :param fix_errors: if true then copies values from sv profile to ssh profile
+    :param threshold: max allowed mismatch
+    :param terminals: optional, can give dataframe of terminals as input
+    :param report_sum: if true prints sum of injections and powerflows to console
+    :return cgm_ssh_data
+    """
+    if not fields_to_check:
+        return cgm_ssh_data
+    fixed_fields = ['ID']
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    try:
+        original_injections = original_models.type_tableview(injection_name).reset_index()
+        injections = cgm_ssh_data.type_tableview(injection_name).reset_index()
+    except AttributeError:
+        logger.info(f"SSH profile doesn't contain data about {injection_name}")
+        return cgm_ssh_data
+    injections_reduced = injections[[*fixed_fields, *fields_to_check.values()]]
+    original_injections_reduced = original_injections[[*fixed_fields, *fields_to_check.values()]]
+    injections_reduced = injections_reduced.merge(original_injections_reduced, on='ID', suffixes=('', '_org'))
+    if terminals is None:
+        terminals = (original_models.type_tableview('Terminal')
+                     .rename_axis('SvPowerFlow.Terminal')
+                     .reset_index())[['SvPowerFlow.Terminal', 'Terminal.ConductingEquipment']]
+    flows = (cgm_sv_data.type_tableview('SvPowerFlow')
+             .reset_index())[[*['SvPowerFlow.Terminal'], *fields_to_check.keys()]]
+    terminals = terminals.merge(flows, on='SvPowerFlow.Terminal')
+    terminals = terminals.merge(injections_reduced, left_on='Terminal.ConductingEquipment', right_on='ID')
+
+    filtered_list = []
+    for flow_field, injection_field in fields_to_check.items():
+        filtered_list.append(terminals[abs(terminals[injection_field] - terminals[flow_field]) > threshold])
+        if report_sum:
+            logger.info(f"IGM {injection_field} = {terminals[injection_field + '_org'].sum()} vs "
+                        f"CGM {injection_field} = {terminals[injection_field].sum()} vs "
+                        f"CGM {flow_field} = {terminals[flow_field].sum()}")
+    if not filtered_list:
+        return cgm_ssh_data
+    filtered = pd.concat(filtered_list).drop_duplicates().reset_index(drop=True)
+    if not filtered.empty:
+        logger.warning(f"Found {len(filtered.index)} mismatches between {injection_name} and flow values on terminals")
+        print(filtered.to_string())
+        if fix_errors:
+            logger.info(f"Updating {injection_name} values from terminal flow values")
+            injections_update = injections.merge(filtered[[*fixed_fields, *fields_to_check.keys()]])
+            injections_update = injections_update.drop(columns=fields_to_check.values())
+            injections_update = injections_update.rename(columns=fields_to_check)
+            cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(data=cgm_ssh_data,
+                                                                             tableview=injections_update,
+                                                                             update=True,
+                                                                             add=False)
+    return cgm_ssh_data
+
+
 def run_post_merge_processing(input_models: list,
                               merged_model: object,
                               task_properties: dict,
@@ -197,6 +298,8 @@ def run_post_merge_processing(input_models: list,
                                                   merging_entity, mas)
     fix_net_interchange_errors = task_properties.get('fix_net_interchange2', False)
     net_interchange_threshold = int(task_properties.get('net_interchange2_threshold', 200))
+    injection_threshold = 0.1
+    fix_injection_errors = True
     if enable_temp_fixes:
         sv_data = fix_sv_shunts(sv_data, models_as_triplets)
         sv_data = fix_sv_tapsteps(sv_data, ssh_data)
@@ -204,7 +307,25 @@ def run_post_merge_processing(input_models: list,
         sv_data = remove_duplicate_sv_voltages(cgm_sv_data=sv_data, original_data=models_as_triplets)
         sv_data = check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets)
         #sv_data, ssh_data = disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets) fix implemented in pypowsybl 1.8.1 
-
+        ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
+                                                cgm_sv_data=sv_data,
+                                                original_models=models_as_triplets,
+                                                injection_name='EnergySource',
+                                                threshold=injection_threshold,
+                                                fields_to_check={'SvPowerFlow.p': 'EnergySource.activePower'},
+                                                fix_errors=fix_injection_errors)
+        ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
+                                                cgm_sv_data=sv_data,
+                                                original_models=models_as_triplets,
+                                                injection_name='ExternalNetworkInjection',
+                                                fields_to_check={'SvPowerFlow.p': 'ExternalNetworkInjection.p'},
+                                                threshold=injection_threshold,
+                                                fix_errors=fix_injection_errors)
+        ssh_data = check_non_boundary_equivalent_injections(cgm_sv_data=sv_data,
+                                                            cgm_ssh_data=ssh_data,
+                                                            original_models=models_as_triplets,
+                                                            threshold=injection_threshold,
+                                                            fix_errors=fix_injection_errors)
         try:
             ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
                                               cgm_ssh_data=ssh_data,
