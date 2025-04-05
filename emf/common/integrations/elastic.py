@@ -64,6 +64,8 @@ class Elastic:
             json_message.pop('args')
         json_data = json.dumps(json_message, default=str, ensure_ascii=True, skipkeys=True)
         response = requests.post(url=url, data=json_data.encode(), headers={"Content-Type": "application/json"})
+        if json.loads(response.content).get('error'):
+            logger.error(f"Send to Elasticsearch responded with error: {response.text}")
         if debug:
             logger.debug(f"ELK response: {response.content}")
 
