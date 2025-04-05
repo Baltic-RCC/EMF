@@ -3,99 +3,120 @@
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/ID",
         "@type": "https://example.com/timeHorizon",
-        "description": "Process running continuously within given day",
-        "period_duration": "P1D",
+        "description": "Process running for current day, covering from next hour until end of the day",
+        "reference_time_start": "currentHourStart",
+        "reference_time_end": "currentDayStart",
+        "period_start": "PT1H",
+        "period_end": "P1D"
+    },
+    {
+        "@context": "https://example.com/timeHorizon_context.jsonld",
+        "@id": "https://example.com/timeHorizons/D-0",
+        "@type": "https://example.com/timeHorizon",
+        "description": "Process running for current day, covering the whole day",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
         "period_start": "P0D",
-        "reference_time": "currentDayStart"
+        "period_end": "P1D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/H-8",
         "@type": "https://example.com/timeHorizon",
         "description": "Process running 8 hours ahead in intraday",
-        "period_duration": "PT8H",
+        "reference_time_start": "currentHourStart",
+        "reference_time_end": "currentHourStart",
         "period_start": "PT1H",
-        "reference_time": "currentHourStart"
+        "period_end": "PT9H"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/H-16",
         "@type": "https://example.com/timeHorizon",
         "description": "Process running 16 hours ahead in intraday",
-        "period_duration": "PT16H",
+        "reference_time_start": "currentHourStart",
+        "reference_time_end": "currentHourStart",
         "period_start": "PT1H",
-        "reference_time": "currentHourStart"
+        "period_end": "PT17H"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/H-24",
         "@type": "https://example.com/timeHorizon",
         "description": "Process running 24 hours ahead in intraday",
-        "period_duration": "PT24H",
+        "reference_time_start": "currentHourStart",
+        "reference_time_end": "currentHourStart",
         "period_start": "PT1H",
-        "reference_time": "currentHourStart"
+        "period_end": "PT25H"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/D-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs day before the targeted day",
-        "period_duration": "P1D",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
         "period_start": "P1D",
-        "reference_time": "currentDayStart"
+        "period_end": "P2D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/D-2",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs two days before the targeted day",
-        "period_duration": "P1D",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
         "period_start": "P2D",
-        "reference_time": "currentDayStart"
+        "period_end": "P3D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/D-7",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs day before the targeted day and covers time window of 7 days",
-        "period_duration": "P7D",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
         "period_start": "P1D",
-        "reference_time": "currentDayStart"
+        "period_end": "P8D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/W-0",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs for current week",
-        "period_duration": "P1W",
+        "reference_time_start": "currentWeekStart",
+        "reference_time_end": "currentWeekStart",
         "period_start": "P0W",
-        "reference_time": "currentWeekStart"
+        "period_end": "P1W"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/W-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current week for next week",
-        "period_duration": "P9D",
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
         "period_start": "P3D",
-        "reference_time": "currentDayStart"
+        "period_end": "P12D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/M-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current month for next month",
-        "period_duration": "P1M",
+        "reference_time_start": "currentMonthStart",
+        "reference_time_end": "currentMonthStart",
         "period_start": "P1M",
-        "reference_time": "currentMonthStart"
+        "period_end": "P2M"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
         "@id": "https://example.com/timeHorizons/Y-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current year for next year",
-        "period_duration": "P1Y",
+        "reference_time_start": "currentYearStart",
+        "reference_time_end": "currentYearStart",
         "period_start": "P1Y",
-        "reference_time": "currentYearStart"
+        "period_end": "P2Y"
     }
 ]

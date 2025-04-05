@@ -141,6 +141,11 @@ __CGM_RELAXED_3_CUSTOM_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
+    # For loadflow
+    'stateVectorScalingMode': 'LINE_SEARCH',
+    'voltageInitModeOverride': 'FULL_VOLTAGE',
+    # Fix Kirchoff 1st law error
+    'slackDistributionFailureBehavior': 'FAIL',
 }
 
 # Preparing CGM PROVIDER settings options from default settings

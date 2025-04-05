@@ -232,6 +232,12 @@ def scale_balance(model: object,
         logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
         logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
+    # Check loadflow status
+    # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
+    if not validate_loadflow_status(results=pf_results):
+        model.scaled = False
+        return model
+
     # Validate total network AC net position alignment
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
@@ -287,6 +293,11 @@ def scale_balance(model: object,
             result_dict = attr_to_dict(result)
             logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
             logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
+
+        # Check loadflow status
+        if not validate_loadflow_status(results=pf_results):
+            model.scaled = False
+            return model
 
         # Store distributed active power after AC part scaling
         distributed_power = round(pf_results[0].distributed_active_power, 2)
@@ -363,7 +374,8 @@ def scale_balance(model: object,
     filtered_df['KEY'] = filtered_df['KEY'].str.replace('-', '_')
     ac_melted_df = filtered_df.melt(id_vars=['KEY'], var_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
-    ac_pivoted_df['success'] = abs(ac_pivoted_df['final_offset_acnp']) <= int(BALANCE_THRESHOLD)
+    if abs(ac_pivoted_df['final_offset_acnp']) >= int(BALANCE_THRESHOLD):
+        ac_pivoted_df['success'] = True
     ac_scale_report_dict = ac_pivoted_df.to_dict('records')
 
     hvdc_results_df['KEY'] = hvdc_results_df['KEY'].str.replace('-', '_')
@@ -375,7 +387,17 @@ def scale_balance(model: object,
     model.scaled_entity = ac_scale_report_dict
     model.scaled_hvdc = hvdc_scale_report_dict
 
+    # Set the common scaling status flag
+    model.scaled = all(ac_pivoted_df['success'])
+
     return model
+
+
+def validate_loadflow_status(results: List):
+    if results[0].status.value == 0:
+        return True
+    else:
+        return False
 
 
 def hvdc_schedule_mapper(row, country_col_name: str = 'country'):
