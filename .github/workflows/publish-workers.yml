@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         worker:
-          - emfos-model-retriever
+          - emfos-opdm-model-retriever
           - emfos-local-model-retriever
           - emfos-model-validator
           - emfos-model-merger
