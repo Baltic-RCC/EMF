@@ -491,24 +491,27 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
 
 def get_model_outages(network: pypowsybl.network):
 
+    # Get network elements
     lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
     _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
     _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
     lines = lines.merge(_voltage_levels, left_on='voltage_level1_id', right_index=True, suffixes=(None, '_voltage_level'))
     lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
-    lines['element_type'] = 'Line'
+    lines['element_type'] = 'LINE'
 
     dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    dlines['element_type'] = 'Tieline'
+    dlines['element_type'] = 'DANGLING_LINE'
 
     gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
-    gens['element_type'] = 'Generator'
+    gens['element_type'] = 'GENERATOR'
 
+    # Filter out disconnected elements
     disconnected_lines = lines[(lines['connected1'] == False) | (lines['connected2'] == False)]
     disconnected_dlines = dlines[dlines['connected'] == False]
     disconnected_gens = gens[gens['connected'] == False]
 
+    # Filter out only 330kv and above
     disconnected_elements = pd.concat([disconnected_lines, disconnected_dlines, disconnected_gens])
-    disconnected_elements_330 = disconnected_elements[disconnected_elements['nominal_v'] >= 330]
+    disconnected_elements = disconnected_elements[disconnected_elements['nominal_v'] >= 330]
 
-    return disconnected_elements_330.to_dict('records')
+    return disconnected_elements.to_dict('records')
