@@ -374,8 +374,7 @@ def scale_balance(model: object,
     filtered_df['KEY'] = filtered_df['KEY'].str.replace('-', '_')
     ac_melted_df = filtered_df.melt(id_vars=['KEY'], var_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
-    if abs(ac_pivoted_df['final_offset_acnp']) >= int(BALANCE_THRESHOLD):
-        ac_pivoted_df['success'] = True
+    ac_pivoted_df['success'] = abs(ac_pivoted_df['final_offset_acnp']) <= int(BALANCE_THRESHOLD)
     ac_scale_report_dict = ac_pivoted_df.to_dict('records')
 
     hvdc_results_df['KEY'] = hvdc_results_df['KEY'].str.replace('-', '_')

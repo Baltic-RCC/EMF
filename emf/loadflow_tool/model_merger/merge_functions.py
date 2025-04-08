@@ -512,17 +512,18 @@ def evaluate_trustability(report, properties) -> dict:
         # Inline logic functions
         key_true = lambda key: lambda d: bool(d.get(key))
         all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
-        all_none = lambda *keys: lambda d: all(d.get(k) is None for k in keys)
+        all_none = lambda *keys, exclude=None: lambda d: all(d.get(k) is None for k in keys if k != exclude)
 
         # Compose conditions
         config_all_true = all_(*(key_true(k) for k in property_keys))
         success_all_true = all_(*(key_true(k) for k in report_keys))
-        success_all_none = all_none(*report_keys)
+        success_all_none = all_none(*report_keys, exclude='scaled') # Scaling is never in None state
 
         # Evaluate logic
         config_enabled = config_all_true(properties)
         success_all_true = success_all_true(report)
         success_all_none = success_all_none(report)
+        scaled_correctly = report['scaled']
 
         reason_map = {
             "scaled": "scaling failed",
@@ -531,7 +532,7 @@ def evaluate_trustability(report, properties) -> dict:
         }
 
         # Decide trust level
-        if config_enabled and success_all_none:
+        if config_enabled and success_all_none and scaled_correctly:
             trustability = "trusted"
         elif config_enabled and success_all_true:
             trustability = "semi-trusted"
