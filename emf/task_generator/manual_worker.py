@@ -70,8 +70,7 @@ with open(timeframe_conf, 'w') as file:
     json.dump(timeframe_config_json, file, indent=4)
 
 # Generate tasks
-tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL,
-                            set_manual_version=True))
+tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
 
 # Publish tasks
 if tasks:
