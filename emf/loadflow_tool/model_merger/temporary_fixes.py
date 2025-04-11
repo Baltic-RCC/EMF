@@ -387,49 +387,64 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
     dangling_lines = get_network_elements(network=merged_model.network,
                                           element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
     border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
+    relevant_border_lines = border_lines[border_lines['country'].isin(['LT', 'LV', 'EE'])]
+    additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
-    filtered_model_outages = pd.concat([filtered_model_outages, border_lines]).drop_duplicates(subset='grid_id')
+    filtered_model_outages = pd.concat([filtered_model_outages, additional_dangling_lines]).drop_duplicates(subset='grid_id')
     filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
+
+    # rename columns
+    filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
+    mapped_outages = mapped_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
 
     logger.info("Fixing outages inside merged model")
 
     # Reconnecting outages from network-config list
+    outages_updated = {}
     for index, outage in filtered_model_outages.iterrows():
         try:
-            if merged_model.network.connect(outage['grid_id']):
-                logger.info(f"Successfully reconnected: {outage['name']} [mrid: {outage['grid_id']}]")
+            if merged_model.network.connect(outage['mrid']):
+                logger.info(f"Successfully reconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
-                merged_model.outages_updated.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic'], "status": "connected"}])
+                outage_dict = outage.to_dict()
+                outage_dict.update({'status': 'connected'})
+                outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['grid_id']).any():
-                    logger.info(f"Element is already connected: {outage['name']} [mrid: {outage['grid_id']}]")
+                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                    logger.info(f"Element is already connected: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
-                    logger.error(f"Failed to connect element: {outage['name']} [mrid: {outage['grid_id']}]")
-                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+                    logger.error(f"Failed to connect element: {outage['name']} [mrid: {outage['mrid']}]")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+            merged_model.outages = False
             continue
 
     # Applying outages from UAP
     for index, outage in mapped_outages.iterrows():
         try:
-            if merged_model.network.disconnect(outage['grid_id']):
-                logger.info(f"Successfully disconnected: {outage['name']} [mrid: {outage['grid_id']}]")
+            if merged_model.network.disconnect(outage['mrid']):
+                logger.info(f"Successfully disconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
-                merged_model.outages_updated.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic'], "status": "disconnected"}])
+                outage_dict = outage.to_dict()
+                outage_dict.update({'status': 'disconnected'})
+                outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['grid_id']).any():
-                    logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['grid_id']}]")
+                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                    logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
-                    logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['grid_id']}]")
-                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+                    logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
             continue
+
+    # Keep only important keys of updated outages
+    merged_model.outages_updated = outages_updated
 
     if merged_model.outages_unmapped:
         merged_model.outages = False
