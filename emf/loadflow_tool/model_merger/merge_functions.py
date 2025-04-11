@@ -495,13 +495,15 @@ def generate_merge_report(merged_model: object, task: dict):
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
 
-    report["trustability"] = evaluate_trustability(report, task['task_properties'])
+    # Set trustability tag
+    report.update(evaluate_trustability(report, task['task_properties']))
 
     return report
 
 
-def evaluate_trustability(report, properties):
+def evaluate_trustability(report, properties) -> dict:
 
+    reason = None
     if properties["merge_type"] == "BA":
         # Evaluate model trustability based on defined config and report keys
         report_keys = ['scaled', 'replaced', 'outages']
@@ -510,29 +512,43 @@ def evaluate_trustability(report, properties):
         # Inline logic functions
         key_true = lambda key: lambda d: bool(d.get(key))
         all_ = lambda *rules: lambda d: all(rule(d) for rule in rules)
-        all_none = lambda *keys: lambda d: all(d.get(k) is None for k in keys)
+        all_none = lambda *keys, exclude=None: lambda d: all(d.get(k) is None for k in keys if k != exclude)
 
         # Compose conditions
         config_all_true = all_(*(key_true(k) for k in property_keys))
         success_all_true = all_(*(key_true(k) for k in report_keys))
-        success_all_none = all_none(*report_keys)
+        success_all_none = all_none(*report_keys, exclude='scaled') # Scaling is never in None state
 
         # Evaluate logic
         config_enabled = config_all_true(properties)
         success_all_true = success_all_true(report)
         success_all_none = success_all_none(report)
+        scaled_correctly = report['scaled']
+
+        reason_map = {
+            "scaled": "scaling failed",
+            "replaced": "replacement failed",
+            "outages": "outage fixing failed",
+        }
 
         # Decide trust level
-        if config_enabled and success_all_none:
+        if config_enabled and success_all_none and scaled_correctly:
             trustability = "trusted"
         elif config_enabled and success_all_true:
             trustability = "semi-trusted"
         else:
             trustability = "untrusted"
+            if not config_enabled:
+                reason = "config is disabled"
+            else:
+                # From reason map get correct reason
+                for key, value in report.items():
+                    if key in reason_map and not report[key]:
+                        reason = reason_map[key]
     else:
         trustability = 'not_evaluated'
 
-    return trustability
+    return {"trustability": trustability, "untrustability_reason": reason}
 
 
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
