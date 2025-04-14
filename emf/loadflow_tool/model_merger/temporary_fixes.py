@@ -444,7 +444,7 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
             continue
 
     # Keep only important keys of updated outages
-    merged_model.outages_updated = outages_updated
+    merged_model.outages_updated = list(outages_updated.values())
 
     if merged_model.outages_unmapped:
         merged_model.outages = False
