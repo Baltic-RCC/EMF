@@ -4,7 +4,7 @@ from emf.common.logging import custom_logger
 
 # Initialize custom logger
 logger = logging.getLogger(__name__)
-elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid4())})
+elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'opdm-model-retriever', 'worker_uuid': str(uuid4())})
 
 import config
 from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsToValidator, HandlerModelsFromOPDM
