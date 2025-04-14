@@ -373,8 +373,7 @@ class HandlerMergeModels:
         # Upload to Minio storage
         if model_upload_to_minio:
             logger.info(f"Uploading merged model to MINIO: {merged_model_object.name}")
-            minio_metadata = {}
-            minio_metadata['trustability'] = evaluate_trustability(merged_model.__dict__, task['task_properties'])
+            minio_metadata = evaluate_trustability(merged_model.__dict__, task['task_properties'])
             try:
                 response = self.minio_service.upload_object(merged_model_object, bucket_name=OUTPUT_MINIO_BUCKET, metadata=minio_metadata)
                 if response:
