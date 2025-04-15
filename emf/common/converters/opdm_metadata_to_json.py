@@ -17,7 +17,10 @@ def convert(input_document):
     :rtype: bytes
     """
     logger.info("OPDM Metadata XML to JSON")
-    return dumps([parse(input_document)["sm:Publish"]['sm:part'][1]['opdm:OPDMObject']], indent=4).encode(), "application/json"
+    metadata = parse(input_document)["sm:Publish"]['sm:part'][1]['opdm:OPDMObject']
+    metadata["data-source"] = "OPDM"
+
+    return dumps([metadata], indent=4).encode(), "application/json"
 
 if __name__ == "__main__":
 
