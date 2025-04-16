@@ -163,7 +163,7 @@ def scale_balance(model: object,
     else:
         if pf_results[0].status.value:
             logger.error(f"Terminating network scaling due to divergence in main island")
-            return network
+            return model
 
     # # Balancing network to get distributed slack active power close to zero by scaling conform loads of entire network
     # # Distributed active power will be scaled by each area sum load participation
