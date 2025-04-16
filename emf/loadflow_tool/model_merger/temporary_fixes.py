@@ -161,10 +161,10 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
     if not net_interchange_errors.empty:
         if threshold > 0:
             logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
-                           f"over {threshold}:")
+                           f"over {threshold}")
         else:
-            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems:")
-        print(net_interchange_errors.to_string())
+            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems")
+        # print(net_interchange_errors.to_string())
         if fix_errors:
             logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
             new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
