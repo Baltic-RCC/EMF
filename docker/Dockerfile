@@ -21,7 +21,7 @@ RUN uv pip sync requirements.txt --system
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"
 
-FROM emfos-base as emfos-opdm-model-retriever
+FROM emfos-base as emfos-model-retriever
 
 # Set working directory
 WORKDIR /src
