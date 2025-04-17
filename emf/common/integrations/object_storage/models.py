@@ -148,6 +148,7 @@ def get_latest_models_and_download(time_horizon: str,
                                    valid: bool = True,
                                    tso: str | None = None,
                                    object_type: str = 'IGM',
+                                   data_source: str | None = None
                                    ):
 
     logger.info(f"Retrieving latest network models of type: {object_type}")
@@ -160,7 +161,10 @@ def get_latest_models_and_download(time_horizon: str,
         meta['pmd:TSO'] = tso
 
     if valid:
-        meta["valid"] = True
+        meta["valid"] = valid
+
+    if data_source:
+        meta["data-source"] = data_source
 
     if time_horizon.upper() == "ID":
         meta['pmd:timeHorizon'] = [f"{i:02d}" for i in range(1, 32)]
