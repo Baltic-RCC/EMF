@@ -336,6 +336,10 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
     MERGING_ENTITY = 'pmd:mergingEntity'
     MERGING_AREA = 'pmd:mergingArea'
     MODEL_PART = 'pmd:modelPartReference'
+    TSO = "pmd:TSO"
+    SOURCING_ACTOR = "pmd:sourcingActor"
+
+    
 
     # Constant for file type
     FILE_TYPE = 'file_type'
@@ -371,6 +375,11 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
     else:
         logger.error(f"Parsing error {model_authority}")
 
+    # Add aliases
+    if metadata.get(MODEL_PART):
+        metadata[TSO] = metadata[MODEL_PART]
+        metadata[SOURCING_ACTOR] = metadata[MODEL_PART]
+                
     return metadata
 
 def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
@@ -426,9 +435,6 @@ def opdm_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
 
 
 # TODO
-# "pmd:modelPartReference": "D7",
-# "pmd:sourcingActor": "D7", # From filename
-# "pmd:TSO": "D7", # From filename
 # "pmd:fileName": "20250317T2230Z_14_D7_SSH_011.zip",
 # "pmd:content-reference": "CGMES/14/D7/20250317/223000/SSH/20250317T2230Z_14_D7_SSH_011.zip",
 # "pmd:Content-Type": "CGMES",
