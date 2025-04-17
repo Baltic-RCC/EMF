@@ -235,9 +235,39 @@ def convert_to_utc(date_time, default_timezone='Europe/Brussels'):
 
     return date_time.astimezone(timezone("UTC"))
 
+def convert_to_timezone(date_time, from_timezone="UTC", to_timezone='Europe/Brussels'):
+    """
+    Converts a datetime object from timezone to timezone.
+
+    From timezone is used only if the input datetime object does not have a timezone specified. Default is UTC.
+
+    Args:
+        date_time (datetime.datetime): The datetime object to convert to UTC.
+        from_timezone (str): The timezone to assume if the datetime object does not have one. Default is 'UTC'.
+        to_timezone (str): The timezone to what to convert the datetime object
+
+    Returns:
+        datetime.datetime: The datetime object converted to "to_timezone" timezone.
+    """
+    if date_time.tzinfo is None:
+        # Assume the datetime is in the default timezone if not defined
+        date_time = timezone(from_timezone).localize(date_time)
+
+    return date_time.astimezone(timezone(to_timezone))
+
+
+def utcnow():
+    return datetime.now(timezone("UTC"))
+
 def parse_datetime(iso_string, keep_timezone=True):
 
     if keep_timezone:
-        return aniso8601.parse_datetime(iso_string)
+        date_time = aniso8601.parse_datetime(iso_string)
     else:
-        return aniso8601.parse_datetime(iso_string).replace(tzinfo=None)
+        date_time = aniso8601.parse_datetime(iso_string).replace(tzinfo=None)
+
+    # Assume UTC time, if timezone info missing, but asked to keep timezone
+    if keep_timezone and date_time.tzinfo is None:
+        date_time = timezone("UTC").localize(date_time)
+
+    return date_time
