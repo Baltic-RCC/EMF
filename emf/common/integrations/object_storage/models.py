@@ -86,14 +86,12 @@ def query_data(metadata_query: dict,
     return content_list
 
 
-def get_content(metadata: dict, bucket_name: str = object_storage.MINIO_MODELS_BUCKET):
+def get_content(metadata: dict):
     """
     Retrieves content data from MinIO based on metadata information.
 
     Args:
         metadata (dict): A dictionary containing metadata information.
-        bucket_name (str): The name of the MinIO bucket to fetch data from.
-            Defaults to MINIO_MODELS_BUCKET from config variables.
 
     Returns:
         list: A list of dictionaries representing content components with updated 'DATA' field.
@@ -104,6 +102,8 @@ def get_content(metadata: dict, bucket_name: str = object_storage.MINIO_MODELS_B
     """
 
     logger.info(f"Getting content of metadata object from MinIO: {metadata['opde:Id']}")
+    bucket_name = metadata.get("minio-bucket", "opdm-data")  # by default use "opdm-data" bucket if missing in meta
+    logger.debug(f"S3 storage bucket used: {bucket_name}")
     components_received = []
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")

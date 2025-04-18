@@ -26,6 +26,7 @@ class HandlerModelsFromOPDM:
 
         for opdm_object in opdm_objects:
             self.opdm_service.download_object(opdm_object=opdm_object)
+            opdm_object["data-source"] = "OPDM"
 
         return opdm_objects, properties
 
@@ -47,7 +48,7 @@ class HandlerModelsFromBytesIO:
             rdfzip_files.append(zip_xml(xml))
 
         # Create OPDM objects
-        opdm_objects = create_opdm_objects([rdfzip_files], metadata={"data-source": "PDN"})
+        opdm_objects = create_opdm_objects(models=[rdfzip_files], metadata={"data-source": "PDN"})
 
         return opdm_objects, properties
 
@@ -92,6 +93,9 @@ class HandlerModelsToMinio:
                 output_object.name = content_reference
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
+
+            # Store minio bucket name in metadata object
+            opdm_object["minio-bucket"] = MINIO_BUCKET
 
         return json.dumps(opdm_objects), properties
 

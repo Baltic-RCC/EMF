@@ -18,9 +18,9 @@ def convert(input_document):
     """
     logger.info("OPDM Metadata XML to JSON")
     metadata = parse(input_document)["sm:Publish"]['sm:part'][1]['opdm:OPDMObject']
-    metadata["data-source"] = "OPDM"
 
     return dumps([metadata], indent=4).encode(), "application/json"
+
 
 if __name__ == "__main__":
 

@@ -19,18 +19,14 @@ consumer = rabbit.RMQConsumer(
     queue=INPUT_RMQ_QUEUE,
     message_converter=None,
     message_handlers=[
-                      HandlerModelsFromBytesIO(),
-                      HandlerModelsToMinio(),
-                      HandlerSendToElastic(index=METADATA_ELK_INDEX, id_from_metadata=True, id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(',')),
-                      HandlerModelsToValidator()
-    ],)
+        HandlerModelsFromBytesIO(),
+        HandlerModelsToMinio(),
+        HandlerSendToElastic(index=METADATA_ELK_INDEX,
+                             id_from_metadata=True,
+                             id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(',')),
+        HandlerModelsToValidator()
+    ])
 try:
     consumer.run()
 except KeyboardInterrupt:
     consumer.stop()
-
-
-# TODO BACKLOG
-# Get network model metadata object from RabbitMQ queue
-# rabbit_service = rabbit.BlockingClient(message_converter=opdm_metadata_to_json)
-# method_frame, properties, body = rabbit_service.get_single_message(queue=RMQ_QUEUE)
