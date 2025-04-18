@@ -1,7 +1,7 @@
 import aniso8601
 from datetime import datetime
 
-from emf.common.time_helper import parse_duration, convert_to_utc, timezone, reference_times
+from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.integrations.object_storage.tasks import publish_tasks
 from emf.common.integrations.object_storage.models import query_data
 from emf.common.config_parser import parse_app_properties
@@ -121,8 +121,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 # Loop through each data timestamp in the current period.
                 while timestamp_utc < job_period_end_utc:
 
+                    # Shift must be applied in local time, due to daylight saving
+                    schedule_start_utc = convert_to_utc(convert_to_timezone(timestamp_utc) + parse_duration(TASK_SCHEDULE_SHIFT))
+                    schedule_end_utc = schedule_start_utc + parse_duration("PT15M")
+
                     task_id = str(uuid4())
-                    task_timestamp = datetime.utcnow().isoformat()
+                    task_timestamp = utcnow().isoformat()
 
                     logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
 
@@ -150,7 +154,10 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "job_period_start": job_period_start_utc.isoformat(),
                         "job_period_end": job_period_end_utc.isoformat(),
                         "task_properties": {
-                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}"
+                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_start_utc": f"{schedule_start_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_end_utc": f"{schedule_end_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_timehorizon": TASK_SCHEDULE_TIMEHORIZON
                         }
                     }
 
@@ -245,10 +252,10 @@ def update_task_status(task, status_text, publish=True):
 
     # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
     if publish:
-#        try:
-        publish_tasks([task])
-#        except:
-#            logger.warning("Task Publication to ELK failed")
+        try:
+            publish_tasks([task])
+        except:
+            logger.warning("Task Publication to ELK failed")
 
 
 def set_task_version(task, elk_index='emfos-tasks*'):
@@ -267,9 +274,7 @@ def set_task_version(task, elk_index='emfos-tasks*'):
                 task['task_properties']['version'] = '001'
 
     except:
-        task = None
-        logger.error("ELK query for versioning unsuccessful, no tasks generated")
-        sys.exit()
+        logger.warning("ELK query for Task versioning unsuccessful, version not updated")
 
 
 
@@ -294,13 +299,13 @@ if __name__ == "__main__":
     print(tasks_table["process_id"].value_counts())
     print(tasks_table["run_id"].value_counts())
 
+# https://example.com/runs/IntraDayCGM/1      24
 # https://example.com/runs/DayAheadCGM        24
-# https://example.com/runs/TwoDaysAheadCGM    24
 # https://example.com/runs/DayAheadRMM        24
+# https://example.com/runs/TwoDaysAheadCGM    24
+# https://example.com/runs/IntraDayRMM/1      24
 # https://example.com/runs/TwoDaysAheadRMM    24
-# https://example.com/runs/IntraDayCGM/1       8
-# https://example.com/runs/IntraDayCGM/2       8
+# https://example.com/runs/IntraDayCGM/2      16
+# https://example.com/runs/IntraDayRMM/2      16
 # https://example.com/runs/IntraDayCGM/3       8
-# https://example.com/runs/IntraDayRMM/1       8
-# https://example.com/runs/IntraDayRMM/2       8
 # https://example.com/runs/IntraDayRMM/3       8
