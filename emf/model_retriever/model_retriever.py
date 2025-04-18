@@ -1,12 +1,10 @@
 import logging
 import config
 from io import BytesIO
-from zipfile import ZipFile
 import json
 import triplets
 
-from emf.loadflow_tool.helper import zip_xml, create_opdm_objects
-
+from emf.common.loadflow_tool.helper import zip_xml, create_opdm_objects
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
 

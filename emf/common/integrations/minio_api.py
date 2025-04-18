@@ -15,7 +15,7 @@ from zipfile import ZipFile
 from datetime import datetime, timedelta
 from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.helper import opdm_metadata_from_filename
+from emf.common.loadflow_tool.helper import opdm_metadata_from_filename
 urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)

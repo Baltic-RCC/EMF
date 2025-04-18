@@ -9,7 +9,6 @@ import datetime
 from dataclasses import dataclass, field
 from typing import List
 
-from emf.loadflow_tool.model_merger.merge_functions import calculate_intraday_time_horizon, evaluate_trustability
 from emf.common.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -17,17 +16,17 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
-from emf.loadflow_tool.model_merger import merge_functions
+from emf.common.loadflow_tool import loadflow_settings
+from emf.common.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
+from emf.model_merger import merge_functions
+from emf.model_merger import scaler
+from emf.model_merger.replacement import run_replacement, get_available_tsos, run_replacement_local
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
-from emf.loadflow_tool.replacement import run_replacement, get_available_tsos, run_replacement_local
-from emf.loadflow_tool import scaler
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
+from emf.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
     fix_model_outages, open_switches_in_network, fix_igm_ssh_vs_cgm_ssh_error
 
 logger = logging.getLogger(__name__)
@@ -328,7 +327,7 @@ class HandlerMergeModels:
         # Update time_horizon in case of generic ID process type
         new_time_horizon = None
         if time_horizon.upper() == "ID":
-            time_horizon = calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
+            time_horizon = merge_functions.calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
             new_time_horizon = time_horizon
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
@@ -385,7 +384,7 @@ class HandlerMergeModels:
         # Upload to Minio storage
         if model_upload_to_minio:
             logger.info(f"Uploading merged model to MINIO: {merged_model_object.name}")
-            minio_metadata = evaluate_trustability(merged_model.__dict__, task['task_properties'])
+            minio_metadata = merge_functions.evaluate_trustability(merged_model.__dict__, task['task_properties'])
             try:
                 response = self.minio_service.upload_object(merged_model_object, bucket_name=OUTPUT_MINIO_BUCKET, metadata=minio_metadata)
                 if response:

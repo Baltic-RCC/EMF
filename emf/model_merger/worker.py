@@ -9,7 +9,7 @@ elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-mer
 import config
 from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
-from emf.loadflow_tool.model_merger.model_merger import HandlerMergeModels
+from emf.model_merger.model_merger import HandlerMergeModels
 
 # Disabling triplets library logging at INFO level
 logging.getLogger('triplets').setLevel(logging.WARNING)

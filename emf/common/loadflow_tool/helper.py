@@ -339,8 +339,6 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
     TSO = "pmd:TSO"
     SOURCING_ACTOR = "pmd:sourcingActor"
 
-    
-
     # Constant for file type
     FILE_TYPE = 'file_type'
 
@@ -382,6 +380,7 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
                 
     return metadata
 
+
 def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
     """Parse model metadata form xml, returns a dictionary with metadata"""
 
@@ -408,6 +407,7 @@ def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
         metadata[key] = value
 
     return metadata
+
 
 def opdm_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
 
@@ -470,9 +470,9 @@ def zip_xml(xml_file_object):
 def get_metadata_from_filename(file_name):
 
     # Separators
-    file_type_separator           = "."
-    meta_separator                = "_"
-    entity_and_domain_separator   = "-"
+    file_type_separator = ""
+    meta_separator = "_"
+    entity_and_domain_separator = "-"
 
     logger.debug(file_name)
     file_metadata = {}

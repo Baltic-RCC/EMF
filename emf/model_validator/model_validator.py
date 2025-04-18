@@ -6,13 +6,13 @@ import time
 import math
 import pypowsybl as pp
 import uuid
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
-from emf.loadflow_tool.helper import load_opdm_data
-from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_validator import validator_functions
+from emf.common.loadflow_tool.helper import load_opdm_data
+from emf.common.loadflow_tool import loadflow_settings
+from emf.model_validator import validator_functions
 
 logger = logging.getLogger(__name__)
 

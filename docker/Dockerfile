@@ -28,7 +28,6 @@ WORKDIR /src
 
 # Copy files to container
 COPY emf/model_retriever/ ./emf/model_retriever/
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
@@ -44,7 +43,6 @@ WORKDIR /src
 
 # Copy files to container
 COPY emf/model_retriever/ ./emf/model_retriever/
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
@@ -58,13 +56,13 @@ FROM emfos-base as emfos-model-validator
 WORKDIR /src
 
 # Copy files to container
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
+COPY emf/model_validator/ ./emf/model_validator/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_validator/worker.py"]
+ENTRYPOINT ["python", "emf/model_validator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
 FROM emfos-base as emfos-model-merger
@@ -73,14 +71,14 @@ FROM emfos-base as emfos-model-merger
 WORKDIR /src
 
 # Copy files to container
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
+COPY emf/model_merger/ ./emf/model_merger/
 COPY emf/common/ ./emf/common/
 COPY emf/task_generator/ ./emf/task_generator/
 COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/worker.py"]
+ENTRYPOINT ["python", "emf/model_merger/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
 FROM emfos-base as emfos-task-generator

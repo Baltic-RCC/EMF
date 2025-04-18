@@ -1,7 +1,7 @@
 import logging
 import pandas
 import triplets
-from emf.loadflow_tool.model_merger.merge_functions import SV_INJECTION_LIMIT, get_opdm_data_from_models
+from emf.model_merger.merge_functions import SV_INJECTION_LIMIT, get_opdm_data_from_models
 
 logger = logging.getLogger(__name__)
 
