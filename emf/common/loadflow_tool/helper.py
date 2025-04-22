@@ -481,7 +481,7 @@ def zip_xml(xml_file_object):
 def get_metadata_from_filename(file_name):
 
     # Separators
-    file_type_separator = ""
+    file_type_separator = "."
     meta_separator = "_"
     entity_and_domain_separator = "-"
 
