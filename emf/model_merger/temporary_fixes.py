@@ -4,13 +4,13 @@ import pandas as pd
 import logging
 
 from emf.common.integrations import elastic
-from emf.common.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements
+from emf.common.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements, get_opdm_data_from_models
 from emf.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
                                               fix_sv_tapsteps, remove_duplicate_sv_voltages,
                                               remove_small_islands, check_and_fix_dependencies,
                                               export_to_cgmes_zip,
                                               configure_paired_boundarypoint_injections_by_nodes,
-                                              get_opdm_data_from_models)
+                                              )
 
 
 logger = logging.getLogger(__name__)

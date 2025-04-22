@@ -12,7 +12,7 @@ import pandas
 from uuid import uuid4
 import config
 from emf.common.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, \
-    export_model, get_network_elements
+    export_model, get_network_elements, get_opdm_data_from_models
 from emf.common.loadflow_tool import loadflow_settings
 from aniso8601 import parse_datetime
 from emf.common.time_helper import parse_datetime as helper_parse_datetime
@@ -588,17 +588,6 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
         filtered_models.append(model)
 
     return filtered_models
-
-
-def get_opdm_data_from_models(model_data: list | pandas.DataFrame):
-    """
-    Check if input is already parsed to triplets. Do it otherwise
-    :param model_data: input models
-    :return triplets
-    """
-    if not isinstance(model_data, pandas.DataFrame):
-        model_data = load_opdm_data(model_data)
-    return model_data
 
 
 def get_boundary_nodes_between_igms(model_data: list | pandas.DataFrame):

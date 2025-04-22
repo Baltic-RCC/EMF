@@ -296,6 +296,17 @@ def load_opdm_data(opdm_objects, profile=None):
     return pandas.read_RDF([opdmprofile_to_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
 
 
+def get_opdm_data_from_models(model_data: list | pandas.DataFrame):
+    """
+    Check if input is already parsed to triplets. Do it otherwise
+    :param model_data: input models
+    :return triplets
+    """
+    if not isinstance(model_data, pandas.DataFrame):
+        model_data = load_opdm_data(model_data)
+    return model_data
+
+
 def filename_from_opdm_metadata(metadata):
 
     model_part = metadata.get('pmd:modelPartReference', None)

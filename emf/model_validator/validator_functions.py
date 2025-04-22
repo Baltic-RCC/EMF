@@ -1,14 +1,14 @@
 import logging
 import pandas
 import triplets
-from emf.model_merger.merge_functions import SV_INJECTION_LIMIT, get_opdm_data_from_models
+from emf.common.loadflow_tool.helper import get_opdm_data_from_models
 
 logger = logging.getLogger(__name__)
 
 
 def get_nodes_against_kirchhoff_first_law(original_models,
                                           cgm_sv_data: pandas.DataFrame = None,
-                                          sv_injection_limit: float = SV_INJECTION_LIMIT,
+                                          sv_injection_limit: float = 0.1,
                                           consider_sv_injection: bool = False,
                                           nodes_only: bool = False):
     """
