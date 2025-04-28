@@ -180,6 +180,17 @@ class HandlerModelsValidator:
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
 
+            # TODO temporary monitored metrics
+            if opdm_object['pmd:TSO'] == "LITGRID":
+                try:
+                    dl = network.get_dangling_lines()
+                    ltpl_border_flow = dl.query("pairing_key in ['XEL_AL11', 'XEL_AL12']").p.sum()
+                    gens = network.get_generators()
+                    khae_gen = gens[gens['name'].str.contains('KHAE_G')].p.sum()
+                    report["monitor"] = {"poland_border_flow": ltpl_border_flow, "khae_generation": khae_gen}
+                except Exception as error:
+                    logger.error(f"Monitored metrics collection failed: {error}", exc_info=True)
+
             # Define model validity
             valid = all(report['validations'].values())
 
@@ -188,7 +199,7 @@ class HandlerModelsValidator:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
                 self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
             except Exception as error:
-                logger.error(f"Updated OPDM metadata object failed: {error}")
+                logger.error(f"Update OPDM metadata object failed: {error}")
 
             # Send validation report to Elastic
             try:
@@ -216,13 +227,13 @@ if __name__ == "__main__":
     opdm = OPDM()
     latest_boundary = opdm.get_latest_boundary()
     available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-01-01T09:30",
+                                                           scenario_date="2025-04-28T09:30",
                                                            tso="AST")
     validated_models = []
 
     # Validate models
     for model in available_models:
-        network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+        network_triplets = load_opdm_data(opdm_objects=[model, latest_boundary])
         network = load_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
