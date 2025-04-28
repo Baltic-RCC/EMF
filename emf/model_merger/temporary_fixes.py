@@ -159,11 +159,11 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
     net_interchange_errors = tie_flows_grouped[tie_flows_grouped.eval('Exceeded')]
     if not net_interchange_errors.empty:
         if threshold > 0:
-            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
-                         f"over {threshold}:")
+            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
+                           f"over {threshold}")
         else:
-            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems:")
-        print(net_interchange_errors.to_string())
+            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems")
+        # print(net_interchange_errors.to_string())
         if fix_errors:
             logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
             new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
@@ -332,7 +332,7 @@ def run_post_merge_processing(input_models: list,
                                               fix_errors=fix_net_interchange_errors,
                                               threshold=net_interchange_threshold)
         except KeyError:
-            logger.error(f"No fields for netInterchange")
+            logger.warning(f"No fields for netInterchange")
 
     return sv_data, ssh_data
 
@@ -518,5 +518,5 @@ def fix_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Network
             remove_not_generators = remove_not_generators.set_index('id')
             network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
     except Exception as ex:
-        logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
+        logger.warning(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
     return network_pre_instance
