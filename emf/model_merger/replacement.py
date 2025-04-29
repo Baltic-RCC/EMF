@@ -15,13 +15,14 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.replacement)
 
 
-def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG):
+def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG, data_source='OPDM'):
     """
      Args:
          tso_list: a list of tso's which models are missing models
          time_horizon: time_horizon of the merging process
          scenario_date: scenario_date of the merging process
          conf: model replacement logic configuration
+         data_source: model provision source type
 
      Returns:  from configuration a list of replaced models
     """
@@ -29,10 +30,10 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
     replacement_models = []
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
-    query = {"opde:Object-Type": "IGM", "pmd:TSO.keyword": tso_list, "valid": True}
+    query = {"pmd:TSO.keyword": tso_list, "valid": True, "data-source": data_source}
     body = query_data(query, QUERY_FILTER)
     model_df = pd.DataFrame(body)
-    # print(model_df)
+
     # Set scenario dat to UTC
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -71,6 +72,7 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
     return replacement_models
 
 
+# TODO deprecated, move to backlog
 def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG):
     """
         Args:

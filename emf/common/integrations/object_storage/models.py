@@ -61,7 +61,7 @@ def query_data(metadata_query: dict,
             match_and_term_list.append({"match": {key: value}})
 
     if query_filter:
-        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:creationDate": {"gte": query_filter}}}}}
+        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:scenarioDate": {"gte": query_filter}}}}}
     else:
         query = {"bool": {"must": match_and_term_list}}
 
