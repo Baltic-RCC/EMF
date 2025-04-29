@@ -97,6 +97,10 @@ def create_opdm_objects(models: list, metadata=None, key_profile="SV") -> list:
             if opdm_profile.get('pmd:cgmesProfile') == key_profile:
                opdm_object.update(opdm_profile)
 
+            # Add model type - IGM/CGM
+            # TODO develop logic to also define as CGM metadata object
+            opdm_object['opde:Object-Type'] = "IGM"
+
             # Add DATA
             opdm_profile['DATA'] = profile_instance.getvalue()
 
