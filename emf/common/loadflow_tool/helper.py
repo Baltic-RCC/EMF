@@ -73,6 +73,14 @@ def save_opdm_objects(opdm_objects: list) -> list:
     return exported_files
 
 
+def clean_data_from_opdm_objects(opdm_objects: list) -> list:
+    for opdm_object in opdm_objects:
+        for component in opdm_object['opde:Component']:
+            component['opdm:Profile']['DATA'] = None
+
+    return opdm_objects
+
+
 def create_opdm_objects(models: list, metadata=None, key_profile="SV") -> list:
     """
     Function to create OPDM object like structure in memory

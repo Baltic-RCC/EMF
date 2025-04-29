@@ -1,5 +1,6 @@
 import logging
 from uuid import uuid4
+import json
 from emf.common.logging import custom_logger
 
 # Initialize custom logger
@@ -23,7 +24,9 @@ consumer = rabbit.RMQConsumer(
         HandlerModelsToMinio(),
         HandlerSendToElastic(index=METADATA_ELK_INDEX,
                              id_from_metadata=True,
-                             id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(',')),
+                             id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','),
+                             hashing=json.loads(ELK_ID_HASHING.lower()),
+                             ),
         HandlerModelsToValidator()
     ])
 try:

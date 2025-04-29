@@ -1,10 +1,11 @@
 import logging
+import json
 from uuid import uuid4
 from emf.common.logging import custom_logger
 
 # Initialize custom logger
 logger = logging.getLogger(__name__)
-elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'opdm-model-retriever', 'worker_uuid': str(uuid4())})
+elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-retriever', 'worker_uuid': str(uuid4())})
 
 import config
 from emf.model_retriever.model_retriever import HandlerModelsToMinio, HandlerModelsToValidator, HandlerModelsFromOPDM
@@ -24,7 +25,9 @@ consumer = rabbit.RMQConsumer(
         HandlerModelsToMinio(),
         HandlerSendToElastic(index=METADATA_ELK_INDEX,
                              id_from_metadata=True,
-                             id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(',')),
+                             id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','),
+                             hashing=json.loads(ELK_ID_HASHING.lower()),
+                             ),
         HandlerModelsToValidator()
     ])
 try:

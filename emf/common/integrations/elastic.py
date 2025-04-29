@@ -4,7 +4,8 @@ import ndjson
 import logging
 import pandas as pd
 import json
-from typing import List
+import uuid
+from typing import List, Dict
 from elasticsearch import Elasticsearch
 import config
 from emf.common.config_parser import parse_app_properties
@@ -16,6 +17,7 @@ warnings.simplefilter('ignore', ElasticsearchWarning)
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
+UUID_NAMESPACE = uuid.UUID(UUID_NAMESPACE)
 
 
 class Elastic:
@@ -76,6 +78,7 @@ class Elastic:
                              json_message_list: List[dict],
                              id_from_metadata: bool = False,
                              id_metadata_list: List[str] | None = None,
+                             hashing: bool = False,
                              server: str = ELK_SERVER,
                              batch_size: int = int(BATCH_SIZE),
                              iso_timestamp: str | None = None,
@@ -86,12 +89,18 @@ class Elastic:
         :param json_message_list: list of messages in json format
         :param id_from_metadata:
         :param id_metadata_list:
+        :param hashing: generate UUID5 hash from namespace and given id_metadata_list
         :param server: url of ELK server
         :param batch_size: maximum size of batch
         :param iso_timestamp: timestamp to be included in documents
         :param debug: flag for debug mode
         :return:
         """
+        def __generate_id(element):
+            doc_id = id_separator.join([str(element.get(key, '')) for key in id_metadata_list])
+            if hashing:
+                doc_id = str(uuid.uuid5(namespace=UUID_NAMESPACE, name=doc_id))
+            return doc_id
 
         # Validate if_metadata_list parameter if id_from_metadata is True
         if id_from_metadata and id_metadata_list is None:
@@ -110,7 +119,7 @@ class Elastic:
 
         if id_from_metadata:
             id_separator = "_"
-            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index, "_id": id_separator.join([str(element.get(key, '')) for key in id_metadata_list])}}, element)]
+            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index, "_id": __generate_id(element)}}, element)]
         else:
             json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index}}, element)]
 
@@ -206,15 +215,17 @@ class HandlerSendToElastic:
                  server: str = ELK_SERVER,
                  id_from_metadata: bool = False,
                  id_metadata_list: List[str] | None = None,
-                 headers=None,
-                 auth=None,
-                 verify=False,
-                 debug=False):
+                 hashing: bool = False,
+                 headers: Dict | None = None,
+                 auth: object | None = None,
+                 verify: bool = False,
+                 debug: bool = False):
 
         self.index = index
         self.server = server
         self.id_from_metadata = id_from_metadata
         self.id_metadata_list = id_metadata_list
+        self.hashing = hashing
         self.debug = debug
 
         if not headers:
@@ -232,6 +243,7 @@ class HandlerSendToElastic:
                                                 json_message_list=json.loads(message),
                                                 id_from_metadata=self.id_from_metadata,
                                                 id_metadata_list=self.id_metadata_list,
+                                                hashing=self.hashing,
                                                 server=self.server,
                                                 debug=self.debug)
 
