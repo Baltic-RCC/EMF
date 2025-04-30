@@ -170,27 +170,18 @@ class HandlerMergeModels:
             if model_replacement_local and missing_local_import:
                 try:
                     logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
-                    replacement_models_local = run_replacement_local(tso_list=missing_local_import,
-                                                                     time_horizon=time_horizon,
-                                                                     scenario_date=scenario_datetime)
-                    if replacement_models_local:
-                        for model in replacement_models_local:
-                            additional_models_data_replace = self.minio_service.get_latest_models_and_download(
-                                time_horizon=model['pmd:timeHorizon'],
-                                scenario_datetime=model['pmd:scenarioDate'],
-                                model_entity=[model['pmd:TSO']],
-                                bucket_name=INPUT_MINIO_BUCKET,
-                                prefix=INPUT_MINIO_FOLDER)[0]
-                            additional_models_data_replace["@time_horizon"] = model["pmd:timeHorizon"]
-                            additional_models_data_replace["@timestamp"] = model["pmd:scenarioDate"]
-                            additional_models_data_replace["pmd:versionNumber"] = model["pmd:versionNumber"]
-                            additional_models_data.append(additional_models_data_replace)
+                    replacement_models_local = run_replacement(tso_list=missing_local_import,
+                                                               time_horizon=time_horizon,
+                                                               scenario_date=scenario_datetime,
+                                                               data_source='PDN')
 
-                        logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                        replaced_entities_local = [{'tso': model['pmd:TSO'], 'time_horizon': model[
-                            'pmd:timeHorizon'], 'scenario_timestamp': model[
-                            'pmd:scenarioDate']} for model in replacement_models_local]
-                        merged_model.replaced_entity.extend(replaced_entities_local)
+                    logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
+                    replaced_entities_local = [{'tso': model['pmd:TSO'],
+                                                'time_horizon': model['pmd:timeHorizon'],
+                                                'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
+                    merged_model.replaced_entity.extend(replaced_entities_local)
+                    #TODO change, keeping this to keep consistent naming structure for now
+                    additional_models_data = replacement_models_local
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
@@ -461,13 +452,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-03-25T08:30:00+00:00",
+            "timestamp_utc": "2025-04-29T22:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ["LITGRID"],
+            "included": ["AST"],
             "excluded": [],
-            "local_import": ["ELERING"],
-            "time_horizon": "1D",
+            "local_import": ["LITGRID"],
+            "time_horizon": "ID",
             "version": "00",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
@@ -478,7 +469,7 @@ if __name__ == "__main__":
             "scaling": "True",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
-            "send_merge_report": "True",
+            "send_merge_report": "False",
             "force_outage_fix": "False",
         }
     }
