@@ -17,7 +17,6 @@ warnings.simplefilter('ignore', ElasticsearchWarning)
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
-UUID_NAMESPACE = uuid.UUID(UUID_NAMESPACE)
 
 
 class Elastic:
@@ -99,7 +98,7 @@ class Elastic:
         def __generate_id(element):
             doc_id = id_separator.join([str(element.get(key, '')) for key in id_metadata_list])
             if hashing:
-                doc_id = str(uuid.uuid5(namespace=UUID_NAMESPACE, name=doc_id))
+                doc_id = str(uuid.uuid5(namespace=uuid.NAMESPACE_OID, name=doc_id))
             return doc_id
 
         # Validate if_metadata_list parameter if id_from_metadata is True
