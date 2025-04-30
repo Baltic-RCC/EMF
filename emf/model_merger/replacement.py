@@ -15,21 +15,26 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.replacement)
 
 
-def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG, data_source='OPDM'):
+def run_replacement(tso_list: list,
+                    time_horizon: str,
+                    scenario_date: str,
+                    config: list = json.load(config.paths.cgm_worker.replacement_conf),
+                    data_source: str = 'OPDM',
+                    ):
     """
      Args:
          tso_list: a list of tso's which models are missing models
          time_horizon: time_horizon of the merging process
          scenario_date: scenario_date of the merging process
-         conf: model replacement logic configuration
+         config: model replacement logic configuration
          data_source: model provision source type
 
      Returns:  from configuration a list of replaced models
     """
-    replacement_config = json.loads(Path(__file__).parent.parent.parent.joinpath(conf).read_text())
     replacement_models = []
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
+    # TODO put in query object type if CGM metadata objects will be stored
     query = {"pmd:TSO.keyword": tso_list, "valid": True, "data-source": data_source}
     body = query_data(query, QUERY_FILTER)
     model_df = pd.DataFrame(body)
@@ -37,7 +42,7 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
     # Set scenario dat to UTC
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
+        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, config)
         if not replacement_df.empty:
             unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
             for unique_tso in unique_tsos_list:
@@ -73,17 +78,20 @@ def run_replacement(tso_list: list, time_horizon: str, scenario_date: str, conf=
 
 
 # TODO deprecated, move to backlog
-def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str, conf=REPLACEMENT_CONFIG):
+def run_replacement_local(tso_list: list,
+                          time_horizon: str,
+                          scenario_date: str,
+                          config: list = json.load(config.paths.task_generator.timeframe_conf),
+                          ):
     """
         Args:
             tso_list: a list of tso's which models are missing models
             time_horizon: time_horizon of the merging process
             scenario_date: scenario_date of the merging process
-            conf: model replacement logic configuration
+            config: model replacement logic configuration
 
         Returns:  from configuration a list of replaced models
        """
-    replacement_config = json.loads(Path(__file__).parent.parent.parent.joinpath(conf).read_text())
     replacement_models = []
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
@@ -98,7 +106,7 @@ def run_replacement_local(tso_list: list, time_horizon: str, scenario_date: str,
     if not model_df.empty:
         model_df["pmd:versionNumber"] = model_df["pmd:versionNumber"].apply(lambda x: x.split('.')[0])
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, replacement_config)
+        replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, config)
         if not replacement_df.empty:
             unique_tsos_list = tso_list
 
@@ -153,13 +161,6 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     if target_timehorizon == 'MO':
         hour_list_final = [hour for hour in conf["month_ahead"]["hours"]]
         day_list_final = [get_first_monday_of_last_month(timestamp).strftime("%Y-%m-%d")]
-
-        # TODO TEMPORARY FIX
-        #  CAN BE SAFELY REMOVED AFTER FEBRUARY
-        if date_time.year == 2025 and date_time.month == 3:
-            day_list_final = ["2025-02-10"]
-
-
         business_list_final = conf["month_ahead"]['business_type']
 
     return hour_list_final, day_list_final, business_list_final
