@@ -33,28 +33,27 @@ jobs:
           echo "BRANCH_NAME=$GITHUB_REF_NAME" >> $GITHUB_ENV
           echo "IMAGE_TAG=$(date +%Y%m%d%H)" >> $GITHUB_ENV
           echo "LATEST_TAG=latest" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ matrix.worker }}" >> $GITHUB_ENV
 
       # Print env variables
       - name: Print environment variables
         run: env
 
-      # Construct image name
-      - name: Construct and output IMAGE_NAME
+#       Pull base image from Docker Hub or fallback to build
+      - name: Pull base image from Docker Hub or fallback
         run: |
-          IMAGE_NAME="${{ vars.DOCKER_USERNAME }}/${WORKER_NAME}"
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-
-#      # Pull base image from Docker Hub
-#      - name: Pull base image from Docker Hub
-#        run: docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest || (
+            echo "Base image not found. Rebuilding "
+            docker build . --file docker/Dockerfile --target emfos-base -t ${{ vars.DOCKER_USERNAME}}/emfos-base:latest
+          )
 
       # Build the Docker image
-      - name: Build the Docker image
+      - name: Build worker image
         run: |
-          docker build . --file docker/Dockerfile --target ${{ env.WORKER_NAME }} --tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
-          if [[ "${{ env.BRANCH_NAME }}" == *-dev ]]; then
-            docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
-          fi
+          docker build . \
+          --file docker/Dockerfile \
+          --target ${{ env.WORKER_NAME }} \
+          -t ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
@@ -63,7 +62,7 @@ jobs:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Push the Docker image to Docker Hub
+      # Push the Docker image with version-based tag
       - name: Push Docker image to Docker Hub with date-based tag
         run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
@@ -79,4 +78,3 @@ jobs:
         run: |
           echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}} pushed to Docker Hub"
           echo "Image ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }} pushed to Docker Hub"
-
