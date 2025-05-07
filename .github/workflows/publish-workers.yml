@@ -54,6 +54,10 @@ jobs:
           --file docker/Dockerfile \
           --target ${{ env.WORKER_NAME }} \
           -t ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
+          
+      - name: Tag image as latest
+        run: |
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
 
       # Log in to Docker Hub
       - name: Log in to Docker Hub
@@ -69,7 +73,7 @@ jobs:
       - name: Push Docker image to Docker Hub with "latest" tag
         run: |
           if [[ "${{ env.BRANCH_NAME }}" == *-dev ]]; then
-            docker push ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+            docker push ${{ env.IMAGE_NAME }}:latest
           else
             echo "Skipping push of 'latest' tag since branch is not -dev"
           fi
