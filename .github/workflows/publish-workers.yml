@@ -3,16 +3,11 @@ name: Build and publish EMFOS workers
 
 on:
   push:
-#    branches:
-#      - main
     tags:
-      - "v*"
-#  pull_request:
-#    branches:
-#      - main
+      - "v*" 
 
 jobs:
-  build-workers:
+  build_workers:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,71 +21,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Set multiple environment variables
-      - name: Set Docker image tag and other variables
+      - name: Set Docker image variables
         run: |
-          echo "WORKER_NAME=${{ matrix.worker }}" >> $GITHUB_ENV
-          echo "BRANCH_NAME=$GITHUB_REF_NAME" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$(date +%Y%m%d%H)" >> $GITHUB_ENV
-          echo "LATEST_TAG=latest" >> $GITHUB_ENV
+          echo "WORKER_NAME=${{ matrix.worker }}"       >> $GITHUB_ENV
+          echo "BRANCH_NAME=${GITHUB_REF_NAME}"         >> $GITHUB_ENV
+          echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)"        >> $GITHUB_ENV
           echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ matrix.worker }}" >> $GITHUB_ENV
+          echo "LATEST_TAG=latest"                      >> $GITHUB_ENV
 
-      # Print env variables
-      - name: Print environment variables
-        run: env
-
-#       Pull base image from Docker Hub or fallback to build
-      - name: Pull base image from Docker Hub or fallback
+      - name: Pull base image or fallback to build
         run: |
-          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest || (
-            echo "Base image not found. Rebuilding "
-            docker build . --file docker/Dockerfile --target emfos-base -t ${{ vars.DOCKER_USERNAME}}/emfos-base:latest
-          )
+          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest || \
+          docker build . \
+            --file docker/Dockerfile \
+            --target emfos-base \
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
 
-      # Build the Docker image
       - name: Build worker image
         run: |
           docker build . \
-          --file docker/Dockerfile \
-          --target ${{ env.WORKER_NAME }} \
-          -t ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
+            --file docker/Dockerfile \
+            --target ${{ env.WORKER_NAME }} \
+            -t ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
-      - name: Show images after build
-        run: |
-          echo "Images: "
-          docker images | grep ${{ env.IMAGE_NAME }}
-          
       - name: Tag image as latest
         run: |
-          echo "Tagging ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} as :latest"
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
-          docker images | grep ${{ env.IMAGE_NAME }}
+          docker tag \
+            ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }} \
+            ${{ env.IMAGE_NAME }}:latest
 
-      # Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Push the Docker image with version-based tag
-      - name: Push Docker image to Docker Hub with date-based tag
-        run: docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
-
-      - name: Push Docker image to Docker Hub with "latest" tag
+      - name: Push versioned image
         run: |
-          if [[ "${{ env.BRANCH_NAME }}" == *-dev]]; then
-            if docker images --format '{{.Repository}}:{{.Tag}}' grep -q "${{ env.IMAGE_NAME }}:latest"; then
-              echo "Pushing latest tag"
-              docker push ${{env.IMAGE_NAME}}:latest
-            else
-              echo "Image was not tagged as :latest"
-            fi
-          else
-            echo "Skipping push of 'latest' tag since branch is not -dev"
+          docker push ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
+
+      - name: Conditionally push latest tag
+        shell: bash
+        run: |
+          if [[ "$BRANCH_NAME" == *-dev ]]; then
+            docker push "${IMAGE_NAME}:latest"
           fi
-
-      - name: Image details
-        run: |
-          echo "Image ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}} pushed to Docker Hub"
-          echo "Image ${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }} pushed to Docker Hub"
