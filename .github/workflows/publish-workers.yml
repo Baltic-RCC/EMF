@@ -55,7 +55,7 @@ jobs:
           --target ${{ env.WORKER_NAME }} \
           -t ${{ env.IMAGE_NAME }}:${{ env.BRANCH_NAME }}-${{ env.IMAGE_TAG }}
 
-      - name: DEBUG: Show images after build
+      - name: Show images after build
         run: |
           echo "Images: "
           docker images | grep ${{ env.IMAGE_NAME }}
