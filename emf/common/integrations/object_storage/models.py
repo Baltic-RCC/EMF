@@ -155,7 +155,8 @@ def get_latest_models_and_download(time_horizon: str,
 
     meta = {'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
             'pmd:timeHorizon': time_horizon,
-            'opde:Object-Type': object_type}
+            'opde:Object-Type': object_type,
+            "data-source": data_source}
 
     if tso:
         meta['pmd:TSO'] = tso
