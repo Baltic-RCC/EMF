@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def query_data(metadata_query: dict,
                query_filter: str | None = None,
-               index: str = object_storage.ELASTIC_QUERY_INDEX,
+               index: str = object_storage.ELASTIC_MODELS_INDEX,
                return_payload: bool = False,
                size: str = '10000',
                sort: dict | None = None,
@@ -22,7 +22,7 @@ def query_data(metadata_query: dict,
     Args:
         metadata_query (dict): A dictionary containing metadata fields and their values to be queried.
         query_filter (dict): Optional. A dictionary specifying parameters by which to filter the query.
-        index (str): The index to query data from. Defaults to ELASTIC_QUERY_INDEX from config variables.
+        index (str): The index to query data from. Defaults to ELASTIC_MODELS_INDEX from config variables.
         return_payload (bool): Optional. If True, retrieves the full content for each hit.
             Defaults to False.
 
@@ -35,8 +35,8 @@ def query_data(metadata_query: dict,
 
     Example:
         To query data with metadata fields 'TSO' and 'timeHorizon' and return payload:
-        >>> metadata_query = {"pmd:TSO": "TERNA", "pmd:timeHorizon": "2D"}
-        ... response = query_data(metadata_query, return_payload=True)
+            metadata_query = {"pmd:TSO": "TERNA", "pmd:timeHorizon": "2D"}
+            response = query_data(metadata_query, return_payload=True)
     """
 
     # Create elastic query syntax
@@ -49,6 +49,10 @@ def query_data(metadata_query: dict,
     #     }
     # }
 
+    # Validate index definition to be able to search all index by pattern
+    if "*" not in index:
+        index = f"{index}*"
+
     match_and_term_list = []
     for key, value in metadata_query.items():
         if isinstance(value, list):
@@ -57,7 +61,7 @@ def query_data(metadata_query: dict,
             match_and_term_list.append({"match": {key: value}})
 
     if query_filter:
-        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:creationDate": {"gte": query_filter}}}}}
+        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:scenarioDate": {"gte": query_filter}}}}}
     else:
         query = {"bool": {"must": match_and_term_list}}
 
@@ -82,14 +86,12 @@ def query_data(metadata_query: dict,
     return content_list
 
 
-def get_content(metadata: dict, bucket_name: str = object_storage.MINIO_BUCKET_NAME):
+def get_content(metadata: dict):
     """
     Retrieves content data from MinIO based on metadata information.
 
     Args:
         metadata (dict): A dictionary containing metadata information.
-        bucket_name (str): The name of the MinIO bucket to fetch data from.
-            Defaults to MINIO_BUCKET_NAME from config variables.
 
     Returns:
         list: A list of dictionaries representing content components with updated 'DATA' field.
@@ -100,6 +102,8 @@ def get_content(metadata: dict, bucket_name: str = object_storage.MINIO_BUCKET_N
     """
 
     logger.info(f"Getting content of metadata object from MinIO: {metadata['opde:Id']}")
+    bucket_name = metadata.get("minio-bucket", "opdm-data")  # by default use "opdm-data" bucket if missing in meta
+    logger.debug(f"S3 storage bucket used: {bucket_name}")
     components_received = []
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
@@ -144,6 +148,7 @@ def get_latest_models_and_download(time_horizon: str,
                                    valid: bool = True,
                                    tso: str | None = None,
                                    object_type: str = 'IGM',
+                                   data_source: str | None = None
                                    ):
 
     logger.info(f"Retrieving latest network models of type: {object_type}")
@@ -156,7 +161,10 @@ def get_latest_models_and_download(time_horizon: str,
         meta['pmd:TSO'] = tso
 
     if valid:
-        meta["valid"] = True
+        meta["valid"] = valid
+
+    if data_source:
+        meta["data-source"] = data_source
 
     if time_horizon.upper() == "ID":
         meta['pmd:timeHorizon'] = [f"{i:02d}" for i in range(1, 32)]

@@ -9,7 +9,6 @@ import datetime
 from dataclasses import dataclass, field
 from typing import List
 
-from emf.loadflow_tool.model_merger.merge_functions import calculate_intraday_time_horizon
 from emf.common.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -17,17 +16,17 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
-from emf.loadflow_tool.model_merger import merge_functions
+from emf.common.loadflow_tool import loadflow_settings
+from emf.common.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
+from emf.model_merger import merge_functions
+from emf.model_merger import scaler
+from emf.model_merger.replacement import run_replacement, get_available_tsos, run_replacement_local
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
-from emf.loadflow_tool.replacement import run_replacement, get_available_tsos, run_replacement_local
-from emf.loadflow_tool import scaler
 # TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from emf.loadflow_tool.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
+from emf.model_merger.temporary_fixes import run_post_merge_processing, run_pre_merge_processing, \
     fix_model_outages, open_switches_in_network, fix_igm_ssh_vs_cgm_ssh_error
 
 logger = logging.getLogger(__name__)
@@ -68,9 +67,9 @@ class MergedModel:
     loadflow_status: str | None = None
 
     # Status flags
-    scaled: bool = False
-    replaced: bool = False
-    outages: bool = False
+    scaled: bool = None
+    replaced: bool = None
+    outages: bool = None
     uploaded_to_opde: bool = False
     uploaded_to_minio: bool = False
 
@@ -123,6 +122,9 @@ class HandlerMergeModels:
         local_import_models = task_properties.get('local_import', [])
         time_horizon = task_properties["time_horizon"]
         scenario_datetime = task_properties["timestamp_utc"]
+        schedule_start = task_properties.get("reference_schedule_start_utc")
+        schedule_end = task_properties.get("reference_schedule_end_utc")
+        schedule_timehorizon = task_properties.get("reference_schedule_timehorizon")
         merging_area = task_properties["merge_type"]
         merging_entity = task_properties["merging_entity"]
         mas = task_properties["mas"]
@@ -168,27 +170,18 @@ class HandlerMergeModels:
             if model_replacement_local and missing_local_import:
                 try:
                     logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
-                    replacement_models_local = run_replacement_local(tso_list=missing_local_import,
-                                                                     time_horizon=time_horizon,
-                                                                     scenario_date=scenario_datetime)
-                    if replacement_models_local:
-                        for model in replacement_models_local:
-                            additional_models_data_replace = self.minio_service.get_latest_models_and_download(
-                                time_horizon=model['pmd:timeHorizon'],
-                                scenario_datetime=model['pmd:scenarioDate'],
-                                model_entity=[model['pmd:TSO']],
-                                bucket_name=INPUT_MINIO_BUCKET,
-                                prefix=INPUT_MINIO_FOLDER)[0]
-                            additional_models_data_replace["@time_horizon"] = model["pmd:timeHorizon"]
-                            additional_models_data_replace["@timestamp"] = model["pmd:scenarioDate"]
-                            additional_models_data_replace["pmd:versionNumber"] = model["pmd:versionNumber"]
-                            additional_models_data.append(additional_models_data_replace)
+                    replacement_models_local = run_replacement(tso_list=missing_local_import,
+                                                               time_horizon=time_horizon,
+                                                               scenario_date=scenario_datetime,
+                                                               data_source='PDN')
 
-                        logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                        replaced_entities_local = [{'tso': model['pmd:TSO'], 'time_horizon': model[
-                            'pmd:timeHorizon'], 'scenario_timestamp': model[
-                            'pmd:scenarioDate']} for model in replacement_models_local]
-                        merged_model.replaced_entity.extend(replaced_entities_local)
+                    logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
+                    replaced_entities_local = [{'tso': model['pmd:TSO'],
+                                                'time_horizon': model['pmd:timeHorizon'],
+                                                'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
+                    merged_model.replaced_entity.extend(replaced_entities_local)
+                    #TODO change, keeping this to keep consistent naming structure for now
+                    additional_models_data = replacement_models_local
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
@@ -226,9 +219,11 @@ class HandlerMergeModels:
                     merged_model.replaced_entity.extend(replaced_entities)
                     valid_models = valid_models + replacement_models
                     merged_model.replaced = True
-                    # TODO put exclusion_reason logging under replacement
+                else:
+                    merged_model.replaced = False
             except Exception as error:
                 logger.error(f"Failed to run replacement: {error}")
+                merged_model.replaced = False
 
         # Store all relevant models for loading
         valid_models = valid_models + additional_models_data
@@ -287,29 +282,43 @@ class HandlerMergeModels:
         # Run loadflow on merged model
         merged_model = merge_functions.run_lf(merged_model=merged_model,
                                               loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Perform scaling
         if model_scaling:
+
+            # Set default timehorizon and scnario timestamp if not provided
+            if not schedule_timehorizon or schedule_timehorizon == "AUTO":
+                schedule_timehorizon = time_horizon
+
+            if not schedule_start:
+                schedule_start = scenario_datetime
+
             # Get aligned schedules
-            ac_schedules = query_acnp_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
-            dc_schedules = query_hvdc_schedules(time_horizon=time_horizon, scenario_timestamp=scenario_datetime)
+            ac_schedules = query_acnp_schedules(time_horizon=schedule_timehorizon, scenario_timestamp=schedule_start)
+            dc_schedules = query_hvdc_schedules(time_horizon=schedule_timehorizon, scenario_timestamp=schedule_start)
+
             # Scale balance if all schedules were received
             if all([ac_schedules, dc_schedules]):
-                merged_model = scaler.scale_balance(model=merged_model,
-                                                    ac_schedules=ac_schedules,
-                                                    dc_schedules=dc_schedules,
-                                                    lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
-                merged_model.scaled = True
+                try:
+                    merged_model = scaler.scale_balance(model=merged_model,
+                                                        ac_schedules=ac_schedules,
+                                                        dc_schedules=dc_schedules,
+                                                        lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+                except Exception as e:
+                    logger.error(e)
+                    merged_model.scaled = False
             else:
-                logger.warning(f"Schedule reference data not available, skipping model scaling")
+                logger.warning(f"Schedule reference data not available: {schedule_timehorizon} for {schedule_start}, skipping model scaling")
+                merged_model.scaled = False
 
+        # Record main merging process end
         merge_end = datetime.datetime.now(datetime.UTC)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Update time_horizon in case of generic ID process type
         new_time_horizon = None
         if time_horizon.upper() == "ID":
-            time_horizon = calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
+            time_horizon = merge_functions.calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
             new_time_horizon = time_horizon
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
 
@@ -366,8 +375,9 @@ class HandlerMergeModels:
         # Upload to Minio storage
         if model_upload_to_minio:
             logger.info(f"Uploading merged model to MINIO: {merged_model_object.name}")
+            minio_metadata = merge_functions.evaluate_trustability(merged_model.__dict__, task['task_properties'])
             try:
-                response = self.minio_service.upload_object(merged_model_object, bucket_name=OUTPUT_MINIO_BUCKET)
+                response = self.minio_service.upload_object(merged_model_object, bucket_name=OUTPUT_MINIO_BUCKET, metadata=minio_metadata)
                 if response:
                     merged_model.uploaded_to_minio = True
             except:
@@ -388,7 +398,7 @@ class HandlerMergeModels:
 
         # Update merged model attributes
         merged_model.loadflow_settings = MERGE_LOAD_FLOW_SETTINGS
-        merged_model.duration_s = (merge_end - merge_start).total_seconds()
+        merged_model.duration_s = (end_time - merge_start).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
         # Send merge report to Elastic
@@ -442,14 +452,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-02-15T08:30:00+00:00",
+            "timestamp_utc": "2025-04-29T22:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ['PSE', 'AST', 'LITGRID'],
+            "included": ["AST"],
             "excluded": [],
-            "local_import": ['ELERING'],
+            "local_import": ["LITGRID"],
             "time_horizon": "ID",
-            "version": "99",
+            "version": "00",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
@@ -460,9 +470,9 @@ if __name__ == "__main__":
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
             "send_merge_report": "False",
-            "force_outage_fix": "True",
+            "force_outage_fix": "False",
         }
     }
 
     worker = HandlerMergeModels()
-    finished_task = worker.handle(sample_task)
+    finished_task = worker.handle(sample_task, {})

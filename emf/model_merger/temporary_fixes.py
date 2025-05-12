@@ -4,14 +4,13 @@ import pandas as pd
 import logging
 
 from emf.common.integrations import elastic
-from emf.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements
-from emf.loadflow_tool.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
-                                                            fix_sv_tapsteps, remove_duplicate_sv_voltages,
-                                                            remove_small_islands, check_and_fix_dependencies,
-                                                            disconnect_equipment_if_flow_sum_not_zero,
-                                                            export_to_cgmes_zip,
-                                                            configure_paired_boundarypoint_injections_by_nodes,
-                                                            get_opdm_data_from_models)
+from emf.common.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements, get_opdm_data_from_models
+from emf.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
+                                              fix_sv_tapsteps, remove_duplicate_sv_voltages,
+                                              remove_small_islands, check_and_fix_dependencies,
+                                              export_to_cgmes_zip,
+                                              configure_paired_boundarypoint_injections_by_nodes,
+                                              )
 
 
 logger = logging.getLogger(__name__)
@@ -160,11 +159,11 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
     net_interchange_errors = tie_flows_grouped[tie_flows_grouped.eval('Exceeded')]
     if not net_interchange_errors.empty:
         if threshold > 0:
-            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
-                         f"over {threshold}:")
+            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems "
+                           f"over {threshold}")
         else:
-            logger.error(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems:")
-        print(net_interchange_errors.to_string())
+            logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems")
+        # print(net_interchange_errors.to_string())
         if fix_errors:
             logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
             new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
@@ -333,7 +332,7 @@ def run_post_merge_processing(input_models: list,
                                               fix_errors=fix_net_interchange_errors,
                                               threshold=net_interchange_threshold)
         except KeyError:
-            logger.error(f"No fields for netInterchange")
+            logger.warning(f"No fields for netInterchange")
 
     return sv_data, ssh_data
 
@@ -374,56 +373,80 @@ def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: s
     # Filter outages according to model scenario date and replaced area
     filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
     filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
-
     mapped_outages = filtered_outages[~filtered_outages['grid_id'].isna()]
 
-    # Get outages already applied to the model
-    model_outages = pd.DataFrame(get_model_outages(merged_model.network))
-    # Tieline pairing for reconnection
-    tielines = get_network_elements(merged_model.network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    paired_tielines = tielines[tielines['pairing_key'].isin(model_outages['pairing_key'])]
-
+    # Get disconnected elements in network model
+    model_outages = pd.DataFrame(get_model_outages(network=merged_model.network))
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
     model_area_map = {"LITGRID": "LT", "AST": "LV", "ELERING": "EE"}
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
-    filtered_model_outages = pd.concat([filtered_model_outages, paired_tielines]).drop_duplicates(subset='grid_id')
+
+    # Include cross-border lines for reconnection (both dangling lines)
+    dangling_lines = get_network_elements(network=merged_model.network,
+                                          element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
+    relevant_border_lines = border_lines[border_lines['country'].isin(['LT', 'LV', 'EE'])]
+    additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
+
+    # Merged dataframe of network elements to be reconnected
+    filtered_model_outages = pd.concat([filtered_model_outages, additional_dangling_lines]).drop_duplicates(subset='grid_id')
+    filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
+
+    # rename columns
+    filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
+    mapped_outages = mapped_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
 
     logger.info("Fixing outages inside merged model")
 
     # Reconnecting outages from network-config list
+    outages_updated = {}
     for index, outage in filtered_model_outages.iterrows():
         try:
-            if merged_model.network.connect(outage['grid_id']):
-                logger.info(f" {outage['name']} {outage['grid_id']} successfully reconnected")
+            if merged_model.network.connect(outage['mrid']):
+                logger.info(f"Successfully reconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
-                merged_model.outages_updated.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic'], "status": "connected"}])
+                outage_dict = outage.to_dict()
+                outage_dict.update({'status': 'connected'})
+                outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['grid_id']).any():
-                    logger.info(f"{outage['name']} {outage['grid_id']} is already connected")
+                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                    logger.info(f"Element is already connected: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
-                    logger.error(f"Failed to connect outage: {outage['name']} {outage['grid_id']}")
+                    logger.error(f"Failed to connect element: {outage['name']} [mrid: {outage['mrid']}]")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+            merged_model.outages = False
             continue
 
     # Applying outages from UAP
     for index, outage in mapped_outages.iterrows():
         try:
-            if merged_model.network.disconnect(outage['grid_id']):
-                logger.info(f"{outage['name']} {outage['grid_id']} successfully disconnected")
+            if merged_model.network.disconnect(outage['mrid']):
+                logger.info(f"Successfully disconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
-                merged_model.outages_updated.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic'], "status": "disconnected"}])
+                outage_dict = outage.to_dict()
+                outage_dict.update({'status': 'disconnected'})
+                outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['grid_id']).any():
-                    logger.info(f"{outage['name']} {outage['grid_id']} is already in outage")
+                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                    logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
-                    logger.error(f"Failed to disconnect outage: {outage['name']} {outage['grid_id']}")
+                    logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
+                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['grid_id'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+            merged_model.outages = False
             continue
+
+    # Keep only important keys of updated outages
+    merged_model.outages_updated = list(outages_updated.values())
+
+    if merged_model.outages_unmapped:
+        merged_model.outages = False
 
     return merged_model
 
@@ -495,5 +518,5 @@ def fix_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Network
             remove_not_generators = remove_not_generators.set_index('id')
             network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
     except Exception as ex:
-        logger.error(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
+        logger.warning(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
     return network_pre_instance

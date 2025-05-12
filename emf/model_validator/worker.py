@@ -1,7 +1,7 @@
 import logging
 from uuid import uuid4
 from emf.common.logging import custom_logger
-from emf.loadflow_tool.model_validator.model_validator import HandlerModelsValidator
+from emf.model_validator.model_validator import HandlerModelsValidator
 
 # Initialize custom logger
 logger = logging.getLogger(__name__)

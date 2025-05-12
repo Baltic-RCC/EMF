@@ -1,9 +1,10 @@
 import logging
 import config
 from io import BytesIO
-from zipfile import ZipFile
 import json
+import triplets
 
+from emf.common.loadflow_tool.helper import zip_xml, create_opdm_objects
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
 
@@ -12,22 +13,58 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever.model_retriever)
 
 
-class HandlerModelsToMinio:
+class HandlerModelsFromOPDM:
 
     def __init__(self):
         self.opdm_service = opdm.OPDM()
+
+    def handle(self, message: bytes, properties: dict, **kwargs):
+        # Load from binary to json
+        opdm_objects = json.loads(message)
+
+        for opdm_object in opdm_objects:
+            self.opdm_service.download_object(opdm_object=opdm_object)
+            opdm_object["data-source"] = "OPDM"
+
+        return opdm_objects, properties
+
+
+class HandlerModelsFromBytesIO:
+
+    def __init__(self):
+        pass
+
+    def handle(self, message: bytes, properties: dict, **kwargs):
+
+        message_content = BytesIO(message)
+        message_content.name = 'unknown.zip'
+        rdfxml_files = triplets.rdf_parser.find_all_xml([message_content])
+
+        # Repackage to form of zip(xml)
+        rdfzip_files = []
+        for xml in rdfxml_files:
+            rdfzip_files.append(zip_xml(xml))
+
+        # Create OPDM objects
+        opdm_objects = create_opdm_objects(models=[rdfzip_files], metadata={"data-source": "PDN"})
+
+        return opdm_objects, properties
+
+
+class HandlerModelsToMinio:
+
+    def __init__(self):
         self.minio_service = minio_api.ObjectStorage()
 
     def handle(self, message: bytes, properties: dict, **kwargs):
 
-        # Load from binary to json
-        opdm_objects = json.loads(message)
+        opdm_objects = message
+
+        if isinstance(message, bytes):
+            opdm_objects = json.loads(message)
 
         # Download each OPDM object network model from OPDE
         for opdm_object in opdm_objects:
-
-            # Get model from OPDM
-            self.opdm_service.download_object(opdm_object=opdm_object)
 
             # Put all components to bytesio zip (each component to different zip)
             for component in opdm_object['opde:Component']:
@@ -41,22 +78,24 @@ class HandlerModelsToMinio:
                     profile_exist = self.minio_service.object_exists(bucket_name=MINIO_BUCKET, object_name=content_reference)
                     if profile_exist:
                         logger.info(f"Profile already stored in object storage: {content_reference}")
+                        component['opdm:Profile']['DATA'] = None
                         continue
 
                 # Put content data into bytes object
-                output_object = BytesIO()
-                with ZipFile(output_object, "w") as component_zip:
-                    with ZipFile(BytesIO(component['opdm:Profile']['DATA'])) as profile_zip:
-                        for file_name in profile_zip.namelist():
-                            logger.debug(f"Adding file: {file_name}")
-                            component_zip.writestr(file_name, profile_zip.open(file_name).read())
+                output_object = BytesIO(component['opdm:Profile']['DATA'])
+
+                # Delete data
+                component['opdm:Profile']['DATA'] = None
 
                 # Upload components to minio storage
                 output_object.name = content_reference
                 logger.info(f"Uploading component to object storage: {output_object.name}")
                 self.minio_service.upload_object(file_path_or_file_object=output_object, bucket_name=MINIO_BUCKET)
 
-        return message, properties
+            # Store minio bucket name in metadata object
+            opdm_object["minio-bucket"] = MINIO_BUCKET
+
+        return json.dumps(opdm_objects), properties
 
 
 class HandlerModelsToValidator:

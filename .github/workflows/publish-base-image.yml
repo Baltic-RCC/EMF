@@ -17,8 +17,12 @@ jobs:
 
       - name: Build and Push Base Image
         run: |
-          docker build . --file docker/Dockerfile --target emfos-base --tag ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
-          docker push ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+          docker build . \
+            --file docker/Dockerfile \
+            --target emfos-base \
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:latest
+
 
       - name: Display Success Message
         run: echo "emfos-base image has been built and pushed manually."

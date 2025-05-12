@@ -1,6 +1,9 @@
 import config
+import logging
 from datetime import datetime, timedelta
 from emf.common.integrations import elastic
+
+logger = logging.getLogger(__name__)
 
 
 def query_hvdc_schedules(time_horizon: str,

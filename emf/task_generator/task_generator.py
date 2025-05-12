@@ -1,7 +1,7 @@
 import aniso8601
 from datetime import datetime
 
-from emf.common.time_helper import parse_duration, convert_to_utc, timezone, reference_times
+from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.integrations.object_storage.tasks import publish_tasks
 from emf.common.integrations.object_storage.models import query_data
 from emf.common.config_parser import parse_app_properties
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
 
 
-def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None, set_manual_version=False):
+def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
 
@@ -94,11 +94,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
 
                 # Get the reference time for the current timestamp in the time frame.
-                reference_time = reference_times[time_frame["reference_time"]](run_timestamp)
+                reference_time_start = reference_times[time_frame["reference_time_start"]](run_timestamp)
+                reference_time_end = reference_times[time_frame["reference_time_end"]](run_timestamp)
 
                 # Calculate the start and end of the period for the current task.
-                job_period_start = reference_time + parse_duration(time_frame["period_start"])
-                job_period_end = job_period_start + parse_duration(time_frame["period_duration"])
+                job_period_start = reference_time_start + parse_duration(time_frame["period_start"])
+                job_period_end = reference_time_end + parse_duration(time_frame["period_end"])
 
                 # Convert the period start and end times to UTC.
                 job_period_start_utc = convert_to_utc(job_period_start)
@@ -120,8 +121,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                 # Loop through each data timestamp in the current period.
                 while timestamp_utc < job_period_end_utc:
 
+                    # Shift must be applied in local time, due to daylight saving
+                    schedule_start_utc = convert_to_utc(convert_to_timezone(timestamp_utc) + parse_duration(TASK_SCHEDULE_SHIFT))
+                    schedule_end_utc = schedule_start_utc + parse_duration("PT15M")
+
                     task_id = str(uuid4())
-                    task_timestamp = datetime.utcnow().isoformat()
+                    task_timestamp = utcnow().isoformat()
 
                     logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
 
@@ -149,7 +154,10 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                         "job_period_start": job_period_start_utc.isoformat(),
                         "job_period_end": job_period_end_utc.isoformat(),
                         "task_properties": {
-                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}"
+                            "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_start_utc": f"{schedule_start_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_end_utc": f"{schedule_end_utc:%Y-%m-%dT%H:%M}",
+                            "reference_schedule_timehorizon": TASK_SCHEDULE_TIMEHORIZON
                         }
                     }
 
@@ -163,9 +171,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
 
                     # Check if task already exists, then set version number accordingly
                     if TASK_ELK_INDEX:
-                        set_task_version(task, set_manual_version, TASK_ELK_INDEX)
+                        set_task_version(task, TASK_ELK_INDEX)
                     else:
-                        set_task_version(task, set_manual_version)
+                        set_task_version(task)
 
                     # Update task status
                     update_task_status(task, "created")
@@ -244,13 +252,13 @@ def update_task_status(task, status_text, publish=True):
 
     # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
     if publish:
-#        try:
-        publish_tasks([task])
-#        except:
-#            logger.warning("Task Publication to ELK failed")
+        try:
+            publish_tasks([task])
+        except:
+            logger.warning("Task Publication to ELK failed")
 
 
-def set_task_version(task, set_manual_version, elk_index='emfos-tasks*'):
+def set_task_version(task, elk_index='emfos-tasks*'):
     query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
              'task_properties.time_horizon': task['task_properties']['time_horizon'],
              'task_properties.merge_type': task['task_properties']['merge_type']}
@@ -259,16 +267,14 @@ def set_task_version(task, set_manual_version, elk_index='emfos-tasks*'):
         task_list = query_data(query, index=elk_index)
         if task_list:
             latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
-            if not set_manual_version:
+            if task['task_properties']['version'] == 'AUTO' or int(latest_version) > int(task['task_properties']['version']):
                 task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
-            elif set_manual_version:
-                if int(latest_version) > int(task['task_properties']['version']):
-                    logger.error("Set task version was too low, for next run increase task version")
-                    raise Exception
+        else:
+            if task['task_properties']['version'] == 'AUTO':
+                task['task_properties']['version'] = '001'
+
     except:
-        task = None
-        logger.error("ELK query for versioning unsuccessful, no tasks generated")
-        sys.exit()
+        logger.warning("ELK query for Task versioning unsuccessful, version not updated")
 
 
 
@@ -293,13 +299,13 @@ if __name__ == "__main__":
     print(tasks_table["process_id"].value_counts())
     print(tasks_table["run_id"].value_counts())
 
+# https://example.com/runs/IntraDayCGM/1      24
 # https://example.com/runs/DayAheadCGM        24
-# https://example.com/runs/TwoDaysAheadCGM    24
 # https://example.com/runs/DayAheadRMM        24
+# https://example.com/runs/TwoDaysAheadCGM    24
+# https://example.com/runs/IntraDayRMM/1      24
 # https://example.com/runs/TwoDaysAheadRMM    24
-# https://example.com/runs/IntraDayCGM/1       8
-# https://example.com/runs/IntraDayCGM/2       8
+# https://example.com/runs/IntraDayCGM/2      16
+# https://example.com/runs/IntraDayRMM/2      16
 # https://example.com/runs/IntraDayCGM/3       8
-# https://example.com/runs/IntraDayRMM/1       8
-# https://example.com/runs/IntraDayRMM/2       8
 # https://example.com/runs/IntraDayRMM/3       8

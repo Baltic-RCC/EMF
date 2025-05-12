@@ -1,9 +1,18 @@
 sync-with-github:
   stage: build
+  # Using container with trusted certificates
+  image: $ARTIFACTORY_URL/build-containers/alpine:ssh
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - when: manual
   script:
+    - export ALPINE_REPO="https://${ARTIFACTORY_URL}:443/artifactory/alpine/v3.12"
+    - |
+      cat <<EOF > /etc/apk/repositories
+      ${ALPINE_REPO}/main
+      ${ALPINE_REPO}/community
+      EOF
+    # Perform synchronization
     - apk add --no-cache git
     - git clone --bare https://github.com/Baltic-RCC/EMF.git
     - cd EMF.git

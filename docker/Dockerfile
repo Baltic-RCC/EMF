@@ -21,54 +21,67 @@ RUN uv pip sync requirements.txt --system
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"
 
-FROM emfos-base as emfos-model-retriever
+FROM balticrcc/emfos-base:latest as emfos-model-retriever
 
 # Set working directory
 WORKDIR /src
 
 # Copy files to container
 COPY emf/model_retriever/ ./emf/model_retriever/
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/model_retriever/worker.py"]
+ENTRYPOINT ["python", "emf/model_retriever/opdm_worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM emfos-base as emfos-model-validator
+FROM balticrcc/emfos-base:latest as emfos-local-model-retriever
 
 # Set working directory
 WORKDIR /src
 
 # Copy files to container
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
+COPY emf/model_retriever/ ./emf/model_retriever/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_validator/worker.py"]
-#ENTRYPOINT ["/bin/bash"]
+ENTRYPOINT ["python", "emf/model_retriever/local_worker.py"]
 
-FROM emfos-base as emfos-model-merger
+FROM balticrcc/emfos-base:latest as emfos-model-validator
 
 # Set working directory
 WORKDIR /src
 
 # Copy files to container
-COPY emf/loadflow_tool/ ./emf/loadflow_tool/
+COPY emf/model_validator/ ./emf/model_validator/
+COPY emf/common/ ./emf/common/
+COPY config/ ./config/
+
+# Start process
+ENV PYTHONPATH="${PYTHONPATH}:/src"
+ENTRYPOINT ["python", "emf/model_validator/worker.py"]
+#ENTRYPOINT ["/bin/bash"]
+
+FROM balticrcc/emfos-base:latest as emfos-model-merger
+
+# Set working directory
+WORKDIR /src
+
+# Copy files to container
+COPY emf/model_merger/ ./emf/model_merger/
 COPY emf/common/ ./emf/common/
 COPY emf/task_generator/ ./emf/task_generator/
 COPY config/ ./config/
 
 # Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
-ENTRYPOINT ["python", "emf/loadflow_tool/model_merger/worker.py"]
+ENTRYPOINT ["python", "emf/model_merger/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM emfos-base as emfos-task-generator
+FROM balticrcc/emfos-base:latest as emfos-task-generator
 
 # Set working directory
 WORKDIR /src

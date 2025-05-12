@@ -26,15 +26,14 @@ import pypowsybl as pp
 import logging
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 from typing import Dict, List, Union
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
+from emf.common.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
     get_connected_components_data
-from emf.loadflow_tool.loadflow_settings import CGM_DEFAULT, CGM_RELAXED_1, CGM_RELAXED_2
+from emf.common.loadflow_tool.loadflow_settings import CGM_RELAXED_1
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +162,7 @@ def scale_balance(model: object,
     else:
         if pf_results[0].status.value:
             logger.error(f"Terminating network scaling due to divergence in main island")
-            return network
+            return model
 
     # # Balancing network to get distributed slack active power close to zero by scaling conform loads of entire network
     # # Distributed active power will be scaled by each area sum load participation
@@ -232,6 +231,12 @@ def scale_balance(model: object,
         logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
         logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
+    # Check loadflow status
+    # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
+    if not validate_loadflow_status(results=pf_results):
+        model.scaled = False
+        return model
+
     # Validate total network AC net position alignment
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
@@ -287,6 +292,11 @@ def scale_balance(model: object,
             result_dict = attr_to_dict(result)
             logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
             logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
+
+        # Check loadflow status
+        if not validate_loadflow_status(results=pf_results):
+            model.scaled = False
+            return model
 
         # Store distributed active power after AC part scaling
         distributed_power = round(pf_results[0].distributed_active_power, 2)
@@ -375,7 +385,17 @@ def scale_balance(model: object,
     model.scaled_entity = ac_scale_report_dict
     model.scaled_hvdc = hvdc_scale_report_dict
 
+    # Set the common scaling status flag
+    model.scaled = all(ac_pivoted_df['success'])
+
     return model
+
+
+def validate_loadflow_status(results: List):
+    if results[0].status.value == 0:
+        return True
+    else:
+        return False
 
 
 def hvdc_schedule_mapper(row, country_col_name: str = 'country'):

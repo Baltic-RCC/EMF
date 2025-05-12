@@ -6,13 +6,13 @@ import time
 import math
 import pypowsybl as pp
 import uuid
-from emf.loadflow_tool.helper import attr_to_dict, load_model
+from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
-from emf.loadflow_tool.helper import load_opdm_data
-from emf.loadflow_tool import loadflow_settings
-from emf.loadflow_tool.model_validator import validator_functions
+from emf.common.loadflow_tool.helper import load_opdm_data, clean_data_from_opdm_objects
+from emf.common.loadflow_tool import loadflow_settings
+from emf.model_validator import validator_functions
 
 logger = logging.getLogger(__name__)
 
@@ -180,15 +180,35 @@ class HandlerModelsValidator:
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
 
+            # TODO temporary monitored metrics
+            if opdm_object['pmd:TSO'] == "LITGRID":
+                try:
+                    dl = network.get_dangling_lines()
+                    ltpl_border_flow = dl.query("pairing_key in ['XEL_AL11', 'XEL_AL12']").p.sum()
+                    gens = network.get_generators()
+                    khae_gen = gens[gens['name'].str.contains('KHAE_G')].p.sum()
+                    report["monitor"] = {"poland_border_flow": ltpl_border_flow, "khae_generation": khae_gen}
+                except Exception as error:
+                    logger.error(f"Monitored metrics collection failed: {error}", exc_info=True)
+
             # Define model validity
             valid = all(report['validations'].values())
 
             # Update OPDM metadata object with validity status
             try:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
-                self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
+                # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
+                opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
+                opdm_object["valid"] = valid
+                self.elastic_service.send_to_elastic_bulk(
+                    index=METADATA_ELK_INDEX,
+                    json_message_list=[opdm_object],
+                    id_from_metadata=True,
+                    id_metadata_list=ELK_ID_FROM_METADATA_FIELDS.split(','),
+                    hashing=json.loads(ELK_ID_HASHING.lower()),
+                )
             except Exception as error:
-                logger.error(f"Updated OPDM metadata object failed: {error}")
+                logger.error(f"Update OPDM metadata object failed: {error}")
 
             # Send validation report to Elastic
             try:
@@ -216,13 +236,13 @@ if __name__ == "__main__":
     opdm = OPDM()
     latest_boundary = opdm.get_latest_boundary()
     available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-01-01T09:30",
+                                                           scenario_date="2025-04-28T09:30",
                                                            tso="AST")
     validated_models = []
 
     # Validate models
     for model in available_models:
-        network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+        network_triplets = load_opdm_data(opdm_objects=[model, latest_boundary])
         network = load_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
