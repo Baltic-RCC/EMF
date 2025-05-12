@@ -149,7 +149,7 @@ class HandlerMergeModels:
         remove_non_generators_from_slack_participation = True
 
         # Collect valid models from ObjectStorage
-        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False)
+        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False, data_source='OPDM')
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
@@ -157,11 +157,7 @@ class HandlerMergeModels:
 
         # Get additional models directly from Minio
         if local_import_models:
-            additional_models_data = self.minio_service.get_latest_models_and_download(time_horizon=time_horizon,
-                                                                                       scenario_datetime=scenario_datetime,
-                                                                                       model_entity=local_import_models,
-                                                                                       bucket_name=INPUT_MINIO_BUCKET,
-                                                                                       prefix=INPUT_MINIO_FOLDER)
+            additional_models_data = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True, data_source='PDN')
 
             missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'Missing in PDN'} for tso in missing_local_import])
