@@ -124,7 +124,7 @@ class HandlerMergeModels:
         scenario_datetime = task_properties["timestamp_utc"]
         schedule_start = task_properties.get("reference_schedule_start_utc")
         schedule_end = task_properties.get("reference_schedule_end_utc")
-        schedule_timehorizon = task_properties.get("reference_schedule_timehorizon")
+        schedule_time_horizon = task_properties.get("reference_schedule_time_horizon")
         merging_area = task_properties["merge_type"]
         merging_entity = task_properties["merging_entity"]
         mas = task_properties["mas"]
@@ -287,16 +287,16 @@ class HandlerMergeModels:
         # Perform scaling
         if model_scaling:
 
-            # Set default timehorizon and scnario timestamp if not provided
-            if not schedule_timehorizon or schedule_timehorizon == "AUTO":
-                schedule_timehorizon = time_horizon
+            # Set default time horizon and scenario timestamp if not provided
+            if not schedule_time_horizon or schedule_time_horizon == "AUTO":
+                schedule_time_horizon = time_horizon
 
             if not schedule_start:
                 schedule_start = scenario_datetime
 
             # Get aligned schedules
-            ac_schedules = query_acnp_schedules(time_horizon=schedule_timehorizon, scenario_timestamp=schedule_start)
-            dc_schedules = query_hvdc_schedules(time_horizon=schedule_timehorizon, scenario_timestamp=schedule_start)
+            ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
+            dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
 
             # Scale balance if all schedules were received
             if all([ac_schedules, dc_schedules]):
@@ -309,7 +309,7 @@ class HandlerMergeModels:
                     logger.error(e)
                     merged_model.scaled = False
             else:
-                logger.warning(f"Schedule reference data not available: {schedule_timehorizon} for {schedule_start}, skipping model scaling")
+                logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}, skipping model scaling")
                 merged_model.scaled = False
 
         # Record main merging process end
