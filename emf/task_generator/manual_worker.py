@@ -81,5 +81,6 @@ if tasks:
         rabbit_service.publish(payload=json.dumps(task),
                                exchange_name=RMQ_EXCHANGE,
                                headers=filter_and_flatten_dict(task, TASK_HEADER_KEYS.split(",")))
+        logger.info(f"Published task with @id: {task['@id']} of run {task['run_id']}")
 else:
     logger.info("No tasks generated at current time.")
