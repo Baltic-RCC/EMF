@@ -14,10 +14,11 @@ parse_app_properties(globals(), config.paths.task_generator.task_generator)
 timeframe_conf = config.paths.task_generator.timeframe_conf
 process_conf = config.paths.task_generator.process_conf
 
+# Load to json
 process_config_json = json.load(process_conf)
+timeframe_config_json = json.load(timeframe_conf)
 
-
-tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
+tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_config_json, timeframe_config_json))
 
 if tasks:
     logger.info(f"Creating connection to RMQ")
