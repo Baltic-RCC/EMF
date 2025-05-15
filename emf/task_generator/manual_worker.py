@@ -56,26 +56,21 @@ process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = PRE_TEMP_FIX
 process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_FIXES
 process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 
-# Apply process time shift and time travel if defined
-if PROCESS_TIME_SHIFT:
-    timeframe_config_json[0]['period_start'] = f'{PROCESS_TIME_SHIFT}'
-if TIMETRAVEL:
-    timeframe_config_json[0]['period_duration'] = TASK_PERIOD_DURATION
-    timeframe_config_json[0]['reference_time'] = TASK_REFERENCE_TIME
-
-# Exporting configuration
-with open(process_conf, 'w') as file:
-    json.dump(process_config_json, file, indent=1)
-with open(timeframe_conf, 'w') as file:
-    json.dump(timeframe_config_json, file, indent=4)
+# If single timestamp run is defined
+if TIMESTAMP:
+    timeframe_config_json[0]['reference_time_start'] = TASK_REFERENCE_TIME
+    timeframe_config_json[0]['reference_time_end'] = TASK_REFERENCE_TIME
+    timeframe_config_json[0]['period_start'] = 'PT0M'
+    timeframe_config_json[0]['period_end'] = 'PT1H'
 
 # Generate tasks
-tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_conf, timeframe_conf, TIMETRAVEL))
+tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_config_json, timeframe_config_json,
+                            TIMESTAMP, PROCESS_TIME_SHIFT))
 
 # Publish tasks
 if tasks:
     logger.info(f"Creating connection to RMQ")
-    rabbit_service = rabbit.BlockingClient(host=RMQ_SERVER)
+    rabbit_service = rabbit.BlockingClient()
     logger.info(f"Sending tasks to Rabbit exchange: {RMQ_EXCHANGE}")
     for task in tasks:
         rabbit_service.publish(payload=json.dumps(task),

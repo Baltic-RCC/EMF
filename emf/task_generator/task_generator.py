@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
 
 
-def generate_tasks(task_window_duration:str, task_window_reference:str, process_conf:str, timeframe_conf:str, timetravel_now:str=None):
+def generate_tasks(task_window_duration: str,
+                   task_window_reference: str,
+                   process_conf: dict,
+                   timeframe_conf: dict,
+                   timetravel_now: str | None = None,
+                   process_time_shift: str | None = None,
+                   ):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
 
@@ -26,9 +32,9 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
             within which the tasks are generated.
         task_window_reference (str): a string identifying the reference point in time for the task window,
             as defined in the `reference_times` dict imported from `time_helper.py`.
-        process_conf (str): path to a JSON file specifying the process configuration, as described in the
+        process_conf (dict): JSON file specifying the process configuration, as described in the
             documentation.
-        timeframe_conf (str): path to a JSON file specifying the time frame definitions, as described in the
+        timeframe_conf (dict): JSON file specifying the time frame definitions, as described in the
             documentation.
 
     Yields:
@@ -41,16 +47,12 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
 
     # TODO - add validation against schema
 
-    # Load the time frame configuration from the specified file.
-    time_frames = json.loads(Path(timeframe_conf).read_text())
-
     # Convert the list of time frames to a dictionary for easier access.
-    time_frames = {time_frame["@id"].split("/")[-1]: time_frame for time_frame in time_frames}
+    time_frames = {time_frame["@id"].split("/")[-1]: time_frame for time_frame in timeframe_conf}
 
     # Load the process configuration from the specified file.
-    processes = json.loads(Path(process_conf).read_text())
 
-    for process in processes:
+    for process in process_conf:
 
         # Loop through each run in the process configuration.
         for run in process["runs"]:
@@ -82,20 +84,23 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
             else:
                 _ = runs.get_next(datetime)
 
-
-
             logger.info(f"Next run of {run['@id']} at {run_timestamp}")
 
             if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
-                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
+                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
 
             # Loop through each timestamp in the current run.
             while run_timestamp <= run_window_end:
-                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']} ")
+                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
 
                 # Get the reference time for the current timestamp in the time frame.
                 reference_time_start = reference_times[time_frame["reference_time_start"]](run_timestamp)
                 reference_time_end = reference_times[time_frame["reference_time_end"]](run_timestamp)
+
+                # Change reference time according to time shift config
+                if process_time_shift:
+                    reference_time_start = reference_time_start + parse_duration(process_time_shift)
+                    reference_time_end = reference_time_end + parse_duration(process_time_shift)
 
                 # Calculate the start and end of the period for the current task.
                 job_period_start = reference_time_start + parse_duration(time_frame["period_start"])
@@ -128,8 +133,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                     task_id = str(uuid4())
                     task_timestamp = utcnow().isoformat()
 
-                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id} ")
-
+                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id}")
 
                     task = {
                         "@context": "https://example.com/task_context.jsonld",
@@ -157,7 +161,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
                             "timestamp_utc": f"{timestamp_utc:%Y-%m-%dT%H:%M}",
                             "reference_schedule_start_utc": f"{schedule_start_utc:%Y-%m-%dT%H:%M}",
                             "reference_schedule_end_utc": f"{schedule_end_utc:%Y-%m-%dT%H:%M}",
-                            "reference_schedule_timehorizon": TASK_SCHEDULE_TIMEHORIZON
+                            "reference_schedule_time_horizon": TASK_SCHEDULE_TIME_HORIZON
                         }
                     }
 
@@ -185,6 +189,7 @@ def generate_tasks(task_window_duration:str, task_window_reference:str, process_
 
                     # Next Task
                     timestamp_utc = timestamps_utc.get_next(datetime)
+
                 # Next Run
                 run_timestamp = runs.get_next(datetime)
 
@@ -255,7 +260,7 @@ def update_task_status(task, status_text, publish=True):
         try:
             publish_tasks([task])
         except:
-            logger.warning("Task Publication to ELK failed")
+            logger.warning("Task publication to Elastic failed")
 
 
 def set_task_version(task, elk_index='emfos-tasks*'):
@@ -272,11 +277,8 @@ def set_task_version(task, elk_index='emfos-tasks*'):
         else:
             if task['task_properties']['version'] == 'AUTO':
                 task['task_properties']['version'] = '001'
-
     except:
-        logger.warning("ELK query for Task versioning unsuccessful, version not updated")
-
-
+        logger.warning("Elastic query for task versioning unsuccessful, version not updated")
 
 
 if __name__ == "__main__":

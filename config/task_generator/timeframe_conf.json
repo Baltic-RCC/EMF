@@ -106,8 +106,8 @@
         "description": "Process that runs in current month for next month",
         "reference_time_start": "currentMonthStart",
         "reference_time_end": "currentMonthStart",
-        "period_start": "P1M",
-        "period_end": "P2M"
+        "period_start": "P1M1D",
+        "period_end": "P2M1D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",
@@ -116,7 +116,7 @@
         "description": "Process that runs in current year for next year",
         "reference_time_start": "currentYearStart",
         "reference_time_end": "currentYearStart",
-        "period_start": "P1Y",
-        "period_end": "P2Y"
+        "period_start": "P1Y1D",
+        "period_end": "P2Y1D"
     }
 ]
