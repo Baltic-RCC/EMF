@@ -151,7 +151,7 @@ def get_latest_models_and_download(time_horizon: str,
                                    data_source: str | None = None
                                    ):
 
-    logger.info(f"Retrieving latest network models of type: {object_type}")
+    logger.info(f"Retrieving latest network models of type: {object_type} [source: {data_source}]")
 
     meta = {'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
             'pmd:timeHorizon': time_horizon,
