@@ -20,6 +20,7 @@ from emf.common.loadflow_tool import loadflow_settings
 from emf.common.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
+from emf.model_merger.model_statistics import save_and_get_statistics
 from emf.model_merger.replacement import run_replacement, get_available_tsos, run_replacement_local
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
@@ -420,6 +421,53 @@ class HandlerMergeModels:
         self.elk_logging_handler.stop_trace()
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
+
+        generate_statistics = False
+        if generate_statistics:
+
+            time_moment_now = datetime.datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+            report_name = r"./statistics"
+            report_name = report_name.removesuffix('/') + '/' + f"stat_{merged_model.name}_{schedule_time_horizon}.xlsx"
+            models_as_triplets = load_opdm_data(input_models)
+            with pandas.ExcelWriter(report_name) as excel_writer:
+                save_and_get_statistics(initial_model_data=models_as_triplets,
+                                        cgm_sv_data=sv_data,
+                                        sheet_name='CGM_merge',
+                                        cgm_ssh_data=ssh_data,
+                                        output_excel_writer=excel_writer)
+                sheet_name = "Schedules"
+                workbook = excel_writer.book
+                worksheet = workbook.add_worksheet(sheet_name)
+                row_counter = 0
+                col_counter = 0
+                ac_schedules_df = pandas.DataFrame(ac_schedules)
+                dc_schedules_df = pandas.DataFrame(dc_schedules)
+                worksheet.write_string(row_counter, col_counter, f'AC schedules: {schedule_start}_{schedule_time_horizon}')
+                row_counter = row_counter + 1
+                ac_schedules_df.to_excel(excel_writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+                row_counter = row_counter + 3 + len(ac_schedules_df)
+
+                worksheet.write_string(row_counter, col_counter, f'DC schedules: {schedule_start}_{schedule_time_horizon}')
+                row_counter = row_counter + 1
+                dc_schedules_df.to_excel(excel_writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+
+                if merged_model.scaled:
+                    sheet_name = "Scaling"
+                    workbook = excel_writer.book
+                    worksheet = workbook.add_worksheet(sheet_name)
+                    row_counter = 0
+                    col_counter = 0
+                    ac_results = pandas.DataFrame(merged_model.scaled_entity)
+                    dc_results = pandas.DataFrame(merged_model.scaled_hvdc)
+                    worksheet.write_string(row_counter, col_counter,
+                                        f'Scaled entity')
+                    row_counter = row_counter + 1
+                    ac_results.to_excel(excel_writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
+                    row_counter = row_counter + 3 + len(ac_results)
+
+                    worksheet.write_string(row_counter, col_counter, f'Scaled hvdc')
+                    row_counter = row_counter + 1
+                    dc_results.to_excel(excel_writer, sheet_name=sheet_name, startrow=row_counter, startcol=col_counter)
 
         return task, properties
 
