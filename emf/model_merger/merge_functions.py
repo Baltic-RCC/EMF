@@ -169,12 +169,12 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
 
     # Check and fix SV id
     updated_sv_id_map = {}
-    # for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
-    #     if not is_valid_uuid(old_id):
-    #         new_id = str(uuid4())
-    #         updated_sv_id_map[old_id] = new_id
-    #         logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
-    # sv_data = sv_data.replace(updated_sv_id_map)
+    for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
+        if not is_valid_uuid(old_id):
+            new_id = str(uuid4())
+            updated_sv_id_map[old_id] = new_id
+            logger.info(f"SV id: {old_id} is not valid. Assigning {new_id}")
+    sv_data = sv_data.replace(updated_sv_id_map)
 
     ### SSH ##
 
