@@ -9,6 +9,7 @@ from decimal import Decimal
 import datetime
 import triplets
 import pandas
+import uuid
 from uuid import uuid4
 import config
 from emf.common.loadflow_tool.helper import load_model, load_opdm_data, filename_from_opdm_metadata, attr_to_dict, \
