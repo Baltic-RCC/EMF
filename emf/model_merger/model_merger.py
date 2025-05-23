@@ -157,7 +157,13 @@ class HandlerMergeModels:
 
         # Get additional models directly from Minio
         if local_import_models:
-            additional_models_data = get_latest_models_and_download(time_horizon, scenario_datetime, valid=True, data_source='PDN')
+            additional_models_data = get_latest_models_and_download(time_horizon=time_horizon,
+                                                                    scenario_date=scenario_datetime,
+                                                                    valid=True,
+                                                                    data_source='PDN')
+            additional_models_data = merge_functions.filter_models(models=additional_models_data,
+                                                                   included_models=local_import_models,
+                                                                   filter_on='pmd:TSO')
 
             missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'Missing in PDN'} for tso in missing_local_import])
