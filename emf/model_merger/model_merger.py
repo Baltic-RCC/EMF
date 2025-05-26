@@ -292,10 +292,14 @@ class HandlerMergeModels:
             # Set default time horizon and scenario timestamp if not provided
             if not schedule_time_horizon or schedule_time_horizon == "AUTO":
                 schedule_time_horizon = time_horizon
-
+            else:
+                logger.warning(f"Using replaced schedules from timehorizon: {schedule_time_horizon}")
+                
             if not schedule_start:
                 schedule_start = scenario_datetime
-
+            else:
+                logger.warning(f"Replaced schedules from schedule_start: {schedule_start}")
+            
             # Get aligned schedules
             ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
             dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
