@@ -182,8 +182,9 @@ class HandlerMergeModels:
                                                 'time_horizon': model['pmd:timeHorizon'],
                                                 'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
-                    #TODO change, keeping this to keep consistent naming structure for now
-                    additional_models_data = replacement_models_local
+
+                    additional_models_data = additional_models_data + replacement_models_local
+
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
