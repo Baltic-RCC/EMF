@@ -271,7 +271,7 @@ def set_task_version(task, elk_index='emfos-tasks*'):
     try:
         task_list = query_data(query, index=elk_index)
         if task_list:
-            latest_version = max(item['task_properties'].get('version', "0") for item in task_list if item['task_properties'].get('version', 1))
+            latest_version = max(int(item['task_properties'].get('version', "0")) for item in task_list if item['task_properties'].get('version', 1))
             if task['task_properties']['version'] == 'AUTO' or int(latest_version) > int(task['task_properties']['version']):
                 task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
         else:

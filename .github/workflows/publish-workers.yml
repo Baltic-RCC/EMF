@@ -4,7 +4,9 @@ name: Build and publish EMFOS workers
 on:
   push:
     tags:
-      - "v*" 
+      - "v*"
+    branches: 
+      - main
 
 jobs:
   build_workers:
