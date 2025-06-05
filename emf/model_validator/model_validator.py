@@ -8,7 +8,7 @@ import pypowsybl as pp
 import uuid
 from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, minio_api
+from emf.common.integrations import elastic, minio_api, rabbit
 from emf.common.integrations.object_storage import models
 from emf.common.loadflow_tool.helper import load_opdm_data, clean_data_from_opdm_objects
 from emf.common.loadflow_tool import loadflow_settings
@@ -141,10 +141,10 @@ class HandlerModelsValidator:
         start_time = time.time()
 
         # Load OPDM metadata objects from binary to json
-        opdm_objects = json.loads(message)
+        opdm_metadata = json.loads(message)
 
         # Get network models data from object storage
-        opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_objects]
+        opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_metadata]
 
         # Get the latest boundary set for validation
         latest_boundary = models.get_latest_boundary()
@@ -176,6 +176,7 @@ class HandlerModelsValidator:
                 report['content_reference'] = opdm_object['pmd:content-reference']
                 report['tso'] = opdm_object['pmd:TSO']
                 report['duration_s'] = round(time.time() - start_time, 3)
+                report['minio-bucket'] = opdm_object['minio-bucket']
 
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
@@ -216,6 +217,14 @@ class HandlerModelsValidator:
             except Exception as error:
                 logger.error(f"Validation report sending to Elastic failed: {error}")
 
+            # Send metadata to quality module queue
+            try:
+                report['opdm_object'] = opdm_object
+                rabbit.BlockingClient().publish(payload=json.dumps(report), exchange_name=RABBIT_QUALITY_EXCHANGE,
+                                                headers={"opde:Object-Type": "IGM"})
+            except:
+                logger.error(f"Sending metadata to RabbitMQ failed: {error}")
+
             logger.info(f"Model validation status: {valid} [duration {report['duration_s']}s]")
 
         return message, properties
@@ -234,9 +243,15 @@ if __name__ == "__main__":
     #logging.getLogger('powsybl').setLevel(1)
 
     opdm = OPDM()
-    latest_boundary = opdm.get_latest_boundary()
+
+    opdm_metadata = json.loads(message)
+
+    # Get network models data from object storage
+    opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_metadata]
+
+    # latest_boundary = opdm.get_latest_boundary()
     available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-04-28T09:30",
+                                                           scenario_date="2025-05-27T09:30",
                                                            tso="AST")
     validated_models = []
 

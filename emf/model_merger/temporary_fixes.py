@@ -291,7 +291,7 @@ def run_post_merge_processing(input_models: list,
     version = task_properties["version"]
 
     models_as_triplets = load_opdm_data(input_models)
-    sv_data, ssh_data = create_sv_and_updated_ssh(merged_model, input_models, models_as_triplets,
+    sv_data, ssh_data, opdm_object_meta = create_sv_and_updated_ssh(merged_model, input_models, models_as_triplets,
                                                   scenario_datetime, time_horizon,
                                                   version, merging_area,
                                                   merging_entity, mas)
@@ -334,7 +334,7 @@ def run_post_merge_processing(input_models: list,
         except KeyError:
             logger.warning(f"No fields for netInterchange")
 
-    return sv_data, ssh_data
+    return sv_data, ssh_data, opdm_object_meta
 
 
 def fix_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str, debug: bool = False):

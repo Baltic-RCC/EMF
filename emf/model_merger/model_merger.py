@@ -13,7 +13,7 @@ from emf.common.time_helper import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio_api, elastic
+from emf.common.integrations import opdm, minio_api, elastic, rabbit
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.common.loadflow_tool import loadflow_settings
@@ -182,9 +182,8 @@ class HandlerMergeModels:
                                                 'time_horizon': model['pmd:timeHorizon'],
                                                 'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
-
-                    additional_models_data = additional_models_data + replacement_models_local
-
+                    #TODO change, keeping this to keep consistent naming structure for now
+                    additional_models_data = replacement_models_local
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
@@ -293,14 +292,10 @@ class HandlerMergeModels:
             # Set default time horizon and scenario timestamp if not provided
             if not schedule_time_horizon or schedule_time_horizon == "AUTO":
                 schedule_time_horizon = time_horizon
-            else:
-                logger.warning(f"Using replaced schedules from timehorizon: {schedule_time_horizon}")
-                
+
             if not schedule_start:
                 schedule_start = scenario_datetime
-            else:
-                logger.warning(f"Replaced schedules from schedule_start: {schedule_start}")
-            
+
             # Get aligned schedules
             ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
             dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
@@ -331,12 +326,16 @@ class HandlerMergeModels:
 
         # Run post-processing
         post_p_start = datetime.datetime.now(datetime.UTC)
-        sv_data, ssh_data = run_post_merge_processing(input_models=input_models,
+        sv_data, ssh_data, opdm_object_meta = run_post_merge_processing(input_models=input_models,
                                                       merged_model=merged_model,
                                                       task_properties=task_properties,
                                                       small_island_size=SMALL_ISLAND_SIZE,
                                                       enable_temp_fixes=post_temp_fixes,
                                                       time_horizon=new_time_horizon)
+
+        opdm_object_meta['pmd:content-reference'] = ''
+        opdm_object_meta['opde:Object-Type'] = ''
+
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
@@ -421,6 +420,15 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
 
+        # Send model metadata to quality assurance module
+        if model_upload_to_minio and model_merge_report_send_to_elk:
+            try:
+                merge_report['minio-bucket'] = OUTPUT_MINIO_BUCKET
+                rabbit.BlockingClient().publish(payload=json.dumps(merge_report), exchange_name=RABBIT_QUALITY_EXCHANGE,
+                                                headers={"opde:Object-Type": "CGM"})
+            except:
+                logger.error(f"Sending metadata to RabbitMQ failed: {error}")
+
         # Stop Trace
         self.elk_logging_handler.stop_trace()
 
@@ -459,13 +467,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-04-29T22:30:00+00:00",
+            "timestamp_utc": "2025-06-01T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ["AST"],
+            "included": ["LITGRID"],
             "excluded": [],
-            "local_import": ["LITGRID"],
-            "time_horizon": "ID",
+            "local_import": [],
+            "time_horizon": "2D",
             "version": "00",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "pre_temp_fixes": "True",
@@ -475,7 +483,7 @@ if __name__ == "__main__":
             "replacement_local": "True",
             "scaling": "True",
             "upload_to_opdm": "False",
-            "upload_to_minio": "False",
+            "upload_to_minio": "True",
             "send_merge_report": "False",
             "force_outage_fix": "False",
         }
