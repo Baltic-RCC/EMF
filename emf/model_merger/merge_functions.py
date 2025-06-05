@@ -284,7 +284,7 @@ def create_sv_and_updated_ssh(merged_model, original_models, models_as_triplets,
     filename_mask = "{scenarioTime:%Y%m%dT%H%MZ}_{processType}_{mergingEntity}-{domain}-{forEntity}_{messageType}_{version:03d}"
     ssh_data = triplets.cgmes_tools.update_filename_from_FullModel(ssh_data, filename_mask=filename_mask)
 
-    return sv_data, ssh_data
+    return sv_data, ssh_data, opdm_object_meta
 
 
 def fix_sv_shunts(sv_data, models_as_triplets):
