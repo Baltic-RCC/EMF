@@ -101,6 +101,20 @@ def create_opdm_object_meta(object_id,
     return opdm_object_meta
 
 
+def update_cgm_opdm_object_meta(opdm_object_meta, merged_model):
+
+    opdm_object_meta.update({'opde:Object-Type': 'CGM',
+                             "pmd:isFullModel": "true",
+                             "pmd:Area": opdm_object_meta['pmd:mergingArea'],
+                             "pmd:version": opdm_object_meta['pmd:versionNumber'],
+                             "pmd:modelid": opdm_object_meta['pmd:fullModel_ID'],
+                             'pmd:content-reference': merged_model.content_reference,
+                             "pmd:modelPartReference": opdm_object_meta['pmd:mergingEntity']+'-'+opdm_object_meta['pmd:mergingArea'],
+                             })
+
+    return opdm_object_meta
+
+
 def update_FullModel_from_OpdmObject(data, opdm_object):
     return triplets.cgmes_tools.update_FullModel_from_dict(data, metadata={
         "Model.version": f"{int(opdm_object['pmd:versionNumber']):03d}",
