@@ -261,26 +261,49 @@ def update_task_status(task: dict, status_text: str, publish: bool = True):
             logger.warning(f"Task publication to Elastic failed with error: {e}")
 
 
-def set_task_version(task: dict, elk_index: str = TASK_ELK_INDEX):
+def set_task_version(task: dict):
+
+    # Check versioning mode
+    auto_versioning_enabled = False
+    if task['task_properties']['version'] == 'AUTO':
+        logger.debug("Task versioning set to AUTO mode")
+        auto_versioning_enabled = True
+
     query = {
-        'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
-        'task_properties.time_horizon': task['task_properties']['time_horizon'],
-        'task_properties.merge_type': task['task_properties']['merge_type'],
+        "bool": {
+            "must": [
+                {"match": {"task_properties.timestamp_utc": task['task_properties']['timestamp_utc']}},
+                {"term": {"task_properties.time_horizon.keyword": task['task_properties']['time_horizon']}},
+                {"term": {"task_properties.merge_type.keyword": task['task_properties']['merge_type']}},
+            ]
+        }
     }
+
     service = Elastic()
     try:
-        task_list = service.get_docs_by_query(index=TASK_ELK_INDEX, query=query)
-        if task_list:
-            latest_version = max(int(item['task_properties'].get('version', "0")) for item in task_list if item['task_properties'].get('version', 1))
-            if task['task_properties']['version'] == 'AUTO':
-                task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
-            elif int(latest_version) > int(task['task_properties']['version']):
-                task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
-            else:
-                logger.error("Version set lower than existing model")
+        updated_version = None
+        tasks_df = service.get_docs_by_query(index=TASK_ELK_INDEX, query=query)
+
+        if tasks_df.empty:
+            logger.info(f"No previous runs found for task, using version from configuration: {task['task_properties']['version']}")
+            if auto_versioning_enabled:
+                logger.info("Task versioning mode 'AUTO', defaulting to: '001'")
+                updated_version = '001'
         else:
-            if task['task_properties']['version'] == 'AUTO':
-                task['task_properties']['version'] = '001'
+            latest_version = tasks_df['task_properties.version'].max()
+            logger.info(f"Latest available task version: {latest_version}")
+            if auto_versioning_enabled:
+                updated_version = str(int(latest_version) + 1).zfill(3)
+            elif int(latest_version) >= int(task['task_properties']['version']):
+                logger.warning("Latest available version is equal or higher than defined in task, increasing from latest")
+                updated_version = str(int(latest_version) + 1).zfill(3)
+            else:
+                logger.info("Using version for task configuration")
+                updated_version = task['task_properties']['version']
+
+        if updated_version:
+            task['task_properties']['version'] = updated_version
+            logger.info(f"Version set to: {updated_version}")
 
     except Exception as e:
         logger.warning("Elastic query for task versioning unsuccessful, version not updated")
@@ -298,10 +321,13 @@ if __name__ == "__main__":
 
     task_window_duration = "P1D"
     task_window_reference = "currentDayStart"
-    timeframe_conf = "../../config/task_generator/timeframe_conf.json"
-    process_conf = "../../config/task_generator/process_conf.json"
+    timeframe_conf = config.paths.task_generator.timeframe_conf
+    process_conf = config.paths.task_generator.process_conf
 
-    tasks = list(generate_tasks(task_window_duration, task_window_reference, process_conf, timeframe_conf))
+    timeframe_config_json = json.load(timeframe_conf)
+    process_config_json = json.load(process_conf)
+
+    tasks = list(generate_tasks(task_window_duration, task_window_reference, process_config_json, timeframe_config_json))
 
     tasks_table = pandas.json_normalize(tasks)
     print(tasks_table["process_id"].value_counts())

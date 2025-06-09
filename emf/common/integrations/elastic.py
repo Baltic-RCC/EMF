@@ -149,6 +149,10 @@ class Elastic:
 
     def get_docs_by_query(self, index: str, query: dict, size: int | None = None, return_df: bool = True):
 
+        # Validate index definition to be able to search all index by pattern
+        if "*" not in index:
+            index = f"{index}*"
+
         response = self.client.search(index=index, query=query, size=size)
         if self.debug:
             logger.info(f"Returned total {response['hits']['total']['value']} document")
