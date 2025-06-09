@@ -314,7 +314,7 @@
       },
       {
        "@context": "https://example.com/schemas/run.jsonld",
-       "@id": "https://example.com/runs/IntraDayRMM/4",
+       "@id": "https://example.com/runs/IntraDayRMM/EOD",
        "@type": "Run",
        "process_id": "https://example.com/processes/RMM_CREATION",
        "valid_from": "",
