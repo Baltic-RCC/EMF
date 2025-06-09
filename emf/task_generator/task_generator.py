@@ -253,7 +253,7 @@ def update_task_status(task: dict, status_text: str, publish: bool = True):
         try:
             Elastic.send_to_elastic(index=TASK_ELK_INDEX, json_message=task, id=task.get("@id"))
         except Exception as e:
-            logger.warning(f"Task publication to Elastic failed with error: {e}")
+            logger.error(f"Task publication to Elastic failed with error: {e}")
 
 
 def set_task_version(task: dict):
