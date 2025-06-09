@@ -20,7 +20,7 @@ from emf.common.loadflow_tool import loadflow_settings
 from emf.common.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
-from emf.model_merger.replacement import run_replacement, get_available_tsos, run_replacement_local
+from emf.model_merger.replacement import run_replacement, get_available_tsos
 from emf.task_generator.task_generator import update_task_status
 from emf.common.logging.custom_logger import get_elk_logging_handler
 # TODO - move this async solution to some common module
@@ -333,10 +333,6 @@ class HandlerMergeModels:
                                                       enable_temp_fixes=post_temp_fixes,
                                                       time_horizon=new_time_horizon)
 
-        opdm_object_meta['pmd:content-reference'] = ''
-        opdm_object_meta['opde:Object-Type'] = ''
-
-
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = merge_functions.export_to_cgmes_zip([ssh_data, sv_data])
         post_p_end = datetime.datetime.now(datetime.UTC)
@@ -407,14 +403,17 @@ class HandlerMergeModels:
         merged_model.duration_s = (end_time - merge_start).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
-        # Send merge report to Elastic
+        # Update OPDM object data with CGM relevant data
+        opdm_object_meta = merge_functions.update_cgm_opdm_object_meta(opdm_object_meta, merged_model)
+
+        # Send merge report and opdm object metadata to Elastic
         if model_merge_report_send_to_elk:
             logger.info(f"Sending merge report to Elastic")
             try:
                 merge_report = merge_functions.generate_merge_report(merged_model=merged_model, task=task)
                 try:
-                    response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX,
-                                                               json_message=merge_report)
+                    response = elastic.Elastic.send_to_elastic(index=MERGE_REPORT_ELK_INDEX, json_message=merge_report)
+                    response2 = elastic.Elastic.send_to_elastic(index=OPDE_MODELS_ELK_INDEX, json_message=opdm_object_meta)
                 except Exception as error:
                     logger.error(f"Merge report sending to Elastic failed: {error}")
             except Exception as error:
