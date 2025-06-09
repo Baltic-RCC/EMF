@@ -251,12 +251,7 @@ def update_task_status(task: dict, status_text: str, publish: bool = True):
     # TODO - better handling if elk is not available, possibly set elk connection timeout really small or refactor the sending to happen via rabbit
     if publish:
         try:
-            for task in tasks:
-                Elastic.send_to_elastic(
-                    index=TASK_ELK_INDEX,
-                    json_message=task,
-                    id=task.get("@id")
-                )
+            Elastic.send_to_elastic(index=TASK_ELK_INDEX, json_message=task, id=task.get("@id"))
         except Exception as e:
             logger.warning(f"Task publication to Elastic failed with error: {e}")
 
