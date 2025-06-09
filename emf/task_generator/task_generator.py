@@ -1,17 +1,14 @@
 import aniso8601
 from datetime import datetime
-
-from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
-from emf.common.integrations.object_storage.tasks import publish_tasks
-from emf.common.integrations.object_storage.models import query_data
-from emf.common.config_parser import parse_app_properties
 import config
 from uuid import uuid4
 import croniter
-from pathlib import Path
 import json
 import logging
 from os import getlogin
+from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
+from emf.common.integrations.elastic import Elastic
+from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
@@ -51,7 +48,6 @@ def generate_tasks(task_window_duration: str,
     time_frames = {time_frame["@id"].split("/")[-1]: time_frame for time_frame in timeframe_conf}
 
     # Load the process configuration from the specified file.
-
     for process in process_conf:
 
         # Loop through each run in the process configuration.
@@ -65,7 +61,7 @@ def generate_tasks(task_window_duration: str,
             if timetravel_now:
                 now = aniso8601.parse_datetime(timetravel_now)
 
-            logger.info(f"Now -> {now}")
+            logger.info(f"Now: {now}")
 
             # Calculate the start and end of the task window for the run.
             run_window_start = reference_times[task_window_reference](now)
@@ -84,20 +80,20 @@ def generate_tasks(task_window_duration: str,
             else:
                 _ = runs.get_next(datetime)
 
-            logger.info(f"Next run of {run['@id']} at {run_timestamp}")
+            logger.info(f"Next run of {run['@id']} at: {run_timestamp}")
 
-            if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
-                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
+            if not (run_window_start <= run_timestamp <= run_window_end):
+                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}]: {run['@id']}")
 
             # Loop through each timestamp in the current run.
             while run_timestamp <= run_window_end:
-                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
+                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}]: {run['@id']}")
 
                 # Get the reference time for the current timestamp in the time frame.
                 reference_time_start = reference_times[time_frame["reference_time_start"]](run_timestamp)
                 reference_time_end = reference_times[time_frame["reference_time_end"]](run_timestamp)
 
-                # Change reference time according to time shift config
+                # Change reference time according to time shift config.
                 if process_time_shift:
                     reference_time_start = reference_time_start + parse_duration(process_time_shift)
                     reference_time_end = reference_time_end + parse_duration(process_time_shift)
@@ -110,7 +106,7 @@ def generate_tasks(task_window_duration: str,
                 job_period_start_utc = convert_to_utc(job_period_start)
                 job_period_end_utc = convert_to_utc(job_period_end)
 
-                # Calculate the open and close times for the gate (the window of time before the job period start time during wich the job/tasks must be done).
+                # Calculate the open and close times for the gate (the window of time before the job period start time during which the job/tasks must be done).
                 gate_open_utc = job_period_start_utc - parse_duration(run["gate_open"])
                 gate_close_utc = job_period_start_utc - parse_duration(run["gate_close"])
 
@@ -133,7 +129,7 @@ def generate_tasks(task_window_duration: str,
                     task_id = str(uuid4())
                     task_timestamp = utcnow().isoformat()
 
-                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id}")
+                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] for job: {job_id}")
 
                     task = {
                         "@context": "https://example.com/task_context.jsonld",
@@ -174,13 +170,10 @@ def generate_tasks(task_window_duration: str,
                     task["task_tags"].extend(run.get("tags", []))
 
                     # Check if task already exists, then set version number accordingly
-                    if TASK_ELK_INDEX:
-                        set_task_version(task, TASK_ELK_INDEX)
-                    else:
-                        set_task_version(task)
+                    set_task_version(task=task)
 
                     # Update task status
-                    update_task_status(task, "created")
+                    update_task_status(task=task, status_text="created")
 
                     # Return Task
                     yield task
@@ -237,13 +230,13 @@ def filter_and_flatten_dict(nested_dict: dict, keys: list):
     return {key: flattened[key] for key in keys if key in flattened}
 
 
-def update_task_status(task, status_text, publish=True):
+def update_task_status(task: dict, status_text: str, publish: bool = True):
     """Update task status
     Will update task_update_time
     Will update task_status
     Will append new status to task_status_trace"""
 
-    logger.info(f"Updating Task status to -> {status_text}")
+    logger.info(f"Updating Task status to: {status_text}")
 
     utc_now = datetime.utcnow().isoformat()
 
@@ -255,21 +248,28 @@ def update_task_status(task, status_text, publish=True):
         "timestamp": utc_now
     })
 
-    # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
+    # TODO - better handling if elk is not available, possibly set elk connection timeout really small or refactor the sending to happen via rabbit
     if publish:
         try:
-            publish_tasks([task])
-        except:
-            logger.warning("Task publication to Elastic failed")
+            for task in tasks:
+                Elastic.send_to_elastic(
+                    index=TASK_ELK_INDEX,
+                    json_message=task,
+                    id=task.get("@id")
+                )
+        except Exception as e:
+            logger.warning(f"Task publication to Elastic failed with error: {e}")
 
 
-def set_task_version(task, elk_index='emfos-tasks*'):
-    query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
-             'task_properties.time_horizon': task['task_properties']['time_horizon'],
-             'task_properties.merge_type': task['task_properties']['merge_type']}
-
+def set_task_version(task: dict, elk_index: str = TASK_ELK_INDEX):
+    query = {
+        'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
+        'task_properties.time_horizon': task['task_properties']['time_horizon'],
+        'task_properties.merge_type': task['task_properties']['merge_type'],
+    }
+    service = Elastic()
     try:
-        task_list = query_data(query, index=elk_index)
+        task_list = service.get_docs_by_query(index=TASK_ELK_INDEX, query=query)
         if task_list:
             latest_version = max(int(item['task_properties'].get('version', "0")) for item in task_list if item['task_properties'].get('version', 1))
             if task['task_properties']['version'] == 'AUTO':
@@ -282,8 +282,9 @@ def set_task_version(task, elk_index='emfos-tasks*'):
             if task['task_properties']['version'] == 'AUTO':
                 task['task_properties']['version'] = '001'
 
-    except:
+    except Exception as e:
         logger.warning("Elastic query for task versioning unsuccessful, version not updated")
+        logger.warning(f"Exception traceback: {e}")
 
 
 if __name__ == "__main__":
