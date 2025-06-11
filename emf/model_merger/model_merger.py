@@ -296,6 +296,9 @@ class HandlerMergeModels:
             if not schedule_start:
                 schedule_start = scenario_datetime
 
+            # Print out the schedule parameters for scaling
+            logger.info(f"Querying schedules for: {schedule_time_horizon} {schedule_start}")
+
             # Get aligned schedules
             ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
             dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
