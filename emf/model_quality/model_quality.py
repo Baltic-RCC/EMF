@@ -3,13 +3,14 @@ import pandas as pd
 import config
 import json
 import pypowsybl as pp
-from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api, rabbit
 from emf.common.integrations.object_storage import models
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from emf.common.loadflow_tool.helper import get_model_outages
+from triplets.rdf_parser import load_all_to_dataframe
+from emf.model_validator.model_statistics import get_system_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -22,38 +23,56 @@ class HandlerModelQuality:
         self.minio_service = minio_api.ObjectStorage()
         self.elastic_service = elastic.Elastic()
 
-    def update_opdm_metadata_object(self, id: str, body: dict):
-        search_query = {"ids": {"values": [id]}}
-        response = self.elastic_service.client.search(index=f"{METADATA_ELK_INDEX}*", query=search_query, size=1)
-        index = response['hits']['hits'][0]['_index']
-        self.elastic_service.update_document(index=index, id=id, body=body)
-
     def handle(self, message: bytes, properties: dict, **kwargs):
 
         logger.info(f"Loaded {message}")
 
         # Load OPDM metadata objects from binary to json
-        model_data = json.loads(message)
+        model_meta = json.loads(message)
         object_type = properties.headers['opde:Object-Type']
 
         if object_type == 'CGM':
-            model_data['DATA'] = self.minio_service.download_object(model_data.get('minio-bucket'),
-                                                              model_data.get('content_reference'))
-            logger.info(f"Loading merged model: {model_data['name']}")
-            network = load_cgm(model_data['DATA'], None)
+            model_data = self.minio_service.download_object(model_meta.get('minio-bucket'),
+                                                              model_meta.get('content_reference'))
+            logger.info(f"Loading merged model: {model_meta['name']}")
+            unzipped = process_zipped_cgm(model_data)
+            network = load_all_to_dataframe(unzipped)
 
+        # TODO test if IGM retrieving works as intended
         elif object_type == 'IGM':
-            model_data = models.get_content(metadata=model_data['opdm_object'])
-            latest_boundary = models.get_latest_boundary()
+            model_meta = models.get_content(metadata=model_meta['opdm_object'])
             logger.info(f"Loading  model...")
-            network = load_model(opdm_objects=[model_data, latest_boundary])
+            try:
+                data = BytesIO(model_meta["opdm:Profile"]["DATA"])
+                network = load_all_to_dataframe(data)
+            except:
+                logger.error("Failed to load IGM")
+                network = pd.DataFrame
         else:
-            raise TypeError("Incorrect or missing metadata")
+            logger.error("Incorrect or missing metadata")
+            network = pd.DataFrame
 
-        if network:
-            qa_report = generate_quality_report(network, object_type, model_data)
+        if not network.empty:
+            qa_report = generate_quality_report(network, object_type, model_meta)
+            try:
+                # TODO move statistics function to quality functions file or move statistics file to quality directory
+                model_statistics = get_system_metrics(network)
+            except:
+                logger.error("Failed to get model statistics")
         else:
             raise TypeError("Model was not loaded correctly, either missing in MinIO or incorrect data")
+
+        if model_statistics:
+            model_statistics.update({k: v for k, v in model_meta.items() if k.startswith('@')})
+            model_statistics.update(properties.headers)
+            try:
+                response = self.elastic_service.send_to_elastic(index=ELK_STATISTICS_INDEX, json_message=model_statistics)
+            except Exception as error:
+                logger.error(f"Statistics report sending to Elastic failed: {error}")
+
+            logger.info(f"Statistics report sent to elastic index {ELK_STATISTICS_INDEX}")
+        else:
+            raise TypeError("Statistics report generator failed, data not sent")
 
         # Send validation report to Elastic
         if qa_report:
@@ -69,45 +88,89 @@ class HandlerModelQuality:
         return message, properties
 
 
-def generate_quality_report(network, object_type, model_data):
+def generate_quality_report(network, object_type, model_meta):
 
     report = {}
 
-    if object_type == "CGM" and model_data['merge_type'] == 'BA':
+    if object_type == "CGM" and model_meta['merge_type'] == 'BA':
 
         # Check Kruonis generators
-        generators = network.get_generators(all_attributes=True)
-        kruonis_generators = generators[generators['name'].str.contains('KHE_G')]
-        if kruonis_generators:
-            gen_count = kruonis_generators['connected'].sum()
-            flag = gen_count > 2
+        generators = network.type_tableview('SynchronousMachine').rename_axis('Terminal').reset_index()
+        kruonis_generators = generators[generators['IdentifiedObject.name'].str.contains('KHAE_G')]
+
+        if not kruonis_generators.empty:
+            gen_count = kruonis_generators[kruonis_generators['RotatingMachine.p'] > 0].shape[0]
+            flag = gen_count < 3
             report.update({"kruonis_generators": gen_count, "kruonis_check": flag})
         else:
             report.update({"kruonis_generators": None, "kruonis_check": False})
 
 
-        # Check LT-PL crossborder flow
-        # TODO double check correct limit value
-        BORDER_LIMIT = 250
-        d_lines = network.get_dangling_lines(all_attributes=True)
-        LT_PL_lines = d_lines[d_lines['name'].str.contains('Alytus-Elk')]
-        if LT_PL_lines:
-            flow_sum = LT_PL_lines['p'].sum()
-            flag = flow_sum < BORDER_LIMIT
-            report.update({"lt_pl_flow": flow_sum, "lt_pl_xborder_check": flag})
-        else:
-            report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
+         # Check LT-PL crossborder flow
+        try:
+            control_areas = (network.type_tableview('ControlArea')
+                             .rename_axis('ControlArea')
+                             .reset_index())[['ControlArea', 'ControlArea.netInterchange', 'ControlArea.pTolerance',
+                                              'IdentifiedObject.energyIdentCodeEic', 'IdentifiedObject.name']]
+        except KeyError:
+            control_areas = network.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
+            ssh_areas = network.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
+            control_areas = control_areas.merge(ssh_areas, on='ControlArea')[
+                ['ControlArea', 'ControlArea.netInterchange',
+                 'ControlArea.pTolerance',
+                 'IdentifiedObject.energyIdentCodeEic',
+                 'IdentifiedObject.name']]
+        tie_flows = (network.type_tableview('TieFlow')
+                     .rename_axis('TieFlow').rename(columns={'TieFlow.ControlArea': 'ControlArea',
+                                                             'TieFlow.Terminal': 'Terminal'})
+                     .reset_index())[['ControlArea', 'Terminal', 'TieFlow.positiveFlowIn']]
+        tie_flows = tie_flows.merge(control_areas[['ControlArea']], on='ControlArea')
+        try:
+            terminals = (network.type_tableview('Terminal')
+                         .rename_axis('Terminal').reset_index())[['Terminal', 'ACDCTerminal.connected']]
+        except KeyError:
+            terminals = (network.type_tableview('Terminal')
+                         .rename_axis('Terminal').reset_index())[['Terminal']]
+        tie_flows = tie_flows.merge(terminals, on='Terminal')
+        try:
+            power_flows_pre = (network.type_tableview('SvPowerFlow')
+                               .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
+                               .reset_index())[['Terminal', 'SvPowerFlow.p']]
+            tie_flows = tie_flows.merge(power_flows_pre, on='Terminal', how='left')
+        except Exception:
+            logger.error(f"Was not able to get tie flows from original models")
+        power_flows_post = (network.type_tableview('SvPowerFlow')
+                            .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
+                            .reset_index())[['Terminal', 'SvPowerFlow.p']]
 
+        tie_flows = tie_flows.merge(power_flows_post, on='Terminal', how='left',
+                                    suffixes=('_pre', '_post'))
+
+        # TODO double check correct limit value
+        # BORDER_LIMIT = 250
+        # d_lines = network.get_dangling_lines(all_attributes=True)
+        # LT_PL_lines = d_lines[d_lines['name'].str.contains('Alytus-Elk')]
+        # if LT_PL_lines:
+        #     flow_sum = LT_PL_lines['p'].sum()
+        #     flag = flow_sum < BORDER_LIMIT
+        #     report.update({"lt_pl_flow": flow_sum, "lt_pl_xborder_check": flag})
+        # else:
+
+        # TODO fix border flow
+        report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
+
+        # TODO remake into Triplets
         # Check cross-border line inconsistencies
         # TODO log all line info
-        pairing_keys = d_lines.groupby('pairing_key')['connected'].nunique()
-        mismatch = len(pairing_keys[pairing_keys > 1].index.tolist())
-        flag = mismatch < 1
-        report.update({"xb_mismatch": mismatch, "xb_consitency_check": flag})
+        # pairing_keys = d_lines.groupby('pairing_key')['connected'].nunique()
+        # mismatch = len(pairing_keys[pairing_keys > 1].index.tolist())
+        # flag = mismatch < 1
+        # report.update({"xb_mismatch": mismatch, "xb_consitency_check": flag})
 
-        # Check model outage mismatch with outage plan
-        model_outages = pd.DataFrame(get_model_outages(network=network))
+        # TODO Check model outage mismatch with outage plan
+        # model_outages = pd.DataFrame(get_model_outages(network=network))
 
+    # TODO define IGM quality rules
     elif object_type == "IGM":
         report = report
 
@@ -131,6 +194,22 @@ def load_cgm(network, parameters):
             network = pp.network.load(network, parameters=parameters)
 
     return network
+
+
+def process_zipped_cgm(zipped_bytes, processed=[]):
+
+    with ZipFile(BytesIO(zipped_bytes)) as zf:
+        for name in zf.namelist():
+            with zf.open(name) as file:
+                content = file.read()
+                if name.endswith('.zip'):
+                    process_zipped_cgm(content)
+                elif name.endswith('.xml'):
+                    file_object = BytesIO(content)
+                    file_object.name = name
+                    processed.append(file_object)
+
+    return processed
 
 
 def unzip_zipped_profiles(path_or_buffer: str):
@@ -169,8 +248,10 @@ def unzip_zipped_profiles(path_or_buffer: str):
                             new_zip.writestr(xml_file_name, xml_data)
 
     output_zip_buffer.seek(0)
+    output_zip_buffer.name = 'model'
 
     return output_zip_buffer
+
 
 def query_elk_uap(index, time_horizon=None):
 
@@ -227,3 +308,25 @@ def query_elk_uap(index, time_horizon=None):
                 last_end_time[eic] = end_time
 
     return result
+
+
+if __name__ == "__main__":
+    # TESTING
+    import sys
+    from emf.common.integrations.opdm import OPDM
+    logging.basicConfig(
+        format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+        level=logging.INFO,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    #logging.getLogger('powsybl').setLevel(1)
+
+    opdm = OPDM()
+    # latest_boundary = opdm.get_latest_boundary()
+    available_models = opdm.get_latest_models_and_download(time_horizon='2D',
+                                                           scenario_date="2025-06-12T09:30",
+                                                           tso="AST")
+
+
+    opdm_metadata = json.loads(message)
