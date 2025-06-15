@@ -263,7 +263,7 @@ def check_all_kind_of_injections(cgm_sv_data,
     filtered = pd.concat(filtered_list).drop_duplicates().reset_index(drop=True)
     if not filtered.empty:
         logger.warning(f"Found {len(filtered.index)} mismatches between {injection_name} and flow values on terminals")
-        print(filtered.to_string())
+        # print(filtered.to_string())
         if fix_errors:
             logger.info(f"Updating {injection_name} values from terminal flow values")
             injections_update = injections.merge(filtered[[*fixed_fields, *fields_to_check.keys()]])
