@@ -20,6 +20,7 @@ jobs:
           - emfos-model-validator
           - emfos-model-merger
           - emfos-task-generator
+          - emfos-model-quality
 
     steps:
       - uses: actions/checkout@v4

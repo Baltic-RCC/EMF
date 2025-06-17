@@ -95,3 +95,15 @@ COPY config/ ./config/
 ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/task_generator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
+
+# Model Quality image
+FROM balticrcc/emfos-base:latest as emfos-model-quality
+
+WORKDIR /src
+
+COPY emf/model_quality/ ./emf/model_quality/
+COPY emf/common/ ./emf/common/
+COPY config/ ./config/
+
+ENV PYTHONPATH="${PYTHONPATH}:/src"
+ENTRYPOINT ["python", "emf/model_quality/worker.py"]
