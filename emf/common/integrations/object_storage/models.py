@@ -8,6 +8,74 @@ from emf.common.integrations import opdm
 logger = logging.getLogger(__name__)
 
 
+def compile_query(metadata: dict, filter: str | None):
+
+    match_and_term_list = []
+    for key, value in metadata.items():
+        if isinstance(value, list):
+            match_and_term_list.append({"terms": {key: value}})
+        else:
+            match_and_term_list.append({"match": {key: value}})
+
+    if filter:
+        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:scenarioDate": {"gte": filter}}}}}
+    else:
+        query = {"bool": {"must": match_and_term_list}}
+
+    return query
+
+
+def fetch_unique_values(metadata_query: dict,
+                        field: str,
+                        query_filter: str | None = None,
+                        index: str = object_storage.ELASTIC_MODELS_INDEX,
+                        page_size: int = 10000,
+                        ):
+
+    # Validate index definition to be able to search all index by pattern
+    if "*" not in index:
+        index = f"{index}*"
+
+    agg_name = "values_page"
+    unique_vals = []
+    after_key = None
+
+    # Compile query
+    query = compile_query(metadata=metadata_query, filter=query_filter)
+
+    while True:
+        comp = {
+            "size": page_size,
+            "sources": [
+                {"val": {"terms": {"field": field}}}
+            ]
+        }
+        if after_key:
+            comp["after"] = after_key
+
+        body = {
+            "size": 0,
+            "query": query,
+            "aggs": {
+                agg_name: {
+                    "composite": comp
+                }
+            }
+        }
+
+        response = object_storage.elastic_service.client.search(index=index, body=body)
+        buckets = response["aggregations"][agg_name]["buckets"]
+        unique_vals.extend(b["key"]["val"] for b in buckets)
+
+        # Page on if there's more
+        if "after_key" in response["aggregations"][agg_name]:
+            after_key = response["aggregations"][agg_name]["after_key"]
+        else:
+            break
+
+    return unique_vals
+
+
 def query_data(metadata_query: dict,
                query_filter: str | None = None,
                index: str = object_storage.ELASTIC_MODELS_INDEX,
@@ -53,23 +121,14 @@ def query_data(metadata_query: dict,
     if "*" not in index:
         index = f"{index}*"
 
-    match_and_term_list = []
-    for key, value in metadata_query.items():
-        if isinstance(value, list):
-            match_and_term_list.append({"terms": {key: value}})
-        else:
-            match_and_term_list.append({"match": {key: value}})
-
-    if query_filter:
-        query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:scenarioDate": {"gte": query_filter}}}}}
-    else:
-        query = {"bool": {"must": match_and_term_list}}
+    # Compile query
+    query = compile_query(metadata=metadata_query, filter=query_filter)
 
     # Return query results
     response = object_storage.elastic_service.client.search(index=index, query=query, size=size, sort=sort, scroll=scroll)
     scroll_id = response['_scroll_id']
     hits = response["hits"]["hits"]
-    content_list = [content["_source"] for content in hits]
+    content_list = [content["_source"] for content in hits]  # TODO - consider optimize without this loop
     while len(hits) > 0:
         response = object_storage.elastic_service.client.scroll(scroll_id=scroll_id, scroll=scroll)
         hits = response["hits"]["hits"]

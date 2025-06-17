@@ -4,57 +4,15 @@ import pandas as pd
 import logging
 
 from emf.common.integrations import elastic
-from emf.common.loadflow_tool.helper import create_opdm_objects, get_model_outages, get_network_elements, get_opdm_data_from_models
-from emf.model_merger.merge_functions import (load_opdm_data, create_sv_and_updated_ssh, fix_sv_shunts,
+from emf.common.loadflow_tool.helper import get_model_outages, get_network_elements, get_opdm_data_from_models, load_opdm_data
+from emf.model_merger.merge_functions import (create_sv_and_updated_ssh, fix_sv_shunts,
                                               fix_sv_tapsteps, remove_duplicate_sv_voltages,
                                               remove_small_islands, check_and_fix_dependencies,
-                                              export_to_cgmes_zip,
                                               configure_paired_boundarypoint_injections_by_nodes,
                                               )
 
 
 logger = logging.getLogger(__name__)
-
-
-def check_switch_terminals(input_data: pd.DataFrame, column_name: str):
-    """
-    Checks if column of a dataframe contains only one value
-    :param input_data: input data frame
-    :param column_name: name of the column to check
-    return True if different values are in column, false otherwise
-    """
-    data_slice = (input_data.reset_index())[column_name]
-    return not pd.Series(data_slice[0] == data_slice).all()
-
-
-def get_not_retained_switches_between_nodes(original_data):
-    """
-    For the loadflow open all the non-retained switches that connect different topological nodes
-    Currently it is seen to help around 9 to 10 Kirchhoff 1st law errors from 2 TSOs
-    :param original_data: original models in triplets format
-    :return: updated original data
-    """
-    updated_switches = False
-    original_models = get_opdm_data_from_models(original_data)
-    not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
-                                            & (original_models['VALUE'] == "false")][['ID']]
-    closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
-                                      & (original_models['VALUE'] == 'false')]
-    not_retained_closed = not_retained_switches.merge(closed_switches[['ID']], on='ID')
-    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
-    terminals = terminals[['Terminal',
-                           # 'ACDCTerminal.connected',
-                           'Terminal.ConductingEquipment',
-                           'Terminal.TopologicalNode']]
-    not_retained_terminals = (terminals.rename(columns={'Terminal.ConductingEquipment': 'ID'})
-                              .merge(not_retained_closed, on='ID'))
-    if not_retained_terminals.empty:
-        return original_data, updated_switches
-    between_tn = ((not_retained_terminals.groupby('ID')[['Terminal.TopologicalNode']]
-                  .apply(lambda x: check_switch_terminals(x, 'Terminal.TopologicalNode')))
-                  .reset_index(name='same_TN'))
-    between_tn = between_tn[between_tn['same_TN']]
-    return between_tn
 
 
 def open_switches_in_network(network_pre_instance: pypowsybl.network.Network, switches_dataframe: pd.DataFrame):
@@ -71,23 +29,6 @@ def open_switches_in_network(network_pre_instance: pypowsybl.network.Network, sw
     non_retained_closed['open'] = True
     network_pre_instance.update_switches(non_retained_closed.set_index('id'))
     return network_pre_instance
-
-
-def run_pre_merge_processing(input_models, merging_area):
-
-    # TODO warning logs for temp fix functions
-    assembled_data = load_opdm_data(input_models)
-    assembled_data = triplets.cgmes_tools.update_FullModel_from_filename(assembled_data)
-    assembled_data = configure_paired_boundarypoint_injections_by_nodes(assembled_data)
-    escape_upper_xml = assembled_data[assembled_data['VALUE'].astype(str).str.contains('.XML')]
-    between_tn = get_not_retained_switches_between_nodes(assembled_data)
-    if not escape_upper_xml.empty:
-        escape_upper_xml['VALUE'] = escape_upper_xml['VALUE'].str.replace('.XML', '.xml')
-        assembled_data = triplets.rdf_parser.update_triplet_from_triplet(assembled_data, escape_upper_xml, update=True, add=False)
-
-    input_models = create_opdm_objects([export_to_cgmes_zip([assembled_data])])
-
-    return input_models, between_tn
 
 
 def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False,
@@ -263,7 +204,6 @@ def check_all_kind_of_injections(cgm_sv_data,
     filtered = pd.concat(filtered_list).drop_duplicates().reset_index(drop=True)
     if not filtered.empty:
         logger.warning(f"Found {len(filtered.index)} mismatches between {injection_name} and flow values on terminals")
-        print(filtered.to_string())
         if fix_errors:
             logger.info(f"Updating {injection_name} values from terminal flow values")
             injections_update = injections.merge(filtered[[*fixed_fields, *fields_to_check.keys()]])
@@ -305,7 +245,7 @@ def run_post_merge_processing(input_models: list,
         sv_data = remove_small_islands(sv_data, int(small_island_size))
         sv_data = remove_duplicate_sv_voltages(cgm_sv_data=sv_data, original_data=models_as_triplets)
         sv_data = check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets)
-        #sv_data, ssh_data = disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets) fix implemented in pypowsybl 1.8.1 
+        #sv_data, ssh_data = disconnect_equipment_if_flow_sum_not_zero(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=models_as_triplets) fix implemented in pypowsybl 1.8.1
         ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                                 cgm_sv_data=sv_data,
                                                 original_models=models_as_triplets,

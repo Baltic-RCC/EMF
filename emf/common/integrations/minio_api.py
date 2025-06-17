@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 from lxml import etree
 import minio
+from minio.commonconfig import Tags
 import urllib3
 import sys
 import mimetypes
@@ -90,13 +91,27 @@ class ObjectStorage:
 
         return credentials
 
+    @staticmethod
+    def dict_to_tags(tags: dict):
+        converted = Tags.new_object_tags()
+        for k, v in tags.items():
+            converted[k] = v
+
+        return converted
+
     @renew_authentication_token
-    def upload_object(self, file_path_or_file_object: str | BytesIO, bucket_name: str, metadata: dict | None = None):
+    def upload_object(self,
+                      file_path_or_file_object: str | BytesIO,
+                      bucket_name: str,
+                      metadata: dict | None = None,
+                      tags: dict | None = None,
+                      ):
         """
         Method to upload file to Minio storage
         :param file_path_or_file_object: file path or BytesIO object
         :param bucket_name: bucket name
         :param metadata: object metadata
+        :param tags: object tags
         :return: response from Minio
         """
         file_object = file_path_or_file_object
@@ -106,6 +121,10 @@ class ObjectStorage:
             length = sys.getsizeof(file_object)
         else:
             length = file_object.getbuffer().nbytes
+
+        # Handle tags if provided
+        if tags:
+            tags = self.dict_to_tags(tags)
 
         # Just to be sure that pointer is at the beginning of the content
         file_object.seek(0)
@@ -118,7 +137,8 @@ class ObjectStorage:
             data=file_object,
             length=length,
             content_type=mimetypes.guess_type(file_object.name)[0],
-            metadata=metadata
+            metadata=metadata,
+            tags=tags,
         )
 
         return response

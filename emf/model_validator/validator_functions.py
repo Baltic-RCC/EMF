@@ -1,7 +1,7 @@
 import logging
 import pandas
 import triplets
-from emf.common.loadflow_tool.helper import get_opdm_data_from_models
+from emf.common.loadflow_tool.helper import get_opdm_data_from_models, create_opdm_objects, export_to_cgmes_zip
 
 logger = logging.getLogger(__name__)
 
@@ -108,3 +108,34 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
     return original_data, updated_switches
+
+
+def get_not_retained_switches_between_nodes(original_data):
+    """
+    For the loadflow open all the non-retained switches that connect different topological nodes
+    Currently it is seen to help around 9 to 10 Kirchhoff 1st law errors from 2 TSOs
+    :param original_data: original models in triplets format
+    :return: updated original data
+    """
+    updated_switches = False
+    original_models = get_opdm_data_from_models(original_data)
+    not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
+                                            & (original_models['VALUE'] == "false")][['ID']]
+    closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
+                                      & (original_models['VALUE'] == 'false')]
+    not_retained_closed = not_retained_switches.merge(closed_switches[['ID']], on='ID')
+    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
+    terminals = terminals[['Terminal',
+                           # 'ACDCTerminal.connected',
+                           'Terminal.ConductingEquipment',
+                           'Terminal.TopologicalNode']]
+    not_retained_terminals = (terminals.rename(columns={'Terminal.ConductingEquipment': 'ID'})
+                              .merge(not_retained_closed, on='ID'))
+    if not_retained_terminals.empty:
+        return original_data, updated_switches
+    between_tn = ((not_retained_terminals.groupby('ID')[['Terminal.TopologicalNode']]
+                  .apply(lambda x: check_switch_terminals(x, 'Terminal.TopologicalNode')))
+                  .reset_index(name='same_TN'))
+    between_tn = between_tn[between_tn['same_TN']]
+
+    return between_tn

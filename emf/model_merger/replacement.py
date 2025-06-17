@@ -6,7 +6,7 @@ import config
 import json
 from dateutil import parser
 from pathlib import Path
-from emf.common.integrations.object_storage.models import query_data, get_content
+from emf.common.integrations.object_storage.models import query_data, get_content, fetch_unique_values
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
 
@@ -196,11 +196,11 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     return valid_models_df
 
 
-def get_available_tsos():
-    query = {"opde:Object-Type": "IGM", "valid": True}
-    body = query_data(query, QUERY_FILTER)
-    key = 'pmd:TSO'
-    return list({item[key] for item in body if key in item})
+def get_tsos_available_in_storage():
+    metadata = {"opde:Object-Type": "IGM", "valid": True}
+    unique_tsos = fetch_unique_values(metadata_query=metadata, field="pmd:TSO.keyword", query_filter=QUERY_FILTER)
+
+    return unique_tsos
 
 
 def get_first_monday_of_last_month(timestamp):

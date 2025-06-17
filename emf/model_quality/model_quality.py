@@ -4,13 +4,12 @@ import config
 import json
 import pypowsybl as pp
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, minio_api, rabbit
+from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
-from emf.common.loadflow_tool.helper import get_model_outages
 from triplets.rdf_parser import load_all_to_dataframe
-from emf.model_validator.model_statistics import get_system_metrics
+from emf.model_quality.model_statistics import get_system_metrics
 
 logger = logging.getLogger(__name__)
 

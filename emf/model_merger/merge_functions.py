@@ -22,6 +22,7 @@ from emf.common.time_helper import parse_datetime as helper_parse_datetime
 logger = logging.getLogger(__name__)
 SV_INJECTION_LIMIT = 0.1
 
+
 def is_valid_uuid(uuid_value):
     """
     Checks if input is uuid value
@@ -462,25 +463,6 @@ def configure_paired_boundarypoint_injections_by_nodes(data):
     updated_q_value["VALUE"] = 0
 
     return data.update_triplet_from_triplet(pandas.concat([updated_terminal_status, updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
-
-
-def export_to_cgmes_zip(triplets: list):
-    namespace_map = {
-        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-        "cim": "http://iec.ch/TC57/2013/CIM-schema-cim16#",
-        "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
-        "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
-    }
-
-    # with open('../../config/cgm_worker/CGMES_v2_4_15_2014_08_07.json', 'r') as file_object:
-    rdf_map = json.load(config.paths.cgm_worker.CGMES_v2_4_15_2014_08_07)
-
-    return pandas.concat(triplets, ignore_index=True).export_to_cimxml(rdf_map=rdf_map,
-                                                                       namespace_map=namespace_map,
-                                                                       export_undefined=False,
-                                                                       export_type="xml_per_instance_zip_per_xml",
-                                                                       debug=False,
-                                                                       export_to_memory=True)
 
 
 def generate_merge_report(merged_model: object, task: dict):

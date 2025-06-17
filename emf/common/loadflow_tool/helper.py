@@ -15,6 +15,7 @@ import triplets
 import uuid
 from aniso8601 import parse_datetime
 import re
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +100,11 @@ def create_opdm_objects(models: list, metadata=None, key_profile="SV") -> list:
             opdm_profile = opdm_metadata_from_filename(profile_instance.name)
             opdm_profile.update(opdm_metadata_from_rdfxml(get_xml_from_zip(profile_instance)))
             opdm_profile['pmd:fileName'] = profile_instance.name
-            opdm_profile["pmd:content-reference"] = generate_OPDM_ContentReference_from_filename(profile_instance.name)
+            opdm_profile["pmd:content-reference"] = generate_opdm_content_reference_from_filename(profile_instance.name)
 
             # Check if key profile and add to main object metadata
             if opdm_profile.get('pmd:cgmesProfile') == key_profile:
-               opdm_object.update(opdm_profile)
+                opdm_object.update(opdm_profile)
 
             # Add model type - IGM/CGM
             # TODO develop logic to also define as CGM metadata object
@@ -240,7 +241,6 @@ def get_network_elements(network: pypowsybl.network,
 
 
 def get_slack_generators(network: pypowsybl.network):
-
     slack_terminals = network.get_extension('slackTerminal')
     slack_generators = get_network_elements(network=network,
                                             element_type=pypowsybl.network.ElementType.GENERATOR,
@@ -320,7 +320,6 @@ def get_opdm_data_from_models(model_data: list | pandas.DataFrame):
 
 
 def filename_from_opdm_metadata(metadata):
-
     model_part = metadata.get('pmd:modelPartReference', None)
 
     if model_part:
@@ -381,7 +380,7 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
     elif len(meta_list) == 5:
         metadata[VALID_FROM], metadata[TIME_HORIZON], model_authority, metadata[CGMES_PROFILE], metadata[VERSION_NUMBER] = meta_list
     else:
-        logger.warning(f"Parsing error, number of allowed meta in filename is 4 or 5 separated by {meta_separator} -> {file_name}")
+        logger.warning(f"Parsing error, number of allowed meta in filename is 4 or 5 separated by {meta_separator}: {file_name}")
         return metadata
 
     # Parse model authority components
@@ -400,7 +399,7 @@ def opdm_metadata_from_filename(file_name: str, meta_separator: str = "_"):
     if metadata.get(MODEL_PART):
         metadata[TSO] = metadata[MODEL_PART]
         metadata[SOURCING_ACTOR] = metadata[MODEL_PART]
-                
+
     return metadata
 
 
@@ -411,7 +410,7 @@ def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
 
     rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
-    header = parsed_xml.find("{*}FullModel") # Verion update proof, as long as element name remains the same
+    header = parsed_xml.find("{*}FullModel")  # Version update proof, as long as element name remains the same
     meta_elements = header.getchildren()
 
     # Add model ID from FullModel@about
@@ -433,7 +432,6 @@ def metadata_from_rdfxml(parsed_xml: etree._ElementTree):
 
 
 def opdm_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
-
     opdm_metadata_map = {
 
         "Model.mRID": ["opde:Id", "pmd:modelid", "pmd:fullModel_ID"],
@@ -464,7 +462,6 @@ def opdm_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
 
 
 def get_xml_from_zip(zip_file_path):
-
     with ZipFile(zip_file_path, 'r') as zipfile_object:
         xml_file_name = zipfile_object.namelist()[0]
         file_bytes = zipfile_object.read(xml_file_name)
@@ -475,7 +472,6 @@ def get_xml_from_zip(zip_file_path):
 
 
 def zip_xml(xml_file_object):
-
     xml_file_name = xml_file_object.name
     xml_file_extension = xml_file_name.split(".")[-1]
     zip_file_name = xml_file_name.replace(f".{xml_file_extension}", ".zip")
@@ -491,7 +487,6 @@ def zip_xml(xml_file_object):
 
 
 def get_metadata_from_filename(file_name):
-
     # Separators
     file_type_separator = "."
     meta_separator = "_"
@@ -507,9 +502,9 @@ def get_metadata_from_filename(file_name):
     # Naming before QoDC 2.1, where EQ might not have processType
     if len(file_meta_list) == 4:
 
-        file_metadata["Model.scenarioTime"],\
-        file_metadata["Model.modelingEntity"],\
-        file_metadata["Model.messageType"],\
+        file_metadata["Model.scenarioTime"], \
+        file_metadata["Model.modelingEntity"], \
+        file_metadata["Model.messageType"], \
         file_metadata["Model.version"] = file_meta_list
         file_metadata["Model.processType"] = ""
 
@@ -518,11 +513,11 @@ def get_metadata_from_filename(file_name):
     # Naming after QoDC 2.1, always 5 positions
     elif len(file_meta_list) == 5:
 
-        file_metadata["Model.scenarioTime"],\
-        file_metadata["Model.processType"],\
-        file_metadata["Model.modelingEntity"],\
-        file_metadata["Model.messageType"],\
-        file_metadata["Model.version"] = file_meta_list
+        file_metadata["Model.scenarioTime"], \
+            file_metadata["Model.processType"], \
+            file_metadata["Model.modelingEntity"], \
+            file_metadata["Model.messageType"], \
+            file_metadata["Model.version"] = file_meta_list
 
     else:
         logger.error("Non CGMES file {}".format(file_name))
@@ -532,24 +527,24 @@ def get_metadata_from_filename(file_name):
         entity_and_area_list = file_metadata["Model.modelingEntity"].split(entity_and_domain_separator)
 
         if len(entity_and_area_list) == 1:
-            file_metadata["Model.mergingEntity"],\
-            file_metadata["Model.domain"] = "", "" # Set empty string for both
+            file_metadata["Model.mergingEntity"], \
+            file_metadata["Model.domain"] = "", ""  # Set empty string for both
             file_metadata["Model.forEntity"] = entity_and_area_list[0]
 
         if len(entity_and_area_list) == 2:
-            file_metadata["Model.mergingEntity"],\
+            file_metadata["Model.mergingEntity"], \
             file_metadata["Model.domain"] = entity_and_area_list
             file_metadata["Model.forEntity"] = ""
 
         if len(entity_and_area_list) == 3:
-            file_metadata["Model.mergingEntity"],\
-            file_metadata["Model.domain"],\
+            file_metadata["Model.mergingEntity"], \
+            file_metadata["Model.domain"], \
             file_metadata["Model.forEntity"] = entity_and_area_list
 
     return file_metadata
 
 
-def generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type="CGMES"):
+def generate_opdm_content_reference_from_filename(file_name: str, opdm_object_type="CGMES"):
     """
     Generates the file path based on the given parameters and metadata extracted from the filename.
 
@@ -560,11 +555,6 @@ def generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type="CG
     Returns:
     str: Generated file path using the provided template and extracted metadata.
 
-    Example:
-    >>> file_name = "example_filename"
-    >>> opdm_object_type = "CGMES"
-    >>> generate_OPDM_ContentReference_from_filename(file_name, opdm_object_type)
-    'CGMES/processType/modelingEntity/20240529/123000/messageType/example_filename'
     """
     template = "{opdm_object_type}/{processType}/{modelingEntity}/{scenarioTime:%Y%m%d}/{scenarioTime:%H%M00}/{messageType}/{file_name}"
 
@@ -598,6 +588,25 @@ def export_model(network: pypowsybl.network, opdm_object_meta, profiles=None):
     bytes_object.name = f"{file_base_name}_{uuid.uuid4()}.zip"
 
     return bytes_object
+
+
+def export_to_cgmes_zip(triplets: list):
+    namespace_map = {
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "cim": "http://iec.ch/TC57/2013/CIM-schema-cim16#",
+        "md": "http://iec.ch/TC57/61970-552/ModelDescription/1#",
+        "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
+    }
+
+    # with open('../../config/cgm_worker/CGMES_v2_4_15_2014_08_07.json', 'r') as file_object:
+    rdf_map = json.load(config.paths.cgm_worker.CGMES_v2_4_15_2014_08_07)
+
+    return pandas.concat(triplets, ignore_index=True).export_to_cimxml(rdf_map=rdf_map,
+                                                                       namespace_map=namespace_map,
+                                                                       export_undefined=False,
+                                                                       export_type="xml_per_instance_zip_per_xml",
+                                                                       debug=False,
+                                                                       export_to_memory=True)
 
 
 def get_model_outages(network: pypowsybl.network):

@@ -6,13 +6,15 @@ import time
 import math
 import pypowsybl as pp
 import uuid
+import triplets
 from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api, rabbit
 from emf.common.integrations.object_storage import models
-from emf.common.loadflow_tool.helper import load_opdm_data, clean_data_from_opdm_objects
+from emf.common.loadflow_tool.helper import load_opdm_data, clean_data_from_opdm_objects, export_to_cgmes_zip
 from emf.common.loadflow_tool import loadflow_settings
 from emf.model_validator import validator_functions
+from emf.common.decorators import performance_counter
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +126,39 @@ class PostLFValidator:
             self.validate_kirchhoff_first_law()
 
 
+class TemporaryPreMergeModifications:
+    """Run pre-processing modification important for successful merge process"""
+    # TODO needs to keep in mind that this is meant as temporary fixes and needs to be revised often
+    def __init__(self, network: pd.DataFrame):
+        self.network = network
+        self.report = {'modification': {}}
+
+    def update_header_from_file_name(self):
+        self.report['modification']['header_from_file_name'] = False
+        modified_data = triplets.cgmes_tools.update_FullModel_from_filename(self.network)
+        if not pd.concat([self.network, modified_data]).drop_duplicates(keep=False).empty:
+            self.network = modified_data
+            self.report['modification']['header_from_file_name'] = True
+
+    def sanitize_file_name(self):
+        self.report['modification']['sanitize_file_name'] = False
+        xml_extension_typo = self.network[self.network['VALUE'].str.contains('.XML', regex=False, na=False)]
+        if not xml_extension_typo.empty:
+            xml_extension_typo['VALUE'] = xml_extension_typo['VALUE'].str.replace('.XML', '.xml')
+            self.network = triplets.rdf_parser.update_triplet_from_triplet(data=self.network,
+                                                                           update_data=xml_extension_typo,
+                                                                           update=True,
+                                                                           add=False)
+            self.report['modification']['sanitize_file_name'] = True
+
+    @performance_counter(units='seconds')
+    def run_pre_process_modifications(self):
+        self.update_header_from_file_name()
+        self.sanitize_file_name()
+
+        return self.network
+
+
 class HandlerModelsValidator:
 
     def __init__(self):
@@ -165,9 +200,26 @@ class HandlerModelsValidator:
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
 
+                # Clean opdm object from DATA as this is already converted to other formats
+                opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
+
+                # Apply pre-processing modification to models and store in Minio
+                pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets)
+                network_triplets = pre_merge_modification.run_pre_process_modifications()
+                cgmes_modified_model = export_to_cgmes_zip([network_triplets])
+                for component in opdm_object['opde:Component']:
+                    # Map exported modified file with initial inside opdm object
+                    cgmes_file = [i for i in cgmes_modified_model if i.name == component['opdm:Profile']['pmd:fileName']][0]
+                    cgmes_file.name = component['opdm:Profile']['pmd:content-reference']
+                    logger.info(f"Uploading modified model content to Minio: {cgmes_file.name}")
+                    self.minio_service.upload_object(file_path_or_file_object=cgmes_file,
+                                                     bucket_name=opdm_object['minio-bucket'],
+                                                     tags={"state": "modified"})
+
                 # Collect both pre and post loadflow validation reports and merge
                 report.update(pre_lf_validation.report)
                 report.update(post_lf_validation.report)
+                report.update(pre_merge_modification.report)
 
                 # Include relevant metadata fields
                 report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
@@ -199,7 +251,6 @@ class HandlerModelsValidator:
             try:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
-                opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
                 opdm_object["valid"] = valid
                 self.elastic_service.send_to_elastic_bulk(
                     index=METADATA_ELK_INDEX,
@@ -216,14 +267,6 @@ class HandlerModelsValidator:
                 response = self.elastic_service.send_to_elastic(index=VALIDATION_ELK_INDEX, json_message=report)
             except Exception as error:
                 logger.error(f"Validation report sending to Elastic failed: {error}")
-
-            # Send metadata to quality module queue
-            try:
-                report['opdm_object'] = opdm_object
-                rabbit.BlockingClient().publish(payload=json.dumps(report), exchange_name=RABBIT_QUALITY_EXCHANGE,
-                                                headers={"opde:Object-Type": "IGM"})
-            except:
-                logger.error(f"Sending metadata to RabbitMQ failed: {error}")
 
             logger.info(f"Model validation status: {valid} [duration {report['duration_s']}s]")
 
@@ -243,16 +286,10 @@ if __name__ == "__main__":
     #logging.getLogger('powsybl').setLevel(1)
 
     opdm = OPDM()
-
-    opdm_metadata = json.loads(message)
-
-    # Get network models data from object storage
-    opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_metadata]
-
-    # latest_boundary = opdm.get_latest_boundary()
+    latest_boundary = opdm.get_latest_boundary()
     available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-05-27T09:30",
-                                                           tso="AST")
+                                                           scenario_date="2025-06-16T09:30",
+                                                           tso="LITGRID")
     validated_models = []
 
     # Validate models
