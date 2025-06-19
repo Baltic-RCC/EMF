@@ -1,7 +1,8 @@
 import json
 import config
 import logging
-from emf.task_generator.task_generator import generate_tasks, filter_and_flatten_dict
+from emf.task_generator.task_generator import generate_tasks
+from emf.common.helpers.utils import filter_and_flatten_dict
 from emf.common.integrations import rabbit
 from emf.common.config_parser import parse_app_properties
 from emf.common.logging.custom_logger import initialize_custom_logger

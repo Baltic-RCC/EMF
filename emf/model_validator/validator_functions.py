@@ -1,7 +1,7 @@
 import logging
 import pandas
 import triplets
-from emf.common.loadflow_tool.helper import get_opdm_data_from_models, create_opdm_objects, export_to_cgmes_zip
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def get_nodes_against_kirchhoff_first_law(original_models,
     :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
     :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
     """
-    original_models = get_opdm_data_from_models(model_data=original_models)
+    original_models = load_opdm_objects_to_triplets(opdm_objects=original_models)
     sv_injections = pandas.DataFrame()
     if cgm_sv_data is None:
         cgm_sv_data = original_models
@@ -79,7 +79,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     :return: updated original data
     """
     updated_switches = 0
-    original_models = get_opdm_data_from_models(original_data)
+    original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
     not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
                                             & (original_models['VALUE'] == "false")][['ID']]
     closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
@@ -118,7 +118,7 @@ def get_not_retained_switches_between_nodes(original_data):
     :return: updated original data
     """
     updated_switches = False
-    original_models = get_opdm_data_from_models(original_data)
+    original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
     not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
                                             & (original_models['VALUE'] == "false")][['ID']]
     closed_switches = original_models[(original_models['KEY'] == 'Switch.open')

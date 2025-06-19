@@ -16,7 +16,7 @@ from zipfile import ZipFile
 from datetime import datetime, timedelta
 from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
-from emf.common.loadflow_tool.helper import opdm_metadata_from_filename
+from emf.common.helpers.opdm_objects import get_metadata_from_file_name
 urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)
@@ -208,16 +208,16 @@ class ObjectStorage:
         return result_list
 
     def get_all_objects_name(self, bucket_name: str, prefix: str = None):
-        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix,recursive=True)
+        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix, recursive=True)
         list_elements = []
         for obj in objects:
             try:
                 object_name = obj.object_name.split("/")[-1]
-                #only take models that have metadata in the filename
+                # Only take models that have metadata in the filename
                 if len(object_name.split('-')) > 3:
                     list_elements.append(object_name)
-            except:
-                logger.warning(f"Object name not present")
+            except Exception as error:
+                logger.warning(f"Object name not present, exception: {error}")
 
         return list_elements
 
@@ -303,7 +303,7 @@ class ObjectStorage:
                                     "pmd:fileName": file_name,
                                     "DATA": source_zip.open(file_name).read()}
 
-                        metadata.update(opdm_metadata_from_filename(file_name))
+                        metadata.update(get_metadata_from_file_name(file_name))
                         opdm_profile = {'opdm:Profile': metadata}
                         opdm_object['opde:Component'].append(opdm_profile)
 

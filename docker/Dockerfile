@@ -73,7 +73,6 @@ WORKDIR /src
 # Copy files to container
 COPY emf/model_merger/ ./emf/model_merger/
 COPY emf/common/ ./emf/common/
-COPY emf/task_generator/ ./emf/task_generator/
 COPY config/ ./config/
 
 # Start process

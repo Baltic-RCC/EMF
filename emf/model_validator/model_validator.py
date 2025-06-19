@@ -7,12 +7,14 @@ import math
 import pypowsybl as pp
 import uuid
 import triplets
-from emf.common.loadflow_tool.helper import attr_to_dict, load_model
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, minio_api, rabbit
+from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
-from emf.common.loadflow_tool.helper import load_opdm_data, clean_data_from_opdm_objects, export_to_cgmes_zip
 from emf.common.loadflow_tool import loadflow_settings
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, clean_data_from_opdm_objects
+from emf.common.helpers.loadflow import load_network_model
+from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
 
@@ -73,6 +75,7 @@ class PostLFValidator:
         # TODO currently storing only main island results
         main_component = loadflow_result[0]
         component_results = attr_to_dict(main_component)
+        logger.info(f"Loadflow status: {component_results['status_text']}")
         component_results['status'] = component_results.get('status').value
         component_results['distributed_active_power'] = 0.0 if math.isnan(component_results['distributed_active_power'])\
             else component_results['distributed_active_power']
@@ -191,12 +194,12 @@ class HandlerModelsValidator:
             report = {}
             try:
                 # Run pre-loadflow validations
-                network_triplets = load_opdm_data(opdm_objects=[opdm_object, latest_boundary])
+                network_triplets = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
                 pre_lf_validation = PreLFValidator(network=network_triplets)
                 pre_lf_validation.run_validation()
 
                 # Run post-loadflow validations
-                network = load_model(opdm_objects=[opdm_object, latest_boundary])
+                network = load_network_model(opdm_objects=[opdm_object, latest_boundary])
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
 

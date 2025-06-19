@@ -1,5 +1,4 @@
 import logging
-import pandas
 import pypowsybl
 import config
 import json
@@ -8,25 +7,27 @@ from uuid import uuid4
 import datetime
 from dataclasses import dataclass, field
 from typing import List
-
-from emf.common.time_helper import parse_datetime
+from emf.common.helpers.time import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio_api, elastic, rabbit
+from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.common.loadflow_tool import loadflow_settings
-from emf.common.loadflow_tool.helper import opdmprofile_to_bytes, attr_to_dict, export_to_cgmes_zip
+from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.cgmes import export_to_cgmes_zip
+from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
+from emf.common.helpers.loadflow import load_network_model
+from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
-from emf.task_generator.task_generator import update_task_status
+from emf.model_merger.temporary import handle_igm_ssh_vs_cgm_ssh_error
 from emf.common.logging.custom_logger import get_elk_logging_handler
-# TODO - move this async solution to some common module
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
-from emf.model_merger.temporary_fixes import run_post_merge_processing, fix_model_outages, fix_igm_ssh_vs_cgm_ssh_error
+
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -90,6 +91,34 @@ class HandlerMergeModels:
         self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
 
+    @staticmethod
+    def run_loadflow(merged_model):
+        # report = pypowsybl.report.Reporter()
+        result = pypowsybl.loadflow.run_ac(network=merged_model.network,
+                                           parameters=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS),
+                                           # reporter=loadflow_report,
+                                           )
+
+        result_dict = [attr_to_dict(island) for island in result]
+        # Modify all nested objects to native data types
+        for island in result_dict:
+            island['status'] = island['status'].name
+            # Extract only first slack bus from internal pypowsybl object
+            slack_bus_results = island.pop('slack_bus_results')
+            if slack_bus_results:
+                island['slack_bus_id'] = getattr(slack_bus_results[0], 'id', 'undefined')
+                island['active_power_mismatch'] = getattr(slack_bus_results[0], 'active_power_mismatch', float())
+            else:
+                island['slack_bus_id'] = 'undefined'
+                island['active_power_mismatch'] = float()
+
+        # merged_model.loadflow = json.loads(loadflow_report.to_json())
+        # merged_model.loadflow = str(loadflow_report)
+        merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
+        merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
+
+        return merged_model
+
     def handle(self, task_object: dict, properties: dict, **kwargs):
 
         start_time = datetime.datetime.now(datetime.UTC)
@@ -134,20 +163,8 @@ class HandlerMergeModels:
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
-        pre_temp_fixes = task_properties['pre_temp_fixes']
         post_temp_fixes = task_properties['post_temp_fixes']
         force_outage_fix = task_properties['force_outage_fix']
-        open_non_retained_switches_between_tn = json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower())
-
-        # TODO used for temp fixes - consider move it out somewhere
-        try:
-            net_interchange_threshold = int(NET_INTERCHANGE_THRESHOLD)
-        except Exception:
-            net_interchange_threshold = 200
-
-        task_properties['net_interchange2_threshold'] = net_interchange_threshold
-
-        remove_non_generators_from_slack_participation = True  # TODO move to conf
 
         # Collect valid models from ObjectStorage
         downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False, data_source='OPDM')
@@ -247,7 +264,7 @@ class HandlerMergeModels:
 
         # Load network model and merge
         merge_start = datetime.datetime.now(datetime.UTC)
-        merged_model.network = merge_functions.load_model(opdm_objects=input_models)
+        merged_model.network = load_network_model(opdm_objects=input_models)
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
         merged_model.included = [model['pmd:TSO'] for model in valid_models if model['pmd:TSO']]
 
@@ -262,23 +279,22 @@ class HandlerMergeModels:
         elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
-            merged_model = fix_model_outages(merged_model=merged_model,
-                                             tso_list=tso_list,
-                                             scenario_datetime=scenario_datetime,
-                                             time_horizon=time_horizon)
+            merged_model = merge_functions.update_model_outages(merged_model=merged_model,
+                                                                tso_list=tso_list,
+                                                                scenario_datetime=scenario_datetime,
+                                                                time_horizon=time_horizon)
 
-        # Various fixes from igmsshvscgmssh error
-        if remove_non_generators_from_slack_participation:
-            merged_model.network = fix_igm_ssh_vs_cgm_ssh_error(merged_model.network)
+        # Various corrections from igmsshvscgmssh error
+        if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
+            merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
 
-        # TODO - placeholder for open TN switcher
-
-        # TODO placeholder for configure paired tie lines
+        # TODO - placeholder for open TN switcher or it can be after scaling before export
+        if json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower()):
+            pass
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
-        merged_model = merge_functions.run_lf(merged_model=merged_model,
-                                              loadflow_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+        merged_model = self.run_loadflow(merged_model=merged_model)
         logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
 
         # Perform scaling
@@ -306,29 +322,52 @@ class HandlerMergeModels:
                     logger.error(e)
                     merged_model.scaled = False
             else:
-                logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}, skipping model scaling")
+                logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")
+                logger.warning(f"Model schedule scaling not performed")
                 merged_model.scaled = False
 
         # Record main merging process end
         merge_end = datetime.datetime.now(datetime.UTC)
 
         # Update time_horizon in case of generic ID process type
-        new_time_horizon = None
         if time_horizon.upper() == "ID":
-            time_horizon = merge_functions.calculate_intraday_time_horizon(scenario_datetime, task_creation_time)
-            new_time_horizon = time_horizon
+            time_horizon = merge_functions.set_intraday_time_horizon(scenario_datetime, task_creation_time)
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
+
+        # Set merged model name
+        model_type = "RMM" if merging_area == "BA" else "CGM"
+        merged_model.name = f"{model_type}_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
+
+        # Crate OPDM object for merged model
+        opdm_object_meta = merge_functions.create_merged_model_opdm_object(
+            object_id=merged_model.network_meta['id'].split("uuid:")[-1],
+            time_horizon=time_horizon,
+            merging_entity=merging_entity,
+            merging_area=merging_area,
+            scenario_date=scenario_datetime,
+            mas=mas,
+            version=version,
+        )
+
+        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
+        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
+
+        # Export merged model
+        # TODO change here to export SSH profiles as well
+        exported_model = merge_functions.export_merged_model(network=merged_model.network,
+                                                             opdm_object_meta=opdm_object_meta,
+                                                             profiles=["SV"],
+                                                             cgm_convention=False)
 
         # Run post-processing
         post_p_start = datetime.datetime.now(datetime.UTC)
         logger.info(f"Starting merged model post-processing")
         # TODO here should be one existing network structure. IIDM model can be exported and removed to release memory
-        sv_data, ssh_data, opdm_object_meta = run_post_merge_processing(input_models=input_models,
-                                                                        merged_model=merged_model,
-                                                                        task_properties=task_properties,
-                                                                        small_island_size=SMALL_ISLAND_SIZE,
-                                                                        enable_temp_fixes=post_temp_fixes,
-                                                                        time_horizon=new_time_horizon)
+        sv_data, ssh_data, opdm_object_meta = merge_functions.run_post_merge_processing(input_models=input_models,
+                                                                                        exported_model=exported_model,
+                                                                                        opdm_object_meta=opdm_object_meta,
+                                                                                        enable_temp_fixes=post_temp_fixes,
+                                                                                        )
 
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
@@ -350,12 +389,8 @@ class HandlerMergeModels:
                 logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
 
         # Create zipped model data
-        if merging_area == 'BA':
-            merged_model.name = f"RMM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
-        else:
-            merged_model.name = f"CGM_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
-        merged_model_data = BytesIO()
-        with ZipFile(merged_model_data, "w") as merged_model_zip:
+        merged_model_object = BytesIO()
+        with ZipFile(merged_model_object, "w") as merged_model_zip:
             # Include CGM model files
             for item in serialized_data:
                 merged_model_zip.writestr(item.name, item.getvalue())
@@ -364,11 +399,9 @@ class HandlerMergeModels:
             for input_model in input_models:
                 for instance in input_model['opde:Component']:
                     if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
-                        file_object = opdmprofile_to_bytes(instance)
+                        file_object = get_opdm_component_data_bytes(opdm_component=instance)
                         logging.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
-
-        merged_model_object = merged_model_data
         merged_model_object.name = f"{OUTPUT_MINIO_FOLDER}/{merged_model.name}.zip"
 
         # Upload to Minio storage
@@ -404,7 +437,7 @@ class HandlerMergeModels:
         merged_model.content_reference = merged_model_object.name
 
         # Update OPDM object data with CGM relevant data and send to Elastic
-        opdm_object_meta = merge_functions.update_cgm_opdm_object_meta(opdm_object_meta, merged_model)
+        opdm_object_meta['pmd:content-reference'] = merged_model.content_reference
         response = elastic.Elastic.send_to_elastic(index=OPDE_MODELS_ELK_INDEX, json_message=opdm_object_meta)
 
         # Send merge report and opdm object metadata to Elastic
@@ -457,10 +490,10 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-06-12T12:30:00+00:00",
-            "merge_type": "EU",
+            "timestamp_utc": "2025-06-16T12:30:00+00:00",
+            "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": [],
+            "included": ["LITGRID", "AST", "ELERING", "PSE"],
             "excluded": [],
             "local_import": [],
             "time_horizon": "1D",

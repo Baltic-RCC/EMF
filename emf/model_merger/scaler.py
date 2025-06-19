@@ -31,8 +31,8 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.common.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
-    get_connected_components_data
+from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.loadflow import get_network_elements, get_slack_generators, get_connected_components_data
 from emf.common.loadflow_tool.loadflow_settings import CGM_RELAXED_1
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,8 @@ import croniter
 import json
 import logging
 from os import getlogin
-from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
+from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
+from emf.common.helpers.tasks import update_task_status
 from emf.common.integrations.elastic import Elastic
 from emf.common.config_parser import parse_app_properties
 
@@ -185,75 +186,6 @@ def generate_tasks(task_window_duration: str,
 
                 # Next Run
                 run_timestamp = runs.get_next(datetime)
-
-
-def flatten_dict(nested_dict: dict, parent_key: str = '', separator: str = '.'):
-    """
-    Flattens a nested dictionary.
-
-    Parameters:
-    - nested_dict (dict): The dictionary to flatten.
-    - parent_key (str): The base key string used for recursion.
-    - separator (str): The separator between parent and child keys.
-
-    Returns:
-    - dict: A flattened dictionary where nested keys are concatenated into a single string.
-    """
-    items = []
-    for k, v in nested_dict.items():
-        new_key = f"{parent_key}{separator}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, separator=separator).items())
-        elif isinstance(v, list):
-            for i, item in enumerate(v):
-                if isinstance(item, dict):
-                    items.extend(flatten_dict(item, f"{new_key}[{i}]", separator=separator).items())
-                else:
-                    items.append((f"{new_key}[{i}]", item))
-        else:
-            items.append((new_key, v))
-    return dict(items)
-
-
-def filter_and_flatten_dict(nested_dict: dict, keys: list):
-    """
-    Creates a new flat dictionary from specified keys.
-
-    Parameters:
-    - nested_dict (dict): The original nested dictionary.
-    - keys (list): The list of keys to include in the new flat dictionary.
-
-    Returns:
-    - dict: A new flat dictionary with only the specified keys.
-    """
-    flattened = flatten_dict(nested_dict)
-    return {key: flattened[key] for key in keys if key in flattened}
-
-
-def update_task_status(task: dict, status_text: str, publish: bool = True):
-    """Update task status
-    Will update task_update_time
-    Will update task_status
-    Will append new status to task_status_trace"""
-
-    logger.info(f"Updating Task status to: {status_text}")
-
-    utc_now = datetime.utcnow().isoformat()
-
-    task["task_update_time"] = utc_now
-    task["task_status"] = status_text
-
-    task["task_status_trace"].append({
-        "status": status_text,
-        "timestamp": utc_now
-    })
-
-    # TODO - better handling if elk is not available, possibly set elk connection timeout really small or refactor the sending to happen via rabbit
-    if publish:
-        try:
-            Elastic.send_to_elastic(index=TASK_ELK_INDEX, json_message=task, id=task.get("@id"))
-        except Exception as e:
-            logger.error(f"Task publication to Elastic failed with error: {e}")
 
 
 def set_task_version(task: dict):
