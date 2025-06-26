@@ -213,7 +213,7 @@ class HandlerModelsValidator:
                 for component in opdm_object['opde:Component']:
                     # Map exported modified file with initial inside opdm object
                     cgmes_file = [i for i in cgmes_modified_model if i.name == component['opdm:Profile']['pmd:fileName']][0]
-                    cgmes_file.name = component['opdm:Profile']['pmd:content-reference']
+                    cgmes_file.name = component['opdm:Profile']['pmd:content-reference'].replace('//', '/')
                     logger.info(f"Uploading modified model content to Minio: {cgmes_file.name}")
                     self.minio_service.upload_object(file_path_or_file_object=cgmes_file,
                                                      bucket_name=opdm_object['minio-bucket'],
@@ -231,7 +231,7 @@ class HandlerModelsValidator:
                 report['content_reference'] = opdm_object['pmd:content-reference']
                 report['tso'] = opdm_object['pmd:TSO']
                 report['duration_s'] = round(time.time() - start_time, 3)
-                report['minio-bucket'] = opdm_object['minio-bucket']
+                report['minio_bucket'] = opdm_object['minio-bucket']
 
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
