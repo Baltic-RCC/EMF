@@ -184,7 +184,7 @@ class HandlerMergeModels:
                                                                    filter_on='pmd:TSO')
 
             missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
-            merged_model.excluded.extend([{'tso': tso, 'reason': 'Missing in PDN'} for tso in missing_local_import])
+            merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Perform local replacement if configured
             if model_replacement_local and missing_local_import:
@@ -200,8 +200,7 @@ class HandlerMergeModels:
                                                 'time_horizon': model['pmd:timeHorizon'],
                                                 'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
-                    #TODO change, keeping this to keep consistent naming structure for now
-                    additional_models_data = replacement_models_local
+                    additional_models_data.extend(replacement_models_local)
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
