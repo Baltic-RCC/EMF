@@ -166,7 +166,7 @@ def get_content(metadata: dict):
     components_received = []
     for component in metadata["opde:Component"]:
         content_reference = component.get("opdm:Profile").get("pmd:content-reference")
-        logger.info(f"Downloading object: {content_reference}")
+        logger.info(f"Downloading object: {bucket_name}/{content_reference}")
         content = object_storage.minio_service.download_object(bucket_name, content_reference)
         component["opdm:Profile"]["DATA"] = content
         components_received.append(bool(content))  # collect boolean flags of received components
