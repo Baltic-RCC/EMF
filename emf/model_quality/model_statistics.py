@@ -87,8 +87,19 @@ def type_tableview_merge(data, query):
 
 def get_tieflow_data(data):
     logger.info("Getting Tieflow Data")
-    tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
-    tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description_ConnectivityNode"].str.startswith("HVDC")
+    try:
+        tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
+    except:
+        tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+
+    try:
+        tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description"].str.startswith("HVDC")
+    except:
+        try:
+            tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description_ConnectivityNode"].str.startswith("HVDC")
+        except:
+            tieflow_data["BoundaryPoint.isDirectCurrent"] = False
+
     # TODO - for CGMES3/CIM17 get also the Boundary objects and use correct field to identify HVDC
 
     # Add Injections
