@@ -29,11 +29,17 @@ class PreLFValidator:
         self.network = network
         self.report = {'pre_validations': {}}
 
-    def validate_non_retained_switches(self):
+    def validate_non_retained_switches(self, open_non_retained_switches: bool = False):
         # TODO Use carefully as this might change switch statuses in the original model
         # TODO Currently disabled returning modified data
         non_retained_switched_valid = True
-        non_retained_switches = validator_functions.check_not_retained_switches_between_nodes(self.network)[1]
+        if open_non_retained_switches:
+            self.network, non_retained_switches = (
+                validator_functions
+                .check_not_retained_switches_between_nodes(original_data=self.network,
+                                                           open_not_retained_switches=open_non_retained_switches))
+        else:
+            non_retained_switches = validator_functions.check_not_retained_switches_between_nodes(self.network)[1]
         if non_retained_switches:
             non_retained_switched_valid = False
         self.report['pre_validations']['non_retained_switches'] = non_retained_switched_valid
@@ -44,8 +50,12 @@ class PreLFValidator:
         self.report['pre_validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
 
     def run_validation(self):
+        try:
+            open_non_retained_switches = json.loads(OPEN_NON_RETAINED_SWITCHES.lower())
+        except (json.decoder.JSONDecodeError, AttributeError):
+            open_non_retained_switches = False
         if json.loads(CHECK_NON_RETAINED_SWITCHES.lower()):
-            self.validate_non_retained_switches()
+            self.validate_non_retained_switches(open_non_retained_switches=open_non_retained_switches)
         if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
             self.validate_kirchhoff_first_law()
 
@@ -297,7 +307,7 @@ if __name__ == "__main__":
 
     # Validate models
     for model in available_models:
-        network_triplets = load_opdm_data(opdm_objects=[model, latest_boundary])
+        network_triplets = load_opdm_objects_to_triplets(opdm_objects=[model, latest_boundary])
         network = load_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
