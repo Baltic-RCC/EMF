@@ -91,7 +91,9 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
     :param original_data: original models, will be used to get TP dependencies
     :return updated merged SV profile
     """
-    some_data = load_opdm_objects_to_triplets(opdm_objects=original_data)
+
+    # some_data = load_opdm_objects_to_triplets(opdm_objects=original_data)
+    some_data = get_opdm_data_from_models(model_data=original_data)
     tp_file_ids = some_data[(some_data['KEY'] == 'Model.profile') & (some_data['VALUE'].str.contains('Topology'))]
 
     ssh_file_ids = cgm_ssh_data[(cgm_ssh_data['KEY'] == 'Model.profile') &
@@ -207,6 +209,17 @@ def take_best_match_for_sv_voltage(input_data, column_name: str = 'v', to_keep: 
         if first_row[column_name] != 0 and not remaining_rows.empty:
             first_row = remaining_rows.iloc[0]
     return first_row
+
+
+def get_opdm_data_from_models(model_data: list | pd.DataFrame):
+    """
+    Check if input is already parsed to triplets. Do it otherwise
+    :param model_data: input models
+    :return triplets
+    """
+    if not isinstance(model_data, pd.DataFrame):
+        model_data = load_opdm_objects_to_triplets(model_data)
+    return model_data
 
 
 def get_boundary_nodes_between_igms(model_data: list | pd.DataFrame):
@@ -398,3 +411,61 @@ def configure_paired_boundarypoint_injections_by_nodes(data):
     updated_q_value["VALUE"] = 0
 
     return data.update_triplet_from_triplet(pd.concat([updated_terminal_status, updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+
+
+def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
+    """Where there are paired boundary points, equivalent injections need to be modified
+    Set P and Q to 0 - so that no additional consumption or production is on tie line
+    Set voltage control off - so that no additional consumption or production is on tie line
+    Set terminal to connected - to be sure we have paired connected injections at boundary point
+    NOTE THAT THIS IS COPY FROM 'configure_paired_boundarypoint_injections'
+    In some models terminals are missing references to ConnectivityNodes
+    """
+
+    topological_boundary_points = original_models.query("KEY == 'TopologicalNode.boundaryPoint' and VALUE == 'true'")[["ID"]]
+    try:
+        terminals = original_models.type_tableview("Terminal").reset_index()[['ID',
+                                                                   'Terminal.ConductingEquipment',
+                                                                   'Terminal.ConnectivityNode',
+                                                                   'Terminal.TopologicalNode']]
+    except KeyError:
+        terminals = original_models.type_tableview("Terminal").reset_index()[['ID',
+                                                                   'Terminal.ConductingEquipment',
+                                                                   'Terminal.TopologicalNode']]
+    injections = original_models.type_tableview('EquivalentInjection').reset_index()[['ID',
+                                                                           # 'EquivalentInjection.p',
+                                                                           # 'EquivalentInjection.q',
+                                                                           # 'EquivalentInjection.regulationStatus'
+                                                                           ]]
+    topological_boundary_points = topological_boundary_points.merge(terminals,
+                                                                    left_on="ID",
+                                                                    right_on="Terminal.TopologicalNode",
+                                                                    suffixes=('_TopologicalNode', '_Terminal'))
+    topological_injections = injections.merge(topological_boundary_points,
+                                              left_on="ID",
+                                              right_on='Terminal.ConductingEquipment',
+                                              suffixes=('_ConnectivityNode', ''))
+    paired_topological_injections = (topological_injections.groupby("Terminal.TopologicalNode")
+                                     .filter(lambda x: len(x) == 2))
+    paired_injections = paired_topological_injections
+
+    # Set terminal status
+    updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
+    updated_terminal_status["KEY"] = "ACDCTerminal.connected"
+    updated_terminal_status["VALUE"] = "true"
+
+    # Set Regulation off
+    updated_regulation_status = paired_injections[["ID"]].copy()
+    updated_regulation_status["KEY"] = "EquivalentInjection.regulationStatus"
+    updated_regulation_status["VALUE"] = "false"
+
+    # Set P to 0
+    updated_p_value = paired_injections[["ID"]].copy()
+    updated_p_value["KEY"] = "EquivalentInjection.p"
+    updated_p_value["VALUE"] = 0
+
+    # Set Q to 0
+    updated_q_value = paired_injections[["ID"]].copy()
+    updated_q_value["KEY"] = "EquivalentInjection.q"
+    updated_q_value["VALUE"] = 0
+    return cgm_ssh_data.update_triplet_from_triplet(pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)

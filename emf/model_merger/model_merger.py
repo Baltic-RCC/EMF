@@ -1,4 +1,8 @@
 import logging
+import os
+import sys
+
+import aniso8601
 import pypowsybl
 import config
 import json
@@ -291,6 +295,10 @@ class HandlerMergeModels:
         if json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower()):
             pass
 
+        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
+        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
+
+
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = self.run_loadflow(merged_model=merged_model)
@@ -347,10 +355,6 @@ class HandlerMergeModels:
             mas=mas,
             version=version,
         )
-
-        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
-        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
-
         # Export merged model
         # TODO change here to export SSH profiles as well
         exported_model = merge_functions.export_merged_model(network=merged_model.network,
@@ -366,6 +370,7 @@ class HandlerMergeModels:
                                                                                         exported_model=exported_model,
                                                                                         opdm_object_meta=opdm_object_meta,
                                                                                         enable_temp_fixes=post_temp_fixes,
+                                                                                        task_properties=task_properties
                                                                                         )
 
         # Package both input models and exported CGM profiles to in memory zip files
@@ -397,7 +402,7 @@ class HandlerMergeModels:
             # Include original IGM files
             for input_model in input_models:
                 for instance in input_model['opde:Component']:
-                    if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
+                    if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD', 'EQ_BD', 'TP_BD']:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
                         logging.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
