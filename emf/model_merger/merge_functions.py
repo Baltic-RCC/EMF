@@ -17,8 +17,6 @@ import triplets
 import uuid
 from uuid import uuid4
 
-from fontTools.merge.util import first
-
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
@@ -26,8 +24,7 @@ from emf.common.integrations import elastic
 from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
-from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata, \
-    filename_reduced_from_opdm_metadata
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
 from emf.model_merger.model_merger import MergedModel
 
 logger = logging.getLogger(__name__)
