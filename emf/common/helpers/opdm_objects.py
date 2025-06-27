@@ -215,6 +215,19 @@ def filename_from_opdm_metadata(metadata: dict, file_type: str | None = None):
     return file_name
 
 
+def filename_reduced_from_opdm_metadata(metadata: dict, file_type: str | None = None):
+    valid_from = f"{metadata['pmd:validFrom']}"
+    time_horizon = f"{metadata['pmd:timeHorizon']}"
+    model_authority = f"{metadata['pmd:mergingEntity']}-{metadata['pmd:Area']}"
+    profile = f"{metadata['pmd:cgmesProfile']}"
+    version_number = f"{metadata['pmd:versionNumber']}"
+    file_name_reduced = '_'.join([valid_from, time_horizon, model_authority])
+    # file_name = f"{metadata['pmd:validFrom']}_{metadata['pmd:timeHorizon']}_{model_authority}_{metadata['pmd:cgmesProfile']}_{metadata['pmd:versionNumber']}"
+    #
+    # if file_type:
+    #     file_name = f"{file_name}.{file_type}"
+    return file_name_reduced, version_number
+
 if __name__ == "__main__":
     # Create OPDM objects
     opdm_object = create_opdm_objects([rdfzip_files])
