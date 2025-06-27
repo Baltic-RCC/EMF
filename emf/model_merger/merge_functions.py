@@ -7,7 +7,6 @@ from triplets.cgmes_tools import get_metadata_from_FullModel
 from triplets.rdf_parser import tableview_to_triplet, remove_triplet_from_triplet
 from xml.sax.expatreader import version
 
-import pandas
 import pandas as pd
 import pypowsybl
 import logging
@@ -166,8 +165,8 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
     return sv_data
 
 
-def load_ssh(input_data: pandas.DataFrame | list):
-    if not isinstance(input_data, pandas.DataFrame):
+def load_ssh(input_data: pd.DataFrame | list):
+    if not isinstance(input_data, pd.DataFrame):
         ssh_data = load_opdm_objects_to_triplets(input_data, "SSH")
     else:
         ssh_files = input_data[input_data['VALUE'] == 'SSH'][['INSTANCE_ID']].drop_duplicates()
@@ -180,8 +179,8 @@ def load_ssh(input_data: pandas.DataFrame | list):
     return ssh_data
 
 
-def create_updated_ssh(models_as_triplets: pandas.DataFrame | list,
-                       sv_data: pandas.DataFrame,
+def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
+                       sv_data: pd.DataFrame,
                        opdm_object_meta: dict
                        ):
     # TODO rewrite to use pypowsybl exported SSH

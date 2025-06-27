@@ -1,4 +1,3 @@
-import pandas
 import pypowsybl
 import triplets
 import pandas as pd
@@ -212,13 +211,13 @@ def take_best_match_for_sv_voltage(input_data, column_name: str = 'v', to_keep: 
     return first_row
 
 
-def get_opdm_data_from_models(model_data: list | pandas.DataFrame):
+def get_opdm_data_from_models(model_data: list | pd.DataFrame):
     """
     Check if input is already parsed to triplets. Do it otherwise
     :param model_data: input models
     :return triplets
     """
-    if not isinstance(model_data, pandas.DataFrame):
+    if not isinstance(model_data, pd.DataFrame):
         model_data = load_opdm_objects_to_triplets(model_data)
     return model_data
 
@@ -469,4 +468,4 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
     updated_q_value = paired_injections[["ID"]].copy()
     updated_q_value["KEY"] = "EquivalentInjection.q"
     updated_q_value["VALUE"] = 0
-    return cgm_ssh_data.update_triplet_from_triplet(pandas.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+    return cgm_ssh_data.update_triplet_from_triplet(pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
