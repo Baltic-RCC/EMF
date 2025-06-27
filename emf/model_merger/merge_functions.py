@@ -1,6 +1,13 @@
-import zipfile
+import json
 import math
+import os.path
 from io import BytesIO
+
+from triplets.cgmes_tools import get_metadata_from_FullModel
+from triplets.rdf_parser import tableview_to_triplet, remove_triplet_from_triplet
+from xml.sax.expatreader import version
+
+import pandas
 import pandas as pd
 import pypowsybl
 import logging
@@ -9,15 +16,19 @@ import datetime
 import triplets
 import uuid
 from uuid import uuid4
+
+from fontTools.merge.util import first
+
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
-from emf.common.loadflow_tool import loadflow_settings
+# from emf.common.loadflow_tool import loadflow_settings
 from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
-from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
-
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata, \
+    filename_reduced_from_opdm_metadata
+from emf.model_merger.model_merger import MergedModel
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +74,13 @@ def export_merged_model(network: pypowsybl.network,
         "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
         "iidm.export.cgmes.base-name": file_base_name,
         "iidm.export.cgmes.profiles": profiles,
-        "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
+        # For missing instances like "SupplyStation"
+        # "iidm.export.cgmes.topology-kind": 'NODE_BREAKER',
+        # cgmes-fix-all-invalid-ids fixes non-standard uuid's. Can cause danglingReference errors
+        # "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
         "iidm.export.cgmes.export-sv-injections-for-slacks": "False",
-        "iidm.export.cgmes.export-boundary-power-flows": "False",
+        # False sets all boundary flows to zero causing Kirchhoff 1st law and SvPowerFlowBranchInstances2 errors
+        # "iidm.export.cgmes.export-boundary-power-flows": "False",
         "iidm.export.cgmes.cgm_export": cgm_export_flag,
     }
 
@@ -93,7 +108,7 @@ def create_merged_model_opdm_object(object_id: str,
     opdm_object_meta = {
         'opde:Object-Type': 'CGM',
         'pmd:fullModel_ID': object_id,
-        'pmd:creationDate': f"{datetime.datetime.utcnow():%Y-%m-%dT%H:%M:%S.%fZ}",
+        'pmd:creationDate': f"{datetime.datetime.now(datetime.UTC):%Y-%m-%dT%H:%M:%S.%fZ}",
         'pmd:timeHorizon': time_horizon,
         'pmd:cgmesProfile': profile,
         'pmd:contentType': content_type,
@@ -140,6 +155,8 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
     # Update file name at 'label' key
     sv_data.set_VALUE_at_KEY(key='label', value=filename_from_opdm_metadata(opdm_object_meta, file_type="xml"))
 
+    sv_data = triplets.cgmes_tools.update_FullModel_from_filename(sv_data)
+
     # Check and fix SV id if necessary
     updated_sv_id_map = {}
     for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
@@ -152,14 +169,30 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
     return sv_data
 
 
-def create_updated_ssh(merged_model, original_models, models_as_triplets):
+def load_ssh(input_data: pandas.DataFrame | list):
+    if not isinstance(input_data, pandas.DataFrame):
+        ssh_data = load_opdm_objects_to_triplets(input_data, "SSH")
+    else:
+        ssh_files = input_data[input_data['VALUE'] == 'SSH'][['INSTANCE_ID']].drop_duplicates()
+        if ssh_files.empty:
+            ssh_files = (input_data[(input_data['KEY'] == 'label') &
+                                    (input_data['VALUE'].str.upper().str.contains('SSH'))][['INSTANCE_ID']]
+                         .drop_duplicates())
+        ssh_data = input_data.merge(ssh_files, on='INSTANCE_ID')
+    ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
+    return ssh_data
+
+
+def create_updated_ssh(models_as_triplets: pandas.DataFrame | list,
+                       sv_data: pandas.DataFrame,
+                       opdm_object_meta: dict
+                       ):
     # TODO rewrite to use pypowsybl exported SSH
 
     ### SSH ##
 
     # Load original SSH data to created updated SSH
-    ssh_data = load_opdm_objects_to_triplets(opdm_objects=original_models, profile="SSH")
-    ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
+    ssh_data = load_ssh(models_as_triplets)
 
     # Update SSH Model.scenarioTime
     ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
@@ -733,17 +766,22 @@ def run_post_merge_processing(input_models: list,
                               exported_model: bytes,
                               opdm_object_meta: dict,
                               enable_temp_fixes: bool,
+                              task_properties: dict = None,
                               ):
 
     # Load original input models to triplets
     input_models_triplets = load_opdm_objects_to_triplets(opdm_objects=input_models)
 
     # Apply corrections to SV profile
-    update_merged_model_sv(sv_data=exported_model, opdm_object_meta=opdm_object_meta)
+    sv_data = update_merged_model_sv(sv_data=exported_model, opdm_object_meta=opdm_object_meta)
 
     # Create update SSH
-    sv_data, ssh_data, opdm_object_meta = create_updated_ssh()
-    fix_net_interchange_errors = task_properties.get('fix_net_interchange2', False)
+    sv_data, ssh_data, opdm_object_meta = create_updated_ssh(models_as_triplets=input_models_triplets,
+                                                             sv_data=sv_data,
+                                                             opdm_object_meta=opdm_object_meta)
+    fix_net_interchange_errors = False
+    if task_properties is not None:
+        fix_net_interchange_errors = task_properties.get('fix_net_interchange2', fix_net_interchange_errors)
 
     # Run temporary modification on exported model
     if enable_temp_fixes:
@@ -755,32 +793,37 @@ def run_post_merge_processing(input_models: list,
         sv_data = temporary.check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=input_models_triplets)
 
     # Run injections check and apply modification if defined in configuration
+    injection_threshold = float(INJECTION_THRESHOLD)
+    net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
+    fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
+    ssh_data= temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
+                                                               cgm_ssh_data=ssh_data)
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                             cgm_sv_data=sv_data,
                                             original_models=input_models_triplets,
                                             injection_name='EnergySource',
-                                            threshold=INJECTION_THRESHOLD,
+                                            threshold=injection_threshold,
                                             fields_to_check={'SvPowerFlow.p': 'EnergySource.activePower'},
-                                            fix_errors=FIX_INJECTION_ERRORS)
+                                            fix_errors=fix_injection_errors)
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                             cgm_sv_data=sv_data,
                                             original_models=input_models_triplets,
                                             injection_name='ExternalNetworkInjection',
                                             fields_to_check={'SvPowerFlow.p': 'ExternalNetworkInjection.p'},
-                                            threshold=INJECTION_THRESHOLD,
-                                            fix_errors=FIX_INJECTION_ERRORS)
+                                            threshold=injection_threshold,
+                                            fix_errors=fix_injection_errors)
     ssh_data = check_non_boundary_equivalent_injections(cgm_sv_data=sv_data,
                                                         cgm_ssh_data=ssh_data,
                                                         original_models=input_models_triplets,
-                                                        threshold=INJECTION_THRESHOLD,
-                                                        fix_errors=FIX_INJECTION_ERRORS)
+                                                        threshold=injection_threshold,
+                                                        fix_errors=fix_injection_errors)
 
     try:
         ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
                                           cgm_ssh_data=ssh_data,
                                           original_models=input_models_triplets,
                                           fix_errors=fix_net_interchange_errors,
-                                          threshold=NET_INTERCHANGE_THRESHOLD)
+                                          threshold=net_interchange_threshold)
     except KeyError:
         logger.warning(f"No fields for net interchange correction")
 
