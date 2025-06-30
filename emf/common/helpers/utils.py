@@ -63,6 +63,20 @@ def flatten_dict(nested_dict: dict, parent_key: str = '', separator: str = '.'):
     return dict(items)
 
 
+def convert_dict_str_to_bool(data_dict: dict):
+    for key, value in data_dict.items():
+        if isinstance(value, str):
+            if value in ['True', 'true', 'TRUE']:
+                data_dict[key] = True
+            elif value in ['False', 'false', 'FALSE']:
+                data_dict[key] = False
+        elif isinstance(value, dict):
+            # Recursively converter nested dictionaries
+            data_dict[key] = convert_dict_str_to_bool(value)
+
+    return data_dict
+
+
 def filter_and_flatten_dict(nested_dict: dict, keys: list):
     """
     Creates a new flat dictionary from specified keys.

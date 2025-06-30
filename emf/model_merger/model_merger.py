@@ -1,8 +1,4 @@
 import logging
-import os
-import sys
-
-import aniso8601
 import pypowsybl
 import config
 import json
@@ -19,7 +15,7 @@ from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.common.loadflow_tool import loadflow_settings
-from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
 from emf.common.helpers.loadflow import load_network_model
@@ -47,20 +43,6 @@ def async_call(function, callback=None, *args, **kwargs):
 
 def log_opdm_response(response):
     logger.debug(etree.tostring(response, pretty_print=True).decode())
-
-
-def convert_dict_str_to_bool(data_dict: dict):
-    for key, value in data_dict.items():
-        if isinstance(value, str):
-            if value in ['True', 'true', 'TRUE']:
-                data_dict[key] = True
-            elif value in ['False', 'false', 'FALSE']:
-                data_dict[key] = False
-        elif isinstance(value, dict):
-            # Recursively converter nested dictionaries
-            data_dict[key] = convert_dict_str_to_bool(value)
-
-    return data_dict
 
 
 @dataclass
