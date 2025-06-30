@@ -246,17 +246,6 @@ class HandlerModelsValidator:
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
 
-            # TODO temporary monitored metrics
-            if opdm_object['pmd:TSO'] == "LITGRID":
-                try:
-                    dl = network.get_dangling_lines()
-                    ltpl_border_flow = dl.query("pairing_key in ['XEL_AL11', 'XEL_AL12']").p.sum()
-                    gens = network.get_generators()
-                    khae_gen = gens[gens['name'].str.contains('KHAE_G')].p.sum()
-                    report["monitor"] = {"poland_border_flow": ltpl_border_flow, "khae_generation": khae_gen}
-                except Exception as error:
-                    logger.error(f"Monitored metrics collection failed: {error}", exc_info=True)
-
             # Define model validity
             valid = all(report['validations'].values())
 
