@@ -252,6 +252,7 @@ def scale_balance(model: object,
     # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
     if not validate_loadflow_status(results=pf_results):
         model.scaled = False
+        logger.warning(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
         return model
 
     # Validate total network AC net position alignment
