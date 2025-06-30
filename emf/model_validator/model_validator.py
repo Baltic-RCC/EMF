@@ -29,18 +29,10 @@ class PreLFValidator:
         self.network = network
         self.report = {'pre_validations': {}}
 
-    def validate_non_retained_switches(self, open_non_retained_switches: bool = False):
-        # TODO Use carefully as this might change switch statuses in the original model
-        # TODO Currently disabled returning modified data
+    def validate_non_retained_switches(self):
         non_retained_switched_valid = True
-        if open_non_retained_switches:
-            self.network, non_retained_switches = (
-                validator_functions
-                .check_not_retained_switches_between_nodes(original_data=self.network,
-                                                           open_not_retained_switches=open_non_retained_switches))
-        else:
-            non_retained_switches = validator_functions.check_not_retained_switches_between_nodes(self.network)[1]
-        if non_retained_switches:
+        violated_switches = validator_functions.check_not_retained_switches_between_nodes(original_data=self.network)[1]
+        if violated_switches:
             non_retained_switched_valid = False
         self.report['pre_validations']['non_retained_switches'] = non_retained_switched_valid
 
@@ -51,12 +43,8 @@ class PreLFValidator:
         self.report['pre_validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
 
     def run_validation(self):
-        try:
-            open_non_retained_switches = json.loads(OPEN_NON_RETAINED_SWITCHES.lower())
-        except (json.decoder.JSONDecodeError, AttributeError):
-            open_non_retained_switches = False
         if json.loads(CHECK_NON_RETAINED_SWITCHES.lower()):
-            self.validate_non_retained_switches(open_non_retained_switches=open_non_retained_switches)
+            self.validate_non_retained_switches()
 
 
 class PostLFValidator:
@@ -112,9 +100,7 @@ class PostLFValidator:
 
     def validate_kirchhoff_first_law(self):
         """Validates possible Kirchhoff first law errors after loadflow"""
-        violated_nodes = pd.DataFrame()
-
-        # Export sv profile and check it for Kirchhoff 1st law
+        # Export SV profile and check it for Kirchhoff 1st law
         export_parameters = {"iidm.export.cgmes.profiles": 'SV',
                              "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
         bytes_object = self.network.save_to_binary_buffer(format="CGMES", parameters=export_parameters)
@@ -163,10 +149,21 @@ class TemporaryPreMergeModifications:
                                                                            add=False)
             self.report['modification']['sanitize_file_name'] = True
 
+    def open_non_retained_switches(self):
+        self.report['modification']['open_non_retained_switches'] = False
+        # Open non-retained switches
+        original_data, violated_switches = validator_functions.check_not_retained_switches_between_nodes(
+            original_data=self.network, open_not_retained_switches=True)
+        if violated_switches:
+            self.network = original_data
+            self.report['modification']['open_non_retained_switches'] = True
+
     @performance_counter(units='seconds')
     def run_pre_process_modifications(self):
         self.update_header_from_file_name()
         self.sanitize_file_name()
+        if json.loads(OPEN_NON_RETAINED_SWITCHES.lower()):
+            self.open_non_retained_switches()
 
         return self.network
 
@@ -212,7 +209,7 @@ class HandlerModelsValidator:
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
 
-                # Clean opdm object from DATA as this is already converted to other formats
+                # Clean DATA from OPDM object as this is already converted to other formats
                 opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
 
                 # Apply pre-processing modification to models and store in Minio

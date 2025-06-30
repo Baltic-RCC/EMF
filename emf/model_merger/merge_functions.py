@@ -807,7 +807,8 @@ def run_post_merge_processing(input_models: list,
     if task_properties is not None:
         fix_net_interchange_errors = task_properties.get('fix_net_interchange2', fix_net_interchange_errors)
 
-    # Run temporary modification on exported model
+    # Run temporary modifications on exported model
+    # Temporary fixes are applied to SV and SSH profiles
     if enable_temp_fixes:
         # TODO need to revise constantly
         sv_data = temporary.remove_equivalent_shunt_section(sv_data, input_models_triplets)
@@ -815,13 +816,15 @@ def run_post_merge_processing(input_models: list,
         sv_data = temporary.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
         sv_data = temporary.remove_duplicate_sv_voltages(cgm_sv_data=sv_data, original_data=input_models_triplets)
         sv_data = temporary.check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=input_models_triplets)
+        # TODO following SSH profile fix should be removed once pypowsybl SSH export will be used
+        ssh_data = temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
+                                                                    cgm_ssh_data=ssh_data)
 
     # Run injections check and apply modification if defined in configuration
     injection_threshold = float(INJECTION_THRESHOLD)
     net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
-    ssh_data = temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
-                                                                cgm_ssh_data=ssh_data)
+
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                             cgm_sv_data=sv_data,
                                             original_models=input_models_triplets,

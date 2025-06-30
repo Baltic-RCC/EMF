@@ -273,10 +273,6 @@ class HandlerMergeModels:
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
 
-        # TODO - placeholder for open TN switcher or it can be after scaling before export
-        if json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower()):
-            pass
-
         # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
         merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
 

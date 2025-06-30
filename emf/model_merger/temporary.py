@@ -74,8 +74,7 @@ def open_switches_in_network(network_pre_instance: pypowsybl.network.Network, sw
     logger.info(f"Opening {len(switches_dataframe.index)} switches")
     switches = network_pre_instance.get_switches(all_attributes=True).reset_index()
     switches = switches.merge(switches_dataframe[['ID']].rename(columns={'ID': 'id'}), on='id')
-    non_retained_closed = switches.merge(switches_dataframe.rename(columns={'ID': 'id'}),
-                                         on='id')[['id', 'open']]
+    non_retained_closed = switches.merge(switches_dataframe.rename(columns={'ID': 'id'}), on='id')[['id', 'open']]
     non_retained_closed['open'] = True
     network_pre_instance.update_switches(non_retained_closed.set_index('id'))
     return network_pre_instance
