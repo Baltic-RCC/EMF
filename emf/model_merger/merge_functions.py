@@ -159,7 +159,7 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
         if not is_valid_uuid(old_id):
             new_id = str(uuid4())
             updated_sv_id_map[old_id] = new_id
-            logger.warning(f"SV id {old_id} is not valid, assigning: {new_id}")
+            logger.warning(f"SV profile id {old_id} is not valid, assigning: {new_id}")
     sv_data = sv_data.replace(updated_sv_id_map)
 
     return sv_data
@@ -291,6 +291,11 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
     logger.info("Configuring paired boundary points equivalent injections: p0/q0 = 0.0")
     dangling_lines = network.get_dangling_lines(all_attributes=True)
     paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
+    if paired_dangling_lines.empty:
+        logger.warning(f"No paired dangling lines found in network model")
+        return network
+
+    # Set p0/q0 to 0 for all paired dangling lines
     _updated_p0 = pd.Series(0, index=paired_dangling_lines.index)
     _updated_q0 = pd.Series(0, index=paired_dangling_lines.index)
     network.update_dangling_lines(id=paired_dangling_lines.index, p0=_updated_p0, q0=_updated_q0)
@@ -302,6 +307,9 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     logger.info("Aligning paired boundary lines connection status")
     dangling_lines = network.get_dangling_lines(all_attributes=True)
     paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
+    if paired_dangling_lines.empty:
+        logger.warning(f"No paired dangling lines found in network model")
+        return network
 
     # Identify dangling line pairs where the 'connected' status is inconsistent within each pairing_key group
     mask = paired_dangling_lines.groupby('pairing_key')['connected'].transform(lambda s: s.nunique() > 1)
@@ -812,8 +820,8 @@ def run_post_merge_processing(input_models: list,
     injection_threshold = float(INJECTION_THRESHOLD)
     net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
-    ssh_data= temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
-                                                               cgm_ssh_data=ssh_data)
+    ssh_data = temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
+                                                                cgm_ssh_data=ssh_data)
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                             cgm_sv_data=sv_data,
                                             original_models=input_models_triplets,

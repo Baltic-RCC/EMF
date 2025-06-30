@@ -478,7 +478,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-06-16T12:30:00+00:00",
+            "timestamp_utc": "2025-06-30T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["LITGRID", "AST", "ELERING", "PSE"],
@@ -487,7 +487,6 @@ if __name__ == "__main__":
             "time_horizon": "1D",
             "version": "001",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
-            "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
             "fix_net_interchange2": "True",
             "replacement": "True",

@@ -14,7 +14,7 @@ def update_task_status(task: dict, status_text: str, publish: bool = True):
     Will update task_status
     Will append new status to task_status_trace"""
 
-    logger.info(f"Updating Task status to: {status_text}")
+    logger.info(f"Updating task status to: {status_text}")
 
     utc_now = datetime.utcnow().isoformat()
 
