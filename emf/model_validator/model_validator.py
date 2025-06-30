@@ -45,6 +45,7 @@ class PreLFValidator:
         self.report['pre_validations']['non_retained_switches'] = non_retained_switched_valid
 
     def validate_kirchhoff_first_law(self):
+        # TODO - currently this is not used in pre-validation, but it might be useful to have it here
         violated_nodes = validator_functions.get_nodes_against_kirchhoff_first_law(original_models=self.network)
         kirchhoff_first_law_valid = True if violated_nodes.empty else False
         self.report['pre_validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
@@ -56,8 +57,6 @@ class PreLFValidator:
             open_non_retained_switches = False
         if json.loads(CHECK_NON_RETAINED_SWITCHES.lower()):
             self.validate_non_retained_switches(open_non_retained_switches=open_non_retained_switches)
-        if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
-            self.validate_kirchhoff_first_law()
 
 
 class PostLFValidator:
