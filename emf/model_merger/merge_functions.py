@@ -63,9 +63,13 @@ def export_merged_model(network: pypowsybl.network,
         "iidm.export.cgmes.modeling-authority-set": opdm_object_meta['pmd:modelingAuthoritySet'],
         "iidm.export.cgmes.base-name": file_base_name,
         "iidm.export.cgmes.profiles": profiles,
-        "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
+        # For missing instances like "SupplyStation"
+        "iidm.export.cgmes.topology-kind": 'NODE_BREAKER',
+        # cgmes-fix-all-invalid-ids fixes non-standard uuid's. Can cause danglingReference errors
+        # "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
         "iidm.export.cgmes.export-sv-injections-for-slacks": "False",
-        "iidm.export.cgmes.export-boundary-power-flows": "False",
+        # False sets all boundary flows to zero causing Kirchhoff 1st law and SvPowerFlowBranchInstances2 errors
+        # "iidm.export.cgmes.export-boundary-power-flows": "False",
         "iidm.export.cgmes.cgm_export": cgm_export_flag,
     }
 
