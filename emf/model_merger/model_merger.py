@@ -280,6 +280,8 @@ class HandlerMergeModels:
         # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
         merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
 
+        # Ensure boundary line connectivity consistency for paired boundary lines
+        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model

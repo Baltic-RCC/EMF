@@ -287,7 +287,6 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
     LEVEL7 rule PairedEICompatibility
 
     Set P and Q to 0 - so that no additional consumption or production is on tie line
-    TODO consider handling if same tie line EQINJ has different ACDCTerminal connected status
     """
     logger.info("Configuring paired boundary points equivalent injections: p0/q0 = 0.0")
     dangling_lines = network.get_dangling_lines(all_attributes=True)
@@ -295,6 +294,27 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
     _updated_p0 = pd.Series(0, index=paired_dangling_lines.index)
     _updated_q0 = pd.Series(0, index=paired_dangling_lines.index)
     network.update_dangling_lines(id=paired_dangling_lines.index, p0=_updated_p0, q0=_updated_q0)
+
+    return network
+
+
+def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
+    logger.info("Aligning paired boundary lines connection status")
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
+
+    # Identify dangling line pairs where the 'connected' status is inconsistent within each pairing_key group
+    mask = paired_dangling_lines.groupby('pairing_key')['connected'].transform(lambda s: s.nunique() > 1)
+    mismatched_dangling_lines = paired_dangling_lines[mask]
+    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines['pairing_key'].unique().tolist()}")
+
+    # Set all mismatched lines to disconnected (False)
+    _connected = pd.Series(data=False, index=mismatched_dangling_lines.index)
+    network.update_dangling_lines(id=mismatched_dangling_lines.index, connected=_connected)
+
+    # Log each change
+    for i, row in mismatched_dangling_lines.iterrows():
+        logger.info(f"Changed status of dangling line {row['name']}: {row['connected']} -> False")
 
     return network
 
