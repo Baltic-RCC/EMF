@@ -1,12 +1,6 @@
 import json
 import math
-import os.path
-from io import BytesIO
-
-from triplets.cgmes_tools import get_metadata_from_FullModel
-from triplets.rdf_parser import tableview_to_triplet, remove_triplet_from_triplet
 from xml.sax.expatreader import version
-
 import pandas as pd
 import pypowsybl
 import logging
@@ -14,17 +8,13 @@ import sys
 import datetime
 import triplets
 import uuid
-from uuid import uuid4
-
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
-# from emf.common.loadflow_tool import loadflow_settings
 from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
-from emf.model_merger.model_merger import MergedModel
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +147,7 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
     updated_sv_id_map = {}
     for old_id in sv_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
         if not is_valid_uuid(old_id):
-            new_id = str(uuid4())
+            new_id = str(uuid.uuid4())
             updated_sv_id_map[old_id] = new_id
             logger.warning(f"SV profile id {old_id} is not valid, assigning: {new_id}")
     sv_data = sv_data.replace(updated_sv_id_map)
@@ -257,7 +247,7 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
     # Generate new UUID for updated SSH
     updated_ssh_id_map = {}
     for OLD_ID in ssh_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
-        NEW_ID = str(uuid4())
+        NEW_ID = str(uuid.uuid4())
         updated_ssh_id_map[OLD_ID] = NEW_ID
         logger.info(f"Assigned new UUID for updated SSH: {OLD_ID} -> {NEW_ID}")
 
@@ -860,6 +850,8 @@ def run_post_merge_processing(input_models: list,
 if __name__ == "__main__":
 
     from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
+    from emf.common.helpers.loadflow import load_network_model
+    from emf.common.loadflow_tool import loadflow_settings
 
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
@@ -878,20 +870,8 @@ if __name__ == "__main__":
     valid_models = get_latest_models_and_download(time_horizon, scenario_date, valid=True)
     latest_boundary = get_latest_boundary()
 
-    merged_model = load_model(valid_models + [latest_boundary])
-
-    # TODO - run other LF if default fails
-    solved_model = run_lf(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
-
-    # TODO - get version dynamically form ELK
-    sv_data, ssh_data = create_sv_and_updated_ssh(solved_model, valid_models, time_horizon, version, merging_area, merging_entity, mas)
-
-    # Fix SV
-    sv_data = fix_sv_shunts(sv_data, valid_models)
-    sv_data = fix_sv_tapsteps(sv_data, ssh_data)
-
-    # Package to in memory zip files
-    serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
+    merged_model = load_network_model(valid_models + [latest_boundary])
+    solved_model = pypowsybl.loadflow.run_ac(merged_model, loadflow_settings=loadflow_settings.CGM_DEFAULT)
 
     # Export to OPDM
     from emf.common.integrations.opdm import OPDM
