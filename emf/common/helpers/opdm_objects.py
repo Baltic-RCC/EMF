@@ -129,10 +129,10 @@ def generate_opdm_object_content_reference_from_filename(file_name: str, opdm_ob
     Returns:
     str: Generated file path using the provided template and extracted metadata.
     """
-    template = "{opdm_object_type}/{processType}/{modelingEntity}/{scenarioTime:%Y%m%d}/{scenarioTime:%H%M00}/{messageType}/{file_name}"
+    template = "{opdm_object_type}/{timeHorizon}/{sourcingActor}/{validFrom:%Y%m%d}/{validFrom:%H%M00}/{cgmesProfile}/{file_name}"
 
-    meta = {key.split(".")[-1]: value for key, value in get_metadata_from_file_name(file_name).items()}
-    meta["scenarioTime"] = parse_datetime(meta["scenarioTime"])
+    meta = {key.split(":")[-1]: value for key, value in get_metadata_from_file_name(file_name).items()}
+    meta["validFrom"] = parse_datetime(meta["validFrom"])
     meta["file_name"] = file_name
     meta["opdm_object_type"] = opdm_object_type
 
