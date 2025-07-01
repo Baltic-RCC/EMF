@@ -190,6 +190,12 @@ class HandlerModelsValidator:
         # Get network models data from object storage
         opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_metadata]
 
+        # Exclude BDS-type objects from validation
+        opdm_objects = [opdm_object for opdm_object in opdm_objects if opdm_object["opde:Object-Type"] != "BDS"]
+        if not opdm_objects:
+            logger.warning("No OPDM objects for validations or it was type of BDS, exiting validation")
+            return message, properties
+
         # Get the latest boundary set for validation
         latest_boundary = models.get_latest_boundary()
 
@@ -241,6 +247,7 @@ class HandlerModelsValidator:
 
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
+                continue
 
             # Define model validity
             valid = all(report['validations'].values())
