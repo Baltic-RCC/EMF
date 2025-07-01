@@ -441,7 +441,7 @@ class HandlerMergeModels:
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
 
-        return opdm_object_meta, properties
+        return json.dumps(opdm_object_meta), properties
 
 
 if __name__ == "__main__":
