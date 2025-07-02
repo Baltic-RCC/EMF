@@ -154,7 +154,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
                 logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
-                lower_limit_violated['min_p'] = lower_limit_violated['curve_p_min']
+                lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
                 network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
 
             # Solution 2: discard generator from participating
@@ -300,7 +300,7 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
         terminals = original_models.type_tableview("Terminal").reset_index()[['ID',
                                                                               'Terminal.ConductingEquipment',
                                                                               'Terminal.TopologicalNode']]
-    injections = original_models.type_tableview('EquivalentInjection').reset_index()[['ID',
+    injections = cgm_ssh_data.type_tableview('EquivalentInjection').reset_index()[['ID',
                                                                            # 'EquivalentInjection.p',
                                                                            # 'EquivalentInjection.q',
                                                                            # 'EquivalentInjection.regulationStatus'
@@ -313,9 +313,8 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
                                               left_on="ID",
                                               right_on='Terminal.ConductingEquipment',
                                               suffixes=('_ConnectivityNode', ''))
-    paired_topological_injections = (topological_injections.groupby("Terminal.TopologicalNode")
+    paired_injections = (topological_injections.groupby("Terminal.TopologicalNode")
                                      .filter(lambda x: len(x) == 2))
-    paired_injections = paired_topological_injections
 
     # Set terminal status
     updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
