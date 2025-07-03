@@ -300,7 +300,7 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
         terminals = original_models.type_tableview("Terminal").reset_index()[['ID',
                                                                               'Terminal.ConductingEquipment',
                                                                               'Terminal.TopologicalNode']]
-    injections = original_models.type_tableview('EquivalentInjection').reset_index()[['ID',
+    injections = cgm_ssh_data.type_tableview('EquivalentInjection').reset_index()[['ID',
                                                                            # 'EquivalentInjection.p',
                                                                            # 'EquivalentInjection.q',
                                                                            # 'EquivalentInjection.regulationStatus'
@@ -313,9 +313,8 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
                                               left_on="ID",
                                               right_on='Terminal.ConductingEquipment',
                                               suffixes=('_ConnectivityNode', ''))
-    paired_topological_injections = (topological_injections.groupby("Terminal.TopologicalNode")
+    paired_injections = (topological_injections.groupby("Terminal.TopologicalNode")
                                      .filter(lambda x: len(x) == 2))
-    paired_injections = paired_topological_injections
 
     # Set terminal status
     updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})

@@ -79,7 +79,10 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     :return: updated original data
     """
     violated_switches = 0
-    original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
+    if not isinstance(original_data, pandas.DataFrame):
+        original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
+    else:
+        original_models = original_data
     not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
                                             & (original_models['VALUE'] == "false")][['ID']]
     closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
