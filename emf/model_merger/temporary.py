@@ -154,7 +154,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
                 logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
-                lower_limit_violated['min_p'] = lower_limit_violated['curve_p_min']
+                lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
                 network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
 
             # Solution 2: discard generator from participating

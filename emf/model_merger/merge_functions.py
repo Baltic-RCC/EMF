@@ -156,14 +156,17 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
 
 
 def load_ssh(input_data: pd.DataFrame | list):
+    """
+    Loads in ssh profiles from list of profiles or takes the slice from dataframe
+    :param input_data: list of profiles or dataframe
+    :return dataframe of ssh data
+    """
     if not isinstance(input_data, pd.DataFrame):
         ssh_data = load_opdm_objects_to_triplets(input_data, "SSH")
     else:
-        ssh_files = input_data[input_data['VALUE'] == 'SSH'][['INSTANCE_ID']].drop_duplicates()
-        if ssh_files.empty:
-            ssh_files = (input_data[(input_data['KEY'] == 'label') &
-                                    (input_data['VALUE'].str.upper().str.contains('SSH'))][['INSTANCE_ID']]
-                         .drop_duplicates())
+        ssh_files = (input_data[(input_data['KEY'] == 'label') &
+                                (input_data['VALUE'].str.upper().str.contains('SSH'))][['INSTANCE_ID']]
+                     .drop_duplicates())
         ssh_data = input_data.merge(ssh_files, on='INSTANCE_ID')
     ssh_data = triplets.cgmes_tools.update_FullModel_from_filename(ssh_data)
     return ssh_data
@@ -171,14 +174,16 @@ def load_ssh(input_data: pd.DataFrame | list):
 
 def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
                        sv_data: pd.DataFrame,
-                       opdm_object_meta: dict
+                       opdm_object_meta: dict,
+                       input_models: list = None,
                        ):
     # TODO rewrite to use pypowsybl exported SSH
 
     ### SSH ##
 
     # Load original SSH data to created updated SSH
-    ssh_data = load_ssh(models_as_triplets)
+    ssh_file_data = input_models or models_as_triplets
+    ssh_data = load_ssh(ssh_file_data)
 
     # Update SSH Model.scenarioTime
     ssh_data.set_VALUE_at_KEY('Model.scenarioTime', opdm_object_meta['pmd:scenarioDate'])
@@ -738,8 +743,12 @@ def check_all_kind_of_injections(cgm_sv_data,
     except AttributeError:
         logger.info(f"SSH profile doesn't contain data about {injection_name}")
         return cgm_ssh_data
-    injections_reduced = injections[[*fixed_fields, *fields_to_check.values()]]
-    original_injections_reduced = original_injections[[*fixed_fields, *fields_to_check.values()]]
+    try:
+        injections_reduced = injections[[*fixed_fields, *fields_to_check.values()]]
+        original_injections_reduced = original_injections[[*fixed_fields, *fields_to_check.values()]]
+    except KeyError as ke:
+        logger.info(f"{injection_name} tableview got error: {ke}")
+        return cgm_ssh_data
     injections_reduced = injections_reduced.merge(original_injections_reduced, on='ID', suffixes=('', '_org'))
     if terminals is None:
         terminals = (original_models.type_tableview('Terminal')
@@ -791,6 +800,7 @@ def run_post_merge_processing(input_models: list,
 
     # Create update SSH
     sv_data, ssh_data, opdm_object_meta = create_updated_ssh(models_as_triplets=input_models_triplets,
+                                                             input_models = input_models,
                                                              sv_data=sv_data,
                                                              opdm_object_meta=opdm_object_meta)
     fix_net_interchange_errors = False
