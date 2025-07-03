@@ -180,7 +180,7 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
     losses_coefficient = losses / (abs(load) + abs(generation) + tieflow_abs_ei_p) if tieflow_abs_ei_p else None
 
     # Returning the computed metrics as a dictionary
-    return {
+    result = {
         'total_load': load,
         'generation': generation,
         'losses': losses,
@@ -189,8 +189,27 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         'tieflow_np': tieflow_np,
         'tieflow_acnp': tieflow_acnp,
         'tieflow_hvdc': tieflow_hvdc,
-
     }
+
+    # Fixes for ELK data storage
+    result = {
+        outer_key: {
+            key.replace('.p', '_p').replace('.q', '_q'): value
+            for key, value in inner_dict.items()
+        } if isinstance(inner_dict, dict) else inner_dict
+        for outer_key, inner_dict in result.items()
+    }
+
+    tieflow_hvdc = [{**inner_key, 'eic': outer_key} for outer_key, inner_key in tieflow_hvdc.items()]
+    tieflow_hvdc = [
+        {key.replace('.p', '_p').replace('.q', '_q'): value
+            for key, value in item.items()
+        } if isinstance(item, dict) else item
+        for item in tieflow_hvdc
+    ]
+    result['tieflow_hvdc'] = tieflow_hvdc
+
+    return result
 
 if __name__ == "__main__":
     import triplets
