@@ -153,23 +153,29 @@ class HandlerMergeModels:
         force_outage_fix = task_properties['force_outage_fix']
 
         # Collect valid models from ObjectStorage
-        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False, data_source='OPDM')
+        downloaded_models = get_latest_models_and_download(time_horizon=time_horizon,
+                                                           scenario_date=scenario_datetime,
+                                                           valid=True,
+                                                           data_source='OPDM')
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = merge_functions.filter_models(downloaded_models, included_models, excluded_models, filter_on='pmd:TSO')
+        models = merge_functions.filter_models(models=downloaded_models,
+                                               included_models=included_models,
+                                               excluded_models=excluded_models,
+                                               filter_on='pmd:TSO')
 
-        # Get additional models directly from Minio
+        # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
-            additional_models_data = get_latest_models_and_download(time_horizon=time_horizon,
-                                                                    scenario_date=scenario_datetime,
-                                                                    valid=True,
-                                                                    data_source='PDN')
-            additional_models_data = merge_functions.filter_models(models=additional_models_data,
-                                                                   included_models=local_import_models,
-                                                                   filter_on='pmd:TSO')
+            additional_models = get_latest_models_and_download(time_horizon=time_horizon,
+                                                               scenario_date=scenario_datetime,
+                                                               valid=True,
+                                                               data_source='PDN')
+            additional_models = merge_functions.filter_models(models=additional_models,
+                                                              included_models=local_import_models,
+                                                              filter_on='pmd:TSO')
 
-            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Perform local replacement if configured
@@ -186,34 +192,28 @@ class HandlerMergeModels:
                                                 'time_horizon': model['pmd:timeHorizon'],
                                                 'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
-                    additional_models_data.extend(replacement_models_local)
+                    additional_models.extend(replacement_models_local)
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
-            additional_models_data = []
-
-        # Check model validity and availability
-        valid_models = [model for model in filtered_models if model['valid']]
-        invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
-        if invalid_models:
-            merged_model.excluded.extend([{'tso': tso, 'reason': 'invalid'} for tso in invalid_models])
+            additional_models = []
 
         # Check missing models for replacement
         if included_models:
-            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in valid_models]]
+            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
         else:
             if model_replacement:
                 # Get TSOs who models are available in storage for replacement period
                 available_tsos = get_tsos_available_in_storage()
-                valid_model_tsos = [model['pmd:TSO'] for model in valid_models]
+                valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
             else:
                 missing_models = []
 
-        # Run replacement on missing/invalid models
+        # Run replacement on missing models
         if model_replacement and missing_models:
             try:
                 logger.info(f"Running replacement for missing models: {missing_models}")
@@ -225,7 +225,7 @@ class HandlerMergeModels:
                                           'scenario_timestamp': model['pmd:scenarioDate']}
                                          for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
-                    valid_models = valid_models + replacement_models
+                    models.extend(replacement_models)
                     merged_model.replaced = True
                 else:
                     merged_model.replaced = False
@@ -233,34 +233,26 @@ class HandlerMergeModels:
                 logger.error(f"Failed to run replacement: {error}")
                 merged_model.replaced = False
 
-        # Store all relevant models for loading
-        valid_models = valid_models + additional_models_data
-
-        # Return None if there are no models to be merged
-        if not valid_models:
-            logger.warning("Found no valid models to merge, returning None")
-            return None
-
-        # Store models together with boundary
-        input_models = valid_models + [latest_boundary]
+        # Store models together with boundary set and check whether there are enough models to merge
+        input_models = models + additional_models + [latest_boundary]
         if len(input_models) < 2:
-            logger.warning("Found no models to merge, returning None")
-            return None
+            logger.warning("No valid models found for merging, exiting merge process")
+            properties.headers['success'] = False
+            return task_object, properties
 
         # Load network model and merge
         merge_start = datetime.datetime.now(datetime.UTC)
         merged_model.network = load_network_model(opdm_objects=input_models)
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
-        merged_model.included = [model['pmd:TSO'] for model in valid_models if model['pmd:TSO']]
+        merged_model.included = [model['pmd:TSO'] for model in input_models if model.get('pmd:TSO', None)]
 
         # Crosscheck replaced model outages with latest UAP if at least one Baltic model was replaced
         replaced_tso_list = [entity['tso'] for entity in merged_model.replaced_entity]
-        valid_tso_list = [tso['pmd:TSO'] for tso in valid_models]
 
         # Update model outages
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
-            tso_list = valid_tso_list
+            tso_list = merged_model.included
         elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix

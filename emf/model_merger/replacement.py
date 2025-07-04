@@ -64,13 +64,13 @@ def run_replacement(tso_list: list,
             replaced_tso = replacements['pmd:TSO'].unique().tolist()
             not_replaced = [model for model in unique_tsos_list if model not in replaced_tso]
             if not_replaced:
-                logger.error(f"Unable to find replacements within given replacement logic for TSO's: {not_replaced}")
+                logger.warning(f"Unable to find replacements within given replacement logic for TSO's: {not_replaced}")
 
             tso_missing = [model for model in tso_list if model not in unique_tsos_list]
             if tso_missing:
                 logger.info(f"No replacement models found for TSO(s): {tso_missing}")
         else:
-            logger.error(f"No replacement models found, replacement list is empty")
+            logger.warning(f"No replacement models found, replacement list is empty")
     else:
         logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
 
