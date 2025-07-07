@@ -57,11 +57,27 @@ class PostLFValidator:
 
     def validate_loadflow(self):
         """Validate load flow convergence"""
-        logger.info(f"Solving load flow with settings: {VALIDATION_LOAD_FLOW_SETTINGS}")
-        loadflow_report = pp.report.Reporter()
-        loadflow_result = pp.loadflow.run_ac(network=self.network,
-                                             parameters=self.loadflow_parameters,
-                                             reporter=loadflow_report)
+        # Set starting point of lf settings priority list
+        if json.loads(ENABLE_DYNAMIC_VALIDATION_SETTINGS.lower()):
+            settings_list = [param.strip() for param in VALIDATION_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
+            settings_priority = next((i for i, value in enumerate(settings_list) if value == VALIDATION_LOAD_FLOW_SETTINGS), None)
+            settings_list = settings_list[settings_priority:]
+        else:
+            settings_list = [VALIDATION_LOAD_FLOW_SETTINGS]
+
+        # Run powerflow, relaxing lf settings after each diverging result
+        for lf_settings in settings_list:
+            loadflow_parameters = getattr(loadflow_settings, lf_settings)
+            logger.info(f"Solving load flow with settings: '{lf_settings}'")
+            loadflow_report = pp.report.Reporter()
+            loadflow_result = pp.loadflow.run_ac(network=self.network,
+                                                 parameters=loadflow_parameters,
+                                                 reporter=loadflow_report)
+
+            if loadflow_result[0].status_text == 'Converged':
+                break
+            else:
+                logger.warning(f"Failed to solve load flow with settings: {lf_settings}")
 
         # Parsing aggregated results
         self.report['components'] = len(loadflow_result)
@@ -79,7 +95,7 @@ class PostLFValidator:
         self.report['loadflow'] = component_results
 
         # Validation status
-        self.report['loadflow_parameters'] = VALIDATION_LOAD_FLOW_SETTINGS
+        self.report['loadflow_parameters'] = lf_settings
         self.report['validations']['loadflow'] = True if main_component.status.value == 0 else False
 
     def validate_network_elements(self):
@@ -199,7 +215,7 @@ class HandlerModelsValidator:
         # Get the latest boundary set for validation
         latest_boundary = models.get_latest_boundary()
 
-        logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
+        # logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
 
         # Run network model validations
         for opdm_object in opdm_objects:
@@ -288,19 +304,19 @@ if __name__ == "__main__":
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-    #logging.getLogger('powsybl').setLevel(1)
 
     opdm = OPDM()
-    latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-06-16T09:30",
-                                                           tso="LITGRID")
+    latest_boundary = models.get_latest_boundary()
+    available_models = models.get_latest_models_and_download(time_horizon='1D',
+                                                             scenario_date="20250706T0930",
+                                                             tso="AST",
+                                                             data_source='opdm')
     validated_models = []
 
     # Validate models
     for model in available_models:
         network_triplets = load_opdm_objects_to_triplets(opdm_objects=[model, latest_boundary])
-        network = load_model(opdm_objects=[model, latest_boundary])
+        network = load_network_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
 
