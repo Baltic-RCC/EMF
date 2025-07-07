@@ -79,11 +79,26 @@ class HandlerMergeModels:
 
     @staticmethod
     def run_loadflow(merged_model):
-        # report = pypowsybl.report.Reporter()
-        result = pypowsybl.loadflow.run_ac(network=merged_model.network,
-                                           parameters=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS),
-                                           # reporter=loadflow_report,
-                                           )
+        # Set starting point of lf settings priority list
+        if json.loads(ENABLE_DYNAMIC_MERGE_SETTINGS.lower()):
+            settings_list = [param.strip() for param in MERGE_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
+            settings_priority = next((i for i, value in enumerate(settings_list) if value == MERGE_LOAD_FLOW_SETTINGS), None)
+            settings_list = settings_list[settings_priority:]
+        else:
+            settings_list = [MERGE_LOAD_FLOW_SETTINGS]
+
+        for lf_settings in settings_list:
+            logger.info(f"Solving load flow with settings: '{lf_settings}'")
+            # report = pypowsybl.report.Reporter()
+            result = pypowsybl.loadflow.run_ac(network=merged_model.network,
+                                               parameters=getattr(loadflow_settings, lf_settings),
+                                               # reporter=loadflow_report,
+                                               )
+            if result[0].status_text == 'Converged':
+                logger.info(f"Model successfully converged with loadflow settings: '{lf_settings}'")
+                break
+            else:
+                logger.warning(f"Failed to solve load flow with settings:' {lf_settings}'")
 
         result_dict = [attr_to_dict(island) for island in result]
         # Modify all nested objects to native data types
@@ -102,6 +117,7 @@ class HandlerMergeModels:
         # merged_model.loadflow = str(loadflow_report)
         merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
         merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
+        merged_model.loadflow_settings = lf_settings
 
         return merged_model
 
@@ -408,7 +424,6 @@ class HandlerMergeModels:
         logger.debug(task)
 
         # Update merged model attributes
-        merged_model.loadflow_settings = MERGE_LOAD_FLOW_SETTINGS
         merged_model.duration_s = (end_time - merge_start).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
@@ -466,7 +481,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-06-30T12:30:00+00:00",
+            "timestamp_utc": "2025-07-06T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["LITGRID", "AST", "ELERING", "PSE"],
