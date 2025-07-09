@@ -6,6 +6,7 @@ FROM python:3.11-slim as emfos-base
 WORKDIR /src
 
 # Install tools to set up python environment
+RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 RUN pip install --upgrade setuptools pip uv pipenv
 
 # Install needed modules
