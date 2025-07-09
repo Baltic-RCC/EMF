@@ -54,7 +54,6 @@ process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() f
 process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] = FIX_NET_INTERCHANGE2
 process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
 process_config_json[0]['runs'][0]['properties']['replacement'] = RUN_REPLACEMENT
-process_config_json[0]['runs'][0]['properties']['replacement_local'] = RUN_REPLACEMENT_LOCAL
 process_config_json[0]['runs'][0]['properties']['scaling'] = RUN_SCALING
 process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM
 process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = UPLOAD_TO_MINIO

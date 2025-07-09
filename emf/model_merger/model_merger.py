@@ -159,7 +159,6 @@ class HandlerMergeModels:
         mas = task_properties["mas"]
         version = task_properties["version"]
         model_replacement = task_properties["replacement"]
-        model_replacement_local = task_properties["replacement_local"]
         model_scaling = task_properties["scaling"]
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
@@ -194,7 +193,7 @@ class HandlerMergeModels:
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Perform local replacement if configured
-            if model_replacement_local and missing_local_import:
+            if model_replacement and missing_local_import:
                 try:
                     logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
                     replacement_models_local = run_replacement(tso_list=missing_local_import,
@@ -492,7 +491,6 @@ if __name__ == "__main__":
             "post_temp_fixes": "True",
             "fix_net_interchange2": "True",
             "replacement": "True",
-            "replacement_local": "True",
             "scaling": "True",
             "upload_to_opdm": "False",
             "upload_to_minio": "True",
