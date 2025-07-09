@@ -28,8 +28,8 @@ class HandlerModelQuality:
         object_type = properties.headers['opde:Object-Type']
 
         if object_type == 'CGM':
-            model_data = self.minio_service.download_object(model_metadata.get('minio-bucket'),
-                                                              model_metadata.get('content_reference'))
+            model_data = self.minio_service.download_object(model_metadata.get('minio-bucket', 'opde-confidential-models'),
+                                                              model_metadata.get('pmd:content-reference'))
             logger.info(f"Loading merged model: {model_metadata['name']}")
             unzipped = process_zipped_cgm(model_data)
             network= load_all_to_dataframe(unzipped)
@@ -53,7 +53,7 @@ class HandlerModelQuality:
                 # TODO move statistics function to quality functions file or move statistics file to quality directory
                 model_statistics = get_system_metrics(network)
             except Exception as e:
-                model_statistics = None
+                model_statistics = {}
                 logger.error(f"Failed to get model statistics: {e}")
         else:
             raise TypeError("Model was not loaded correctly, either missing in MinIO or incorrect data")

@@ -8,7 +8,7 @@ def generate_quality_report(network, object_type, model_metadata):
 
     report = {}
 
-    if object_type == "CGM" and model_metadata['merge_type'] == 'BA':
+    if object_type == "CGM" and model_metadata['pmd:Area'] == 'BA':
 
         # Check Kruonis generators
         generators = network.type_tableview('SynchronousMachine').rename_axis('Terminal').reset_index()
@@ -90,7 +90,11 @@ def generate_quality_report(network, object_type, model_metadata):
     elif object_type == "IGM":
         report = model_metadata[0]
         model_metadata[0].pop('opde:Component')
-        model_metadata[0].pop('opde:Dependencies')
+        try:
+            model_metadata[0].pop('opde:Dependencies')
+        except:
+            model_metadata[0].pop('opde:DependsOn')
+
         report.update({"quality": "No Status"})
 
     return report

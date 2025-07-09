@@ -90,7 +90,11 @@ def get_tieflow_data(data):
     try:
         tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
     except:
-        tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+        try:
+            tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+        except:
+            tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+
 
     try:
         tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description"].str.startswith("HVDC")
