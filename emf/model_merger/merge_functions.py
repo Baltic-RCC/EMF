@@ -61,7 +61,7 @@ def export_merged_model(network: pypowsybl.network,
         "iidm.export.cgmes.base-name": file_base_name,
         "iidm.export.cgmes.profiles": profiles,
         # For missing instances like "SupplyStation"
-        # "iidm.export.cgmes.topology-kind": 'NODE_BREAKER',
+        "iidm.export.cgmes.topology-kind": 'NODE_BREAKER',
         # cgmes-fix-all-invalid-ids fixes non-standard uuid's. Can cause danglingReference errors
         # "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids",  # identity, cgmes, cgmes-fix-all-invalid-ids
         "iidm.export.cgmes.export-sv-injections-for-slacks": "False",
