@@ -1,5 +1,5 @@
 import json
-import os
+import os, sys
 import config
 import logging
 from emf.task_generator.task_generator import generate_tasks
@@ -39,6 +39,11 @@ for time_conf in timeframe_config_json:
     if process_config_json[0]['runs'][0]["time_frame"] in time_conf["@id"]:
         timeframe_config_json = [time_conf]
         break
+
+if "RMM" in RUN_TYPE and not(INCLUDED_TSO):
+    logger.error("RMM included TSOs can not be empty for the RUN_TYPE")
+    sys.exit("Issue with input, check the EMFOS logs for possible error")
+
 
 # Update process configuration from ENV variables if defined
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
