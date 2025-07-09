@@ -77,7 +77,7 @@ class PostLFValidator:
             if loadflow_result[0].status_text == 'Converged':
                 break
             else:
-                logger.warning(f"Failed to solve load flow with settings: {lf_settings}")
+                logger.warning(f"Failed to solve load flow with settings: '{lf_settings}'")
 
         # Parsing aggregated results
         self.report['components'] = len(loadflow_result)
