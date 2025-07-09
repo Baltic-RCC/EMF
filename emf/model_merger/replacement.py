@@ -35,9 +35,11 @@ def run_replacement(tso_list: list,
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
     # TODO put in query object type if CGM metadata objects will be stored
+    # Get replacement length by time horizon
+    query_filter = 'now-' + config["replacementLength"]["Request_list"][config["timeHorizon"]["Request_list"].index(time_horizon)]
+    # Query for available replacement models
     query = {"pmd:TSO.keyword": tso_list, "valid": True, "data-source": data_source}
-    body = query_data(query, QUERY_FILTER)
-    model_df = pd.DataFrame(body)
+    model_df = pd.DataFrame(query_data(query, query_filter))
 
     # Set scenario dat to UTC
     if not model_df.empty:
