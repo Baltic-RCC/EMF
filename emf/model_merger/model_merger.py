@@ -441,6 +441,10 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
 
+        # Append message headers with OPDM root metadata
+        extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
+        properties['headers'].update(extracted_meta)
+
         # Stop Trace
         self.elk_logging_handler.stop_trace()
 
