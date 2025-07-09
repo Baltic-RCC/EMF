@@ -1,6 +1,6 @@
 # Define base container image (platform has to be defined if using with ARM64 architecture)
-FROM python:3.11 as emfos-base
-#FROM --platform=linux/amd64 python:3.11 as emfos-base
+FROM python:3.11-slim as emfos-base
+#FROM --platform=linux/amd64 python:3.11-slim as emfos-base
 
 # Set working directory
 WORKDIR /src
@@ -11,7 +11,6 @@ RUN pip install --upgrade setuptools pip uv pipenv
 # Install needed modules
 COPY Pipfile .
 COPY Pipfile.lock .
-#COPY requirements.txt .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
 RUN pipenv requirements > requirements.txt
