@@ -400,12 +400,20 @@ class RMQConsumer:
                     # self.connection.close()
                     # self.stop()
 
+        # Process message acknowledgment
         if ack:
-            # Publish message to next exchange/queue if provided and message successfully handled
-            if self.forward:
-                logger.info(f"Publishing message to exchange: {self.forward}")
-                self._channel.basic_publish(exchange=self.forward, routing_key="", body=body, properties=properties)
-            self.acknowledge_message(basic_deliver.delivery_tag)
+            # Check if properties has some status flag set from handler
+            _success = properties.headers.get('success', True)
+            if _success:
+                # Publish message to next exchange/queue if provided and message successfully handled
+                if self.forward:
+                    logger.info(f"Publishing message to exchange: {self.forward}")
+                    self._channel.basic_publish(exchange=self.forward, routing_key="", body=body, properties=properties)
+                self.acknowledge_message(basic_deliver.delivery_tag)
+                logger.info("Message acknowledged")
+            else:
+                logger.warning(f"Task rejected due to success flag set by handler: {_success}")
+                self._channel.basic_reject(basic_deliver.delivery_tag, requeue=False)
 
     def on_message(self, _unused_channel, basic_deliver, properties, body):
         """Invoked by pika when a message is delivered from RabbitMQ. The

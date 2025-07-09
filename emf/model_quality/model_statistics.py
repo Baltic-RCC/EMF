@@ -87,8 +87,19 @@ def type_tableview_merge(data, query):
 
 def get_tieflow_data(data):
     logger.info("Getting Tieflow Data")
-    tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
-    tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description_ConnectivityNode"].str.startswith("HVDC")
+    try:
+        tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
+    except:
+        tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+
+    try:
+        tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description"].str.startswith("HVDC")
+    except:
+        try:
+            tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description_ConnectivityNode"].str.startswith("HVDC")
+        except:
+            tieflow_data["BoundaryPoint.isDirectCurrent"] = False
+
     # TODO - for CGMES3/CIM17 get also the Boundary objects and use correct field to identify HVDC
 
     # Add Injections
@@ -169,7 +180,7 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
     losses_coefficient = losses / (abs(load) + abs(generation) + tieflow_abs_ei_p) if tieflow_abs_ei_p else None
 
     # Returning the computed metrics as a dictionary
-    return {
+    result = {
         'total_load': load,
         'generation': generation,
         'losses': losses,
@@ -178,8 +189,27 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         'tieflow_np': tieflow_np,
         'tieflow_acnp': tieflow_acnp,
         'tieflow_hvdc': tieflow_hvdc,
-
     }
+
+    # Fixes for ELK data storage
+    result = {
+        outer_key: {
+            key.replace('.p', '_p').replace('.q', '_q'): value
+            for key, value in inner_dict.items()
+        } if isinstance(inner_dict, dict) else inner_dict
+        for outer_key, inner_dict in result.items()
+    }
+
+    tieflow_hvdc = [{**inner_key, 'eic': outer_key} for outer_key, inner_key in tieflow_hvdc.items()]
+    tieflow_hvdc = [
+        {key.replace('.p', '_p').replace('.q', '_q'): value
+            for key, value in item.items()
+        } if isinstance(item, dict) else item
+        for item in tieflow_hvdc
+    ]
+    result['tieflow_hvdc'] = tieflow_hvdc
+
+    return result
 
 if __name__ == "__main__":
     import triplets

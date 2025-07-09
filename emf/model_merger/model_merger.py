@@ -15,7 +15,7 @@ from emf.common.integrations import opdm, minio_api, elastic
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.common.loadflow_tool import loadflow_settings
-from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
 from emf.common.helpers.loadflow import load_network_model
@@ -43,20 +43,6 @@ def async_call(function, callback=None, *args, **kwargs):
 
 def log_opdm_response(response):
     logger.debug(etree.tostring(response, pretty_print=True).decode())
-
-
-def convert_dict_str_to_bool(data_dict: dict):
-    for key, value in data_dict.items():
-        if isinstance(value, str):
-            if value in ['True', 'true', 'TRUE']:
-                data_dict[key] = True
-            elif value in ['False', 'false', 'FALSE']:
-                data_dict[key] = False
-        elif isinstance(value, dict):
-            # Recursively converter nested dictionaries
-            data_dict[key] = convert_dict_str_to_bool(value)
-
-    return data_dict
 
 
 @dataclass
@@ -93,11 +79,25 @@ class HandlerMergeModels:
 
     @staticmethod
     def run_loadflow(merged_model):
-        # report = pypowsybl.report.Reporter()
-        result = pypowsybl.loadflow.run_ac(network=merged_model.network,
-                                           parameters=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS),
-                                           # reporter=loadflow_report,
-                                           )
+        # Set starting point of lf settings priority list
+        if json.loads(ENABLE_DYNAMIC_MERGE_SETTINGS.lower()):
+            settings_list = [param.strip() for param in MERGE_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
+            settings_priority = next((i for i, value in enumerate(settings_list) if value == MERGE_LOAD_FLOW_SETTINGS), None)
+            settings_list = settings_list[settings_priority:]
+        else:
+            settings_list = [MERGE_LOAD_FLOW_SETTINGS]
+
+        for lf_settings in settings_list:
+            logger.info(f"Solving loadflow with settings: {lf_settings}")
+            # report = pypowsybl.report.Reporter()
+            result = pypowsybl.loadflow.run_ac(network=merged_model.network,
+                                               parameters=getattr(loadflow_settings, lf_settings),
+                                               # reporter=loadflow_report,
+                                               )
+            if result[0].status_text == 'Converged':
+                break
+            else:
+                logger.warning(f"Failed to solve loadflow with settings: {lf_settings}")
 
         result_dict = [attr_to_dict(island) for island in result]
         # Modify all nested objects to native data types
@@ -116,6 +116,7 @@ class HandlerMergeModels:
         # merged_model.loadflow = str(loadflow_report)
         merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
         merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
+        merged_model.loadflow_settings = lf_settings
 
         return merged_model
 
@@ -167,23 +168,29 @@ class HandlerMergeModels:
         force_outage_fix = task_properties['force_outage_fix']
 
         # Collect valid models from ObjectStorage
-        downloaded_models = get_latest_models_and_download(time_horizon, scenario_datetime, valid=False, data_source='OPDM')
+        downloaded_models = get_latest_models_and_download(time_horizon=time_horizon,
+                                                           scenario_date=scenario_datetime,
+                                                           valid=True,
+                                                           data_source='OPDM')
         latest_boundary = get_latest_boundary()
 
         # Filter out models that are not to be used in merge
-        filtered_models = merge_functions.filter_models(downloaded_models, included_models, excluded_models, filter_on='pmd:TSO')
+        models = merge_functions.filter_models(models=downloaded_models,
+                                               included_models=included_models,
+                                               excluded_models=excluded_models,
+                                               filter_on='pmd:TSO')
 
-        # Get additional models directly from Minio
+        # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
-            additional_models_data = get_latest_models_and_download(time_horizon=time_horizon,
-                                                                    scenario_date=scenario_datetime,
-                                                                    valid=True,
-                                                                    data_source='PDN')
-            additional_models_data = merge_functions.filter_models(models=additional_models_data,
-                                                                   included_models=local_import_models,
-                                                                   filter_on='pmd:TSO')
+            additional_models = get_latest_models_and_download(time_horizon=time_horizon,
+                                                               scenario_date=scenario_datetime,
+                                                               valid=True,
+                                                               data_source='PDN')
+            additional_models = merge_functions.filter_models(models=additional_models,
+                                                              included_models=local_import_models,
+                                                              filter_on='pmd:TSO')
 
-            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models_data]]
+            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Perform local replacement if configured
@@ -200,34 +207,28 @@ class HandlerMergeModels:
                                                 'time_horizon': model['pmd:timeHorizon'],
                                                 'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
-                    additional_models_data.extend(replacement_models_local)
+                    additional_models.extend(replacement_models_local)
                 except Exception as error:
                     logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
-            additional_models_data = []
-
-        # Check model validity and availability
-        valid_models = [model for model in filtered_models if model['valid']]
-        invalid_models = [model['pmd:TSO'] for model in filtered_models if model not in valid_models]
-        if invalid_models:
-            merged_model.excluded.extend([{'tso': tso, 'reason': 'invalid'} for tso in invalid_models])
+            additional_models = []
 
         # Check missing models for replacement
         if included_models:
-            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in valid_models]]
+            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
         else:
             if model_replacement:
                 # Get TSOs who models are available in storage for replacement period
                 available_tsos = get_tsos_available_in_storage()
-                valid_model_tsos = [model['pmd:TSO'] for model in valid_models]
+                valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
             else:
                 missing_models = []
 
-        # Run replacement on missing/invalid models
+        # Run replacement on missing models
         if model_replacement and missing_models:
             try:
                 logger.info(f"Running replacement for missing models: {missing_models}")
@@ -239,7 +240,7 @@ class HandlerMergeModels:
                                           'scenario_timestamp': model['pmd:scenarioDate']}
                                          for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
-                    valid_models = valid_models + replacement_models
+                    models.extend(replacement_models)
                     merged_model.replaced = True
                 else:
                     merged_model.replaced = False
@@ -247,34 +248,26 @@ class HandlerMergeModels:
                 logger.error(f"Failed to run replacement: {error}")
                 merged_model.replaced = False
 
-        # Store all relevant models for loading
-        valid_models = valid_models + additional_models_data
-
-        # Return None if there are no models to be merged
-        if not valid_models:
-            logger.warning("Found no valid models to merge, returning None")
-            return None
-
-        # Store models together with boundary
-        input_models = valid_models + [latest_boundary]
+        # Store models together with boundary set and check whether there are enough models to merge
+        input_models = models + additional_models + [latest_boundary]
         if len(input_models) < 2:
-            logger.warning("Found no models to merge, returning None")
-            return None
+            logger.warning("No valid models found for merging, exiting merge process")
+            properties.headers['success'] = False
+            return task_object, properties
 
         # Load network model and merge
         merge_start = datetime.datetime.now(datetime.UTC)
         merged_model.network = load_network_model(opdm_objects=input_models)
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
-        merged_model.included = [model['pmd:TSO'] for model in valid_models if model['pmd:TSO']]
+        merged_model.included = [model['pmd:TSO'] for model in input_models if model.get('pmd:TSO', None)]
 
         # Crosscheck replaced model outages with latest UAP if at least one Baltic model was replaced
         replaced_tso_list = [entity['tso'] for entity in merged_model.replaced_entity]
-        valid_tso_list = [tso['pmd:TSO'] for tso in valid_models]
 
         # Update model outages
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
-            tso_list = valid_tso_list
+            tso_list = merged_model.included
         elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
@@ -287,14 +280,16 @@ class HandlerMergeModels:
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
 
-        # TODO - placeholder for open TN switcher or it can be after scaling before export
-        if json.loads(OPEN_NON_RETAINED_SWITCHES_BETWEEN_TN.lower()):
-            pass
+        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
+        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
+
+        # Ensure boundary line connectivity consistency for paired boundary lines
+        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = self.run_loadflow(merged_model=merged_model)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
 
         # Perform scaling
         if model_scaling:
@@ -316,13 +311,13 @@ class HandlerMergeModels:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
                                                         dc_schedules=dc_schedules,
-                                                        lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+                                                        lf_settings=getattr(loadflow_settings, merged_model.loadflow_settings))
                 except Exception as e:
                     logger.error(e)
                     merged_model.scaled = False
             else:
                 logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")
-                logger.warning(f"Model schedule scaling not performed")
+                logger.warning(f"Network model schedule scaling not performed")
                 merged_model.scaled = False
 
         # Record main merging process end
@@ -347,10 +342,6 @@ class HandlerMergeModels:
             mas=mas,
             version=version,
         )
-
-        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
-        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
-
         # Export merged model
         # TODO change here to export SSH profiles as well
         exported_model = merge_functions.export_merged_model(network=merged_model.network,
@@ -366,6 +357,7 @@ class HandlerMergeModels:
                                                                                         exported_model=exported_model,
                                                                                         opdm_object_meta=opdm_object_meta,
                                                                                         enable_temp_fixes=post_temp_fixes,
+                                                                                        task_properties=task_properties
                                                                                         )
 
         # Package both input models and exported CGM profiles to in memory zip files
@@ -397,7 +389,7 @@ class HandlerMergeModels:
             # Include original IGM files
             for input_model in input_models:
                 for instance in input_model['opde:Component']:
-                    if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD']:
+                    if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD', 'EQ_BD', 'TP_BD']:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
                         logging.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
@@ -431,7 +423,6 @@ class HandlerMergeModels:
         logger.debug(task)
 
         # Update merged model attributes
-        merged_model.loadflow_settings = MERGE_LOAD_FLOW_SETTINGS
         merged_model.duration_s = (end_time - merge_start).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
@@ -456,7 +447,7 @@ class HandlerMergeModels:
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
 
-        return opdm_object_meta, properties
+        return json.dumps(opdm_object_meta), properties
 
 
 if __name__ == "__main__":
@@ -489,7 +480,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-06-16T12:30:00+00:00",
+            "timestamp_utc": "2025-07-06T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["LITGRID", "AST", "ELERING", "PSE"],
@@ -498,7 +489,6 @@ if __name__ == "__main__":
             "time_horizon": "1D",
             "version": "001",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
-            "pre_temp_fixes": "True",
             "post_temp_fixes": "True",
             "fix_net_interchange2": "True",
             "replacement": "True",

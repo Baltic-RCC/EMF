@@ -2,6 +2,10 @@ import logging
 from uuid import uuid4
 from emf.common.logging import custom_logger
 
+# Supress FutureWarnings from triplets library cause by pandas to_numeric errors ignore deprecation
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
 # Initialize custom logger
 logger = logging.getLogger(__name__)
 elk_handler = custom_logger.initialize_custom_logger(extra={'worker': 'model-merger', 'worker_uuid': str(uuid4())})

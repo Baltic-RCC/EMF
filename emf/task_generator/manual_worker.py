@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import config
 import logging
 from emf.task_generator.task_generator import generate_tasks
@@ -24,13 +25,13 @@ timeframe_config_json = json.load(timeframe_conf)
 
 
 # Based on RUN_TYPE get process timeframe config
-break_top=False
+break_top = False
 for merge_index, merge_type in enumerate(process_config_json):
     for run in merge_type.get("runs", []):
         if RUN_TYPE in run["@id"]:
             process_config_json.pop(merge_index)
             process_config_json[0]['runs'] = [run]
-            break_top=True
+            break_top = True
             break
     if break_top:
         break
@@ -39,6 +40,11 @@ for time_conf in timeframe_config_json:
     if process_config_json[0]['runs'][0]["time_frame"] in time_conf["@id"]:
         timeframe_config_json = [time_conf]
         break
+
+if "RMM" in RUN_TYPE and not(INCLUDED_TSO):
+    logger.error(f"RMM included TSOs can not be empty for the run type: {RUN_TYPE}")
+    sys.exit("Issue with input, check the EMFOS logs for possible error")
+
 
 # Update process configuration from ENV variables if defined
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
@@ -53,7 +59,6 @@ process_config_json[0]['runs'][0]['properties']['scaling'] = RUN_SCALING
 process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM
 process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = UPLOAD_TO_MINIO
 process_config_json[0]['runs'][0]['properties']['send_merge_report'] = SEND_MERGE_REPORT
-process_config_json[0]['runs'][0]['properties']['pre_temp_fixes'] = PRE_TEMP_FIXES
 process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_FIXES
 process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 

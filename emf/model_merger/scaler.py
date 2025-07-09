@@ -118,6 +118,7 @@ def scale_balance(model: object,
     # Get pre-scale HVDC setpoints
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
     dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power factor
+    dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
     dangling_lines['boundary_q'] = dangling_lines['boundary_q'] * -1  # invert boundary_q sign to match flow direction
     prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q']]
@@ -252,6 +253,7 @@ def scale_balance(model: object,
     # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
     if not validate_loadflow_status(results=pf_results):
         model.scaled = False
+        logger.warning(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
         return model
 
     # Validate total network AC net position alignment

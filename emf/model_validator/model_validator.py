@@ -30,15 +30,14 @@ class PreLFValidator:
         self.report = {'pre_validations': {}}
 
     def validate_non_retained_switches(self):
-        # TODO Use carefully as this might change switch statuses in the original model
-        # TODO Currently disabled returning modified data
         non_retained_switched_valid = True
-        non_retained_switches = validator_functions.check_not_retained_switches_between_nodes(self.network)[1]
-        if non_retained_switches:
+        violated_switches = validator_functions.check_not_retained_switches_between_nodes(original_data=self.network)[1]
+        if violated_switches:
             non_retained_switched_valid = False
         self.report['pre_validations']['non_retained_switches'] = non_retained_switched_valid
 
     def validate_kirchhoff_first_law(self):
+        # TODO - currently this is not used in pre-validation, but it might be useful to have it here
         violated_nodes = validator_functions.get_nodes_against_kirchhoff_first_law(original_models=self.network)
         kirchhoff_first_law_valid = True if violated_nodes.empty else False
         self.report['pre_validations']['kirchhoff_first_law'] = kirchhoff_first_law_valid
@@ -46,8 +45,6 @@ class PreLFValidator:
     def run_validation(self):
         if json.loads(CHECK_NON_RETAINED_SWITCHES.lower()):
             self.validate_non_retained_switches()
-        if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
-            self.validate_kirchhoff_first_law()
 
 
 class PostLFValidator:
@@ -60,11 +57,28 @@ class PostLFValidator:
 
     def validate_loadflow(self):
         """Validate load flow convergence"""
-        logger.info(f"Solving load flow with settings: {VALIDATION_LOAD_FLOW_SETTINGS}")
-        loadflow_report = pp.report.Reporter()
-        loadflow_result = pp.loadflow.run_ac(network=self.network,
-                                             parameters=self.loadflow_parameters,
-                                             reporter=loadflow_report)
+        # Set starting point of lf settings priority list
+        if json.loads(ENABLE_DYNAMIC_VALIDATION_SETTINGS.lower()):
+            settings_list = [param.strip() for param in VALIDATION_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
+            settings_priority = next((i for i, value in enumerate(settings_list) if value == VALIDATION_LOAD_FLOW_SETTINGS), None)
+            settings_list = settings_list[settings_priority:]
+        else:
+            settings_list = [VALIDATION_LOAD_FLOW_SETTINGS]
+
+        # Run loadflow, relaxing settings after each diverging result
+        for lf_settings in settings_list:
+            loadflow_parameters = getattr(loadflow_settings, lf_settings)
+            logger.info(f"Solving loadflow with settings: {lf_settings}")
+            # loadflow_report = pp.report.Reporter()
+            loadflow_result = pp.loadflow.run_ac(network=self.network,
+                                                 parameters=loadflow_parameters,
+                                                 # reporter=loadflow_report,
+                                                 )
+
+            if loadflow_result[0].status_text == 'Converged':
+                break
+            else:
+                logger.warning(f"Failed to solve loadflow with settings: {lf_settings}")
 
         # Parsing aggregated results
         self.report['components'] = len(loadflow_result)
@@ -75,14 +89,14 @@ class PostLFValidator:
         # TODO currently storing only main island results
         main_component = loadflow_result[0]
         component_results = attr_to_dict(main_component)
-        logger.info(f"Loadflow status: {component_results['status_text']}")
+        logger.info(f"Loadflow status: {main_component.status.name} [settings: {lf_settings}]")
         component_results['status'] = component_results.get('status').value
         component_results['distributed_active_power'] = 0.0 if math.isnan(component_results['distributed_active_power'])\
             else component_results['distributed_active_power']
         self.report['loadflow'] = component_results
 
         # Validation status
-        self.report['loadflow_parameters'] = VALIDATION_LOAD_FLOW_SETTINGS
+        self.report['loadflow_parameters'] = lf_settings
         self.report['validations']['loadflow'] = True if main_component.status.value == 0 else False
 
     def validate_network_elements(self):
@@ -103,9 +117,7 @@ class PostLFValidator:
 
     def validate_kirchhoff_first_law(self):
         """Validates possible Kirchhoff first law errors after loadflow"""
-        violated_nodes = pd.DataFrame()
-
-        # Export sv profile and check it for Kirchhoff 1st law
+        # Export SV profile and check it for Kirchhoff 1st law
         export_parameters = {"iidm.export.cgmes.profiles": 'SV',
                              "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
         bytes_object = self.network.save_to_binary_buffer(format="CGMES", parameters=export_parameters)
@@ -154,10 +166,21 @@ class TemporaryPreMergeModifications:
                                                                            add=False)
             self.report['modification']['sanitize_file_name'] = True
 
+    def open_non_retained_switches(self):
+        self.report['modification']['open_non_retained_switches'] = False
+        # Open non-retained switches
+        original_data, violated_switches = validator_functions.check_not_retained_switches_between_nodes(
+            original_data=self.network, open_not_retained_switches=True)
+        if violated_switches:
+            self.network = original_data
+            self.report['modification']['open_non_retained_switches'] = True
+
     @performance_counter(units='seconds')
     def run_pre_process_modifications(self):
         self.update_header_from_file_name()
         self.sanitize_file_name()
+        if json.loads(OPEN_NON_RETAINED_SWITCHES.lower()):
+            self.open_non_retained_switches()
 
         return self.network
 
@@ -184,10 +207,16 @@ class HandlerModelsValidator:
         # Get network models data from object storage
         opdm_objects = [models.get_content(metadata=opdm_object) for opdm_object in opdm_metadata]
 
+        # Exclude BDS-type objects from validation
+        opdm_objects = [opdm_object for opdm_object in opdm_objects if opdm_object["opde:Object-Type"] != "BDS"]
+        if not opdm_objects:
+            logger.warning("No OPDM objects for validations or it was type of BDS, exiting validation")
+            return message, properties
+
         # Get the latest boundary set for validation
         latest_boundary = models.get_latest_boundary()
 
-        logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
+        # logger.info(f"Validation parameters used: {VALIDATION_LOAD_FLOW_SETTINGS}")
 
         # Run network model validations
         for opdm_object in opdm_objects:
@@ -203,7 +232,7 @@ class HandlerModelsValidator:
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
                 post_lf_validation.run_validation()
 
-                # Clean opdm object from DATA as this is already converted to other formats
+                # Clean DATA from OPDM object as this is already converted to other formats
                 opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
 
                 # Apply pre-processing modification to models and store in Minio
@@ -235,17 +264,7 @@ class HandlerModelsValidator:
 
             except Exception as error:
                 logger.error(f"Models validator failed with exception: {error}", exc_info=True)
-
-            # TODO temporary monitored metrics
-            if opdm_object['pmd:TSO'] == "LITGRID":
-                try:
-                    dl = network.get_dangling_lines()
-                    ltpl_border_flow = dl.query("pairing_key in ['XEL_AL11', 'XEL_AL12']").p.sum()
-                    gens = network.get_generators()
-                    khae_gen = gens[gens['name'].str.contains('KHAE_G')].p.sum()
-                    report["monitor"] = {"poland_border_flow": ltpl_border_flow, "khae_generation": khae_gen}
-                except Exception as error:
-                    logger.error(f"Monitored metrics collection failed: {error}", exc_info=True)
+                continue
 
             # Define model validity
             valid = all(report['validations'].values())
@@ -286,19 +305,19 @@ if __name__ == "__main__":
         level=logging.INFO,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-    #logging.getLogger('powsybl').setLevel(1)
 
     opdm = OPDM()
-    latest_boundary = opdm.get_latest_boundary()
-    available_models = opdm.get_latest_models_and_download(time_horizon='1D',
-                                                           scenario_date="2025-06-16T09:30",
-                                                           tso="LITGRID")
+    latest_boundary = models.get_latest_boundary()
+    available_models = models.get_latest_models_and_download(time_horizon='1D',
+                                                             scenario_date="20250706T0930",
+                                                             tso="AST",
+                                                             data_source='opdm')
     validated_models = []
 
     # Validate models
     for model in available_models:
-        network_triplets = load_opdm_data(opdm_objects=[model, latest_boundary])
-        network = load_model(opdm_objects=[model, latest_boundary])
+        network_triplets = load_opdm_objects_to_triplets(opdm_objects=[model, latest_boundary])
+        network = load_network_model(opdm_objects=[model, latest_boundary])
         post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
         post_lf_validation.run_validation()
 
