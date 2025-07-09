@@ -1,5 +1,6 @@
 import json
-import os, sys
+import os
+import sys
 import config
 import logging
 from emf.task_generator.task_generator import generate_tasks
@@ -24,13 +25,13 @@ timeframe_config_json = json.load(timeframe_conf)
 
 
 # Based on RUN_TYPE get process timeframe config
-break_top=False
+break_top = False
 for merge_index, merge_type in enumerate(process_config_json):
     for run in merge_type.get("runs", []):
         if RUN_TYPE in run["@id"]:
             process_config_json.pop(merge_index)
             process_config_json[0]['runs'] = [run]
-            break_top=True
+            break_top = True
             break
     if break_top:
         break
@@ -41,7 +42,7 @@ for time_conf in timeframe_config_json:
         break
 
 if "RMM" in RUN_TYPE and not(INCLUDED_TSO):
-    logger.error("RMM included TSOs can not be empty for the RUN_TYPE")
+    logger.error(f"RMM included TSOs can not be empty for the run type: {RUN_TYPE}")
     sys.exit("Issue with input, check the EMFOS logs for possible error")
 
 

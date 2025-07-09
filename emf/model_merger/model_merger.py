@@ -88,17 +88,16 @@ class HandlerMergeModels:
             settings_list = [MERGE_LOAD_FLOW_SETTINGS]
 
         for lf_settings in settings_list:
-            logger.info(f"Solving load flow with settings: '{lf_settings}'")
+            logger.info(f"Solving loadflow with settings: {lf_settings}")
             # report = pypowsybl.report.Reporter()
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
                                                parameters=getattr(loadflow_settings, lf_settings),
                                                # reporter=loadflow_report,
                                                )
             if result[0].status_text == 'Converged':
-                logger.info(f"Model successfully converged with loadflow settings: '{lf_settings}'")
                 break
             else:
-                logger.warning(f"Failed to solve load flow with settings:' {lf_settings}'")
+                logger.warning(f"Failed to solve loadflow with settings: {lf_settings}")
 
         result_dict = [attr_to_dict(island) for island in result]
         # Modify all nested objects to native data types
@@ -290,7 +289,7 @@ class HandlerMergeModels:
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = self.run_loadflow(merged_model=merged_model)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow[0]['status_text']}")
+        logger.info(f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
 
         # Perform scaling
         if model_scaling:
@@ -312,13 +311,13 @@ class HandlerMergeModels:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
                                                         dc_schedules=dc_schedules,
-                                                        lf_settings=getattr(loadflow_settings, MERGE_LOAD_FLOW_SETTINGS))
+                                                        lf_settings=getattr(loadflow_settings, merged_model.loadflow_settings))
                 except Exception as e:
                     logger.error(e)
                     merged_model.scaled = False
             else:
                 logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")
-                logger.warning(f"Model schedule scaling not performed")
+                logger.warning(f"Network model schedule scaling not performed")
                 merged_model.scaled = False
 
         # Record main merging process end

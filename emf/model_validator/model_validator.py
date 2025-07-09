@@ -65,19 +65,20 @@ class PostLFValidator:
         else:
             settings_list = [VALIDATION_LOAD_FLOW_SETTINGS]
 
-        # Run powerflow, relaxing lf settings after each diverging result
+        # Run loadflow, relaxing settings after each diverging result
         for lf_settings in settings_list:
             loadflow_parameters = getattr(loadflow_settings, lf_settings)
-            logger.info(f"Solving load flow with settings: '{lf_settings}'")
-            loadflow_report = pp.report.Reporter()
+            logger.info(f"Solving loadflow with settings: {lf_settings}")
+            # loadflow_report = pp.report.Reporter()
             loadflow_result = pp.loadflow.run_ac(network=self.network,
                                                  parameters=loadflow_parameters,
-                                                 reporter=loadflow_report)
+                                                 # reporter=loadflow_report,
+                                                 )
 
             if loadflow_result[0].status_text == 'Converged':
                 break
             else:
-                logger.warning(f"Failed to solve load flow with settings: '{lf_settings}'")
+                logger.warning(f"Failed to solve loadflow with settings: {lf_settings}")
 
         # Parsing aggregated results
         self.report['components'] = len(loadflow_result)
@@ -88,7 +89,7 @@ class PostLFValidator:
         # TODO currently storing only main island results
         main_component = loadflow_result[0]
         component_results = attr_to_dict(main_component)
-        logger.info(f"Loadflow status: {component_results['status_text']}")
+        logger.info(f"Loadflow status: {main_component.status.name} [settings: {lf_settings}]")
         component_results['status'] = component_results.get('status').value
         component_results['distributed_active_power'] = 0.0 if math.isnan(component_results['distributed_active_power'])\
             else component_results['distributed_active_power']
