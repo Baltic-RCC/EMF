@@ -698,11 +698,11 @@
         },
         "triplets": {
             "hashes": [
-                "sha256:2ab66c9036a20a741cccbf1170fa446947ded88665736cab8f7f1c2a8d0f6235",
-                "sha256:edf08b458a7afc2001e0db71e0efa6198363bdeba6f4b07ef46fe99a292687f7"
+                "sha256:6f728262a185508a316c243e2efa2fb0478e961a564cd261938811d0ff09d8bb",
+                "sha256:eddfa949ae5a32e280595ecfaea576b63deb8427cda830f28080f76de16f6c70"
             ],
             "index": "pypi",
-            "version": "==0.0.10"
+            "version": "==0.0.11"
         },
         "typing-extensions": {
             "hashes": [
