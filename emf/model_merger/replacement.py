@@ -13,12 +13,13 @@ from emf.common.config_parser import parse_app_properties
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.replacement)
+replacement_config = json.load(config.paths.cgm_worker.replacement_conf)
 
 
 def run_replacement(tso_list: list,
                     time_horizon: str,
                     scenario_date: str,
-                    config: list = json.load(config.paths.cgm_worker.replacement_conf),
+                    config: list = replacement_config,
                     data_source: str = 'OPDM',
                     ):
     """
@@ -36,7 +37,7 @@ def run_replacement(tso_list: list,
     # TODO time horizon exclusion logic + exclude available models from query
     # TODO put in query object type if CGM metadata objects will be stored
     # Get replacement length by time horizon
-    query_filter = 'now-' + config["replacementLength"]["Request_list"][config["timeHorizon"]["Request_list"].index(time_horizon)]
+    query_filter = 'now-' + config["replacement_length"]["request_list"][config["time_horizon"]["request_list"].index(time_horizon)]
     # Query for available replacement models
     query = {"pmd:TSO.keyword": tso_list, "valid": True, "data-source": data_source}
     model_df = pd.DataFrame(query_data(query, query_filter))
@@ -156,7 +157,7 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     hour_list_final = list(map(lambda x: (date_time + parse_duration(x)).strftime("%H:%M"), hour_list))
     day_list_final = list(map(lambda x: (date_time + parse_duration(x)).strftime("%Y-%m-%d"), day_list))
 
-    business_list = conf["timeHorizon"]["Request_list"]
+    business_list = conf["time_horizon"]["request_list"]
     business_list_final = business_list[business_list.index(target_timehorizon):]  # make list of relevant businesstypes
 
     # Month ahead requires separate replacement logic
@@ -198,9 +199,11 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     return valid_models_df
 
 
-def get_tsos_available_in_storage():
+def get_tsos_available_in_storage(time_horizon: str):
     metadata = {"opde:Object-Type": "IGM", "valid": True}
-    unique_tsos = fetch_unique_values(metadata_query=metadata, field="pmd:TSO.keyword", query_filter=QUERY_FILTER)
+    # Get query length by time horizon from configuration
+    query_filter = 'now-' + replacement_config["replacement_length"]["request_list"][replacement_config["time_horizon"]["request_list"].index(time_horizon)]
+    unique_tsos = fetch_unique_values(metadata_query=metadata, field="pmd:TSO.keyword", query_filter=query_filter)
 
     return unique_tsos
 

@@ -220,7 +220,7 @@ class HandlerMergeModels:
         else:
             if model_replacement:
                 # Get TSOs who models are available in storage for replacement period
-                available_tsos = get_tsos_available_in_storage()
+                available_tsos = get_tsos_available_in_storage(time_horizon=time_horizon)
                 valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
