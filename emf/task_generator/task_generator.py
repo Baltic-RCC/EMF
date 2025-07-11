@@ -5,7 +5,7 @@ from uuid import uuid4
 import croniter
 import json
 import logging
-from os import getlogin
+import os
 from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.helpers.tasks import update_task_status
 from emf.common.integrations.elastic import Elastic
@@ -140,7 +140,7 @@ def generate_tasks(task_window_duration: str,
                         "run_id": run.get("@id", None),
                         "job_id": f"urn:uuid:{job_id}",
                         "task_type": "automatic",
-                        "task_initiator": getlogin(),
+                        "task_initiator": os.environ.get("USERNAME", "unknown"),
                         "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
                         "task_creation_time": task_timestamp,
                         "task_update_time": "",
