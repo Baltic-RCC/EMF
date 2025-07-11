@@ -68,10 +68,10 @@ jobs:
           if [[ "$BRANCH_NAME" == *-dev ]]; then
             docker push "${IMAGE_NAME}:latest"
           fi
-      - name: Update helm values with new image tag
-        run: |
-          git config user.name "Github Actions"
-          git config user.email "actions@github.com"
-          git add helm-chart/test-rcc-cl2.values.yaml
-          git commit -m "Update image tag to ${{ env.IMAGE_TAG }}
-          git push
+  #    - name: Update helm values with new image tag
+  #      run: |
+  #        git config user.name "Github Actions"
+  #        git config user.email "actions@github.com"
+  #        git add helm-chart/test-rcc-cl2.values.yaml
+  #        git commit -m "Update image tag to ${{ env.IMAGE_TAG }}
+  #        git push
