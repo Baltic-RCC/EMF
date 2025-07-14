@@ -1,17 +1,17 @@
 # Define base container image (platform has to be defined if using with ARM64 architecture)
-FROM python:3.11 as emfos-base
-#FROM --platform=linux/amd64 python:3.11 as emfos-base
+FROM python:3.11-slim as emfos-base
+#FROM --platform=linux/amd64 python:3.11-slim as emfos-base
 
 # Set working directory
 WORKDIR /src
 
 # Install tools to set up python environment
+RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 RUN pip install --upgrade setuptools pip uv pipenv
 
 # Install needed modules
 COPY Pipfile .
 COPY Pipfile.lock .
-#COPY requirements.txt .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
 RUN pipenv requirements > requirements.txt
@@ -73,7 +73,6 @@ WORKDIR /src
 # Copy files to container
 COPY emf/model_merger/ ./emf/model_merger/
 COPY emf/common/ ./emf/common/
-COPY emf/task_generator/ ./emf/task_generator/
 COPY config/ ./config/
 
 # Start process
@@ -95,3 +94,15 @@ COPY config/ ./config/
 ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/task_generator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
+
+# Model Quality image
+FROM balticrcc/emfos-base:latest as emfos-model-quality
+
+WORKDIR /src
+
+COPY emf/model_quality/ ./emf/model_quality/
+COPY emf/common/ ./emf/common/
+COPY config/ ./config/
+
+ENV PYTHONPATH="${PYTHONPATH}:/src"
+ENTRYPOINT ["python", "emf/model_quality/worker.py"]

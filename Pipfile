@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 pandas = "2.2.2"
 numpy = "2.0.0"
-pypowsybl = "1.9.0"
+pypowsybl = "*"
 aniso8601 = "*"
 lxml = "*"
 edx = "*"

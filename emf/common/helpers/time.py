@@ -235,6 +235,7 @@ def convert_to_utc(date_time, default_timezone='Europe/Brussels'):
 
     return date_time.astimezone(timezone("UTC"))
 
+
 def convert_to_timezone(date_time, from_timezone="UTC", to_timezone='Europe/Brussels'):
     """
     Converts a datetime object from timezone to timezone.
@@ -258,6 +259,7 @@ def convert_to_timezone(date_time, from_timezone="UTC", to_timezone='Europe/Brus
 
 def utcnow():
     return datetime.now(timezone("UTC"))
+
 
 def parse_datetime(iso_string, keep_timezone=True):
 

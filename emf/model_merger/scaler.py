@@ -22,6 +22,13 @@ proportional to the reserve margin.
 scheduling areas are below the discrepancy thresholds, as defined previously;
 " In any case after the 15th iteration16 (adjustments take place within the iterations).
 """
+
+"""
+NOTES:
+ - power factor sign defines whether P and Q values has opposite sign. This needs to be ensured because new Q values
+are calculated from P values, then the power factors sign defines what sign should be for new Q value.
+"""
+
 import pypowsybl as pp
 import logging
 import pandas as pd
@@ -31,8 +38,8 @@ import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.common.loadflow_tool.helper import attr_to_dict, get_network_elements, get_slack_generators, \
-    get_connected_components_data
+from emf.common.helpers.utils import attr_to_dict
+from emf.common.helpers.loadflow import get_network_elements, get_slack_generators, get_connected_components_data
 from emf.common.loadflow_tool.loadflow_settings import CGM_RELAXED_1
 
 logger = logging.getLogger(__name__)
@@ -110,15 +117,21 @@ def scale_balance(model: object,
 
     # Get pre-scale HVDC setpoints
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power factor
+    dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p']]
-    prescale_hvdc_sp = prescale_hvdc_sp.rename(columns={'boundary_p': 'value'})
+    dangling_lines['boundary_q'] = dangling_lines['boundary_q'] * -1  # invert boundary_q sign to match flow direction
+    prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q']]
+    prescale_hvdc_sp = prescale_hvdc_sp.rename(columns={'boundary_p': 'value', 'boundary_q': 'value_q'})
     _hvdc_results.append(pd.concat([prescale_hvdc_sp.set_index('lineEnergyIdentificationCodeEIC').value,
                                     pd.Series({'KEY': 'prescale-setpoint'})]).to_dict())
-    for dclink in prescale_hvdc_sp.to_dict('records'):
-        logger.info(f"[INITIAL] PRE-SCALE HVDC setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+    for dclink in prescale_hvdc_sp.sort_values('lineEnergyIdentificationCodeEIC').to_dict('records'):
+        logger.info(f"[INITIAL] PRE-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+        logger.debug(f"[INITIAL] PRE-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MW")
+
     # Mapping HVDC schedules to network
-    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code']]
+    _cols_to_keep = ['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code', 'power_factor']
+    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][_cols_to_keep]
     scalable_hvdc.reset_index(inplace=True)
     scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
     mask = (scalable_hvdc[_country_col] == scalable_hvdc['in_domain']) | (scalable_hvdc[_country_col] == scalable_hvdc['out_domain'])
@@ -132,13 +145,15 @@ def scale_balance(model: object,
     scalable_hvdc = scalable_hvdc.set_index('id')
 
     # Updating HVDC network elements to scheduled values
-    scalable_hvdc_target = scalable_hvdc[['value', 'lineEnergyIdentificationCodeEIC']]
-    network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value)
+    scalable_hvdc_target = scalable_hvdc[['value', 'lineEnergyIdentificationCodeEIC', 'power_factor']]
+    scalable_hvdc_target['value_q'] = scalable_hvdc_target.value * scalable_hvdc_target.power_factor  # ensure power factor is kept
+    network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value, q0=scalable_hvdc_target.value_q)
     _hvdc_results.append(pd.concat([scalable_hvdc_target.set_index('lineEnergyIdentificationCodeEIC').value,
                                     pd.Series({'KEY': 'postscale-setpoint'})]).to_dict())
     logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].values}")
-    for dclink in scalable_hvdc_target.to_dict('records'):
-        logger.info(f"[INITIAL] POST-SCALE HVDC setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+    for dclink in scalable_hvdc_target.sort_values('lineEnergyIdentificationCodeEIC').to_dict('records'):
+        logger.info(f"[INITIAL] POST-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+        logger.debug(f"[INITIAL] POST-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MVar")
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
     loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
@@ -194,6 +209,8 @@ def scale_balance(model: object,
 
     # Get pre-scale total network balance by each component -> AC+DC net position
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power
+    dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
     prescale_network_np = {k: round(dangling_lines[dangling_lines.country.isin(v['countries'])].boundary_p.sum()) for k, v in converged_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-np', 'GLOBAL': prescale_network_np, 'ITER': _iteration})
@@ -221,7 +238,8 @@ def scale_balance(model: object,
         prescale_network_acnp_target.dropna(inplace=True)
         logger.info(f"[ITER {_iteration}] Scaling network component {component_key} {v['countries']} ACNP to scheduled: {scheduled_component_acnp}")
         network.update_dangling_lines(id=prescale_network_acnp_target.index,
-                                      p0=prescale_network_acnp_target.to_list())  # TODO maintain power factor
+                                      p0=prescale_network_acnp_target.to_list(),
+                                      q0=(prescale_network_acnp_target * relevant_dangling_lines.power_factor).to_list())
     _scaling_results.append({'KEY': 'target-network-acnp', 'GLOBAL': target_network_acnp, 'ITER': _iteration})
 
     # Solving loadflow after aligning total network AC net position to scheduled
@@ -235,6 +253,7 @@ def scale_balance(model: object,
     # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
     if not validate_loadflow_status(results=pf_results):
         model.scaled = False
+        logger.warning(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
         return model
 
     # Validate total network AC net position alignment

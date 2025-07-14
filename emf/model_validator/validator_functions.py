@@ -1,7 +1,7 @@
 import logging
 import pandas
 import triplets
-from emf.common.loadflow_tool.helper import get_opdm_data_from_models
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def get_nodes_against_kirchhoff_first_law(original_models,
     :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
     :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
     """
-    original_models = get_opdm_data_from_models(model_data=original_models)
+    original_models = load_opdm_objects_to_triplets(opdm_objects=original_models)
     sv_injections = pandas.DataFrame()
     if cgm_sv_data is None:
         cgm_sv_data = original_models
@@ -78,28 +78,29 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     :param open_not_retained_switches: if true then found switches are set to open, else it only checks and reports
     :return: updated original data
     """
-    updated_switches = 0
-    original_models = get_opdm_data_from_models(original_data)
+    violated_switches = 0
+    if not isinstance(original_data, pandas.DataFrame):
+        original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
+    else:
+        original_models = original_data
     not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
                                             & (original_models['VALUE'] == "false")][['ID']]
     closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
                                       & (original_models['VALUE'] == 'false')]
     not_retained_closed = not_retained_switches.merge(closed_switches[['ID']], on='ID')
     terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
-    terminals = terminals[['Terminal',
-                           # 'ACDCTerminal.connected',
-                           'Terminal.ConductingEquipment',
-                           'Terminal.TopologicalNode']]
+    terminals = terminals[['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
     not_retained_terminals = (terminals.rename(columns={'Terminal.ConductingEquipment': 'ID'})
                               .merge(not_retained_closed, on='ID'))
     if not_retained_terminals.empty:
-        return original_data, updated_switches
+        return original_data, violated_switches
+
     between_tn = ((not_retained_terminals.groupby('ID')[['Terminal.TopologicalNode']]
                   .apply(lambda x: check_switch_terminals(x, 'Terminal.TopologicalNode')))
                   .reset_index(name='same_TN'))
     between_tn = between_tn[between_tn['same_TN']]
     if not between_tn.empty:
-        updated_switches = len(between_tn.index)
+        violated_switches = len(between_tn.index)
         logger.warning(f"Found {len(between_tn.index)} not retained switches between topological nodes")
         if open_not_retained_switches:
             logger.warning(f"Opening not retained switches")
@@ -107,4 +108,4 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             open_switches.loc[:, 'VALUE'] = 'true'
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
-    return original_data, updated_switches
+    return original_data, violated_switches

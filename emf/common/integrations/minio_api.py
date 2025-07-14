@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 from lxml import etree
 import minio
+from minio.commonconfig import Tags
 import urllib3
 import sys
 import mimetypes
@@ -15,7 +16,7 @@ from zipfile import ZipFile
 from datetime import datetime, timedelta
 from aniso8601 import parse_datetime
 from emf.common.config_parser import parse_app_properties
-from emf.common.loadflow_tool.helper import opdm_metadata_from_filename
+from emf.common.helpers.opdm_objects import get_metadata_from_file_name
 urllib3.disable_warnings()
 
 logger = logging.getLogger(__name__)
@@ -90,13 +91,27 @@ class ObjectStorage:
 
         return credentials
 
+    @staticmethod
+    def dict_to_tags(tags: dict):
+        converted = Tags.new_object_tags()
+        for k, v in tags.items():
+            converted[k] = v
+
+        return converted
+
     @renew_authentication_token
-    def upload_object(self, file_path_or_file_object: str | BytesIO, bucket_name: str, metadata: dict | None = None):
+    def upload_object(self,
+                      file_path_or_file_object: str | BytesIO,
+                      bucket_name: str,
+                      metadata: dict | None = None,
+                      tags: dict | None = None,
+                      ):
         """
         Method to upload file to Minio storage
         :param file_path_or_file_object: file path or BytesIO object
         :param bucket_name: bucket name
         :param metadata: object metadata
+        :param tags: object tags
         :return: response from Minio
         """
         file_object = file_path_or_file_object
@@ -106,6 +121,10 @@ class ObjectStorage:
             length = sys.getsizeof(file_object)
         else:
             length = file_object.getbuffer().nbytes
+
+        # Handle tags if provided
+        if tags:
+            tags = self.dict_to_tags(tags)
 
         # Just to be sure that pointer is at the beginning of the content
         file_object.seek(0)
@@ -118,7 +137,8 @@ class ObjectStorage:
             data=file_object,
             length=length,
             content_type=mimetypes.guess_type(file_object.name)[0],
-            metadata=metadata
+            metadata=metadata,
+            tags=tags,
         )
 
         return response
@@ -188,16 +208,16 @@ class ObjectStorage:
         return result_list
 
     def get_all_objects_name(self, bucket_name: str, prefix: str = None):
-        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix,recursive=True)
+        objects = self.client.list_objects(bucket_name=bucket_name, prefix=prefix, recursive=True)
         list_elements = []
         for obj in objects:
             try:
                 object_name = obj.object_name.split("/")[-1]
-                #only take models that have metadata in the filename
+                # Only take models that have metadata in the filename
                 if len(object_name.split('-')) > 3:
                     list_elements.append(object_name)
-            except:
-                logger.warning(f"Object name not present")
+            except Exception as error:
+                logger.warning(f"Object name not present, exception: {error}")
 
         return list_elements
 
@@ -283,7 +303,7 @@ class ObjectStorage:
                                     "pmd:fileName": file_name,
                                     "DATA": source_zip.open(file_name).read()}
 
-                        metadata.update(opdm_metadata_from_filename(file_name))
+                        metadata.update(get_metadata_from_file_name(file_name))
                         opdm_profile = {'opdm:Profile': metadata}
                         opdm_object['opde:Component'].append(opdm_profile)
 

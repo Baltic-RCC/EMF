@@ -3,8 +3,8 @@ import config
 from io import BytesIO
 import json
 import triplets
-
-from emf.common.loadflow_tool.helper import zip_xml, create_opdm_objects
+from emf.common.helpers.opdm_objects import create_opdm_objects
+from emf.common.helpers.utils import zip_xml
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, opdm, minio_api
 
@@ -43,7 +43,7 @@ class HandlerModelsFromBytesIO:
         # Repackage to form of zip(xml)
         rdfzip_files = []
         for xml in rdfxml_files:
-            rdfzip_files.append(zip_xml(xml))
+            rdfzip_files.append(zip_xml(xml_file_object=xml))
 
         # Create OPDM objects
         opdm_objects = create_opdm_objects(models=[rdfzip_files], metadata={"data-source": "PDN"})

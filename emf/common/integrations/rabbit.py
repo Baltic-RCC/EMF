@@ -6,6 +6,7 @@ import config
 from typing import List
 from emf.common.config_parser import parse_app_properties
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
 # from pika.adapters.asyncio_connection import AsyncioConnection
 # import asyncio
 
@@ -93,7 +94,8 @@ class BlockingClient:
 
         # Set up consumer
         if not callback:
-            callback = lambda ch, method, properties, body: logger.info(f"Received message: {properties} (No callback processing)")
+            callback = lambda ch, method, properties, body: logger.info(
+                f"Received message: {properties} (No callback processing)")
 
         self.consume_channel.basic_consume(
             queue=queue,
@@ -174,7 +176,7 @@ class RMQConsumer:
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
                  queue: str | None = None,
-                 reply_to: str | None = None,
+                 forward: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  heartbeat: str | int = RMQ_HEARTBEAT_IN_SEC,
@@ -183,14 +185,14 @@ class RMQConsumer:
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
 
-        If 'reply_to' is provided messaged will be published to given queue name
+        If 'forward' is provided messaged will be published to given queue/exchange name
 
         """
         self.message_handlers = message_handlers
         self.message_converter = message_converter
         self.should_reconnect = False
         self.was_consuming = False
-        self.reply_to = reply_to
+        self.forward = forward
 
         self._connection = None
         self._channel = None
@@ -212,7 +214,8 @@ class RMQConsumer:
                                                                 port=self._port,
                                                                 virtual_host=self._vhost,
                                                                 credentials=pika.PlainCredentials(username, password),
-                                                                heartbeat= None if RMQ_HEARTBEAT_IN_SEC == "0" else int(RMQ_HEARTBEAT_IN_SEC))
+                                                                heartbeat=None if RMQ_HEARTBEAT_IN_SEC == "0" else int(
+                                                                    RMQ_HEARTBEAT_IN_SEC))
 
     def connect(self):
         """This method connects to RabbitMQ, returning the connection handle.
@@ -223,7 +226,7 @@ class RMQConsumer:
 
         """
         logger.info(f"Connecting to {self._host}:{self._port} @ {self._vhost} as {self._username}")
-        
+
         return pika.SelectConnection(
             parameters=self._connection_parameters,
             on_open_callback=self.on_connection_open,
@@ -397,13 +400,20 @@ class RMQConsumer:
                     # self.connection.close()
                     # self.stop()
 
-        # Publish message to next exchange/queue if provided
-        if self.reply_to:
-            logger.info(f"Publishing message to exchange/queue: {self.reply_to}")
-            self._channel.basic_publish(exchange='', routing_key=self.reply_to, body=body, properties=properties)
-
+        # Process message acknowledgment
         if ack:
-            self.acknowledge_message(basic_deliver.delivery_tag)
+            # Check if properties has some status flag set from handler
+            _success = properties.headers.get('success', True)
+            if _success:
+                # Publish message to next exchange/queue if provided and message successfully handled
+                if self.forward:
+                    logger.info(f"Publishing message to exchange: {self.forward}")
+                    self._channel.basic_publish(exchange=self.forward, routing_key="", body=body, properties=properties)
+                self.acknowledge_message(basic_deliver.delivery_tag)
+                logger.info("Message acknowledged")
+            else:
+                logger.warning(f"Task rejected due to success flag set by handler: {_success}")
+                self._channel.basic_reject(basic_deliver.delivery_tag, requeue=False)
 
     def on_message(self, _unused_channel, basic_deliver, properties, body):
         """Invoked by pika when a message is delivered from RabbitMQ. The
@@ -417,7 +427,8 @@ class RMQConsumer:
         :param pika.Spec.BasicProperties: properties
         :param bytes body: The message body
         """
-        logger.info(f"Received message # {basic_deliver.delivery_tag} from {properties.app_id} meta: {properties.headers}")
+        logger.info(
+            f"Received message # {basic_deliver.delivery_tag} from {properties.app_id} meta: {properties.headers}")
         logger.debug(f"Message body: {body}")
         self._executor.submit(self._process_messages, basic_deliver, properties, body)
 
@@ -494,12 +505,13 @@ class ReconnectingConsumer:
     """This is an example consumer that will reconnect if the nested
     RMQConsumer indicates that a reconnect is necessary.
     """
+
     def __init__(self,
                  host: str = RMQ_SERVER,
                  port: int = int(RMQ_PORT),
                  vhost: str = RMQ_VHOST,
                  queue: str | None = None,
-                 reply_to: str | None = None,
+                 forward: str | None = None,
                  username: str = RMQ_USERNAME,
                  password: str = RMQ_PASSWORD,
                  message_handler: object | None = None,
@@ -509,7 +521,7 @@ class ReconnectingConsumer:
         self._port = port
         self._vhost = vhost
         self._queue = queue
-        self._reply_to = reply_to
+        self._forward = forward
         self._username = username
         self.__password = password
         self.message_handler = message_handler
@@ -518,7 +530,7 @@ class ReconnectingConsumer:
                                      port=self._port,
                                      vhost=self._vhost,
                                      queue=self._queue,
-                                     reply_to=self._reply_to,
+                                     forward=self._forward,
                                      username=self._username,
                                      password=self.__password,
                                      message_handlers=self.message_handler,
@@ -557,6 +569,7 @@ class ReconnectingConsumer:
 if __name__ == '__main__':
     # Testing RMQ API
     import sys
+
     logging.basicConfig(stream=sys.stdout,
                         format="%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s",
                         level=logging.INFO)

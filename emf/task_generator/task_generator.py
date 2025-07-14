@@ -1,17 +1,15 @@
 import aniso8601
 from datetime import datetime
-
-from emf.common.time_helper import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
-from emf.common.integrations.object_storage.tasks import publish_tasks
-from emf.common.integrations.object_storage.models import query_data
-from emf.common.config_parser import parse_app_properties
 import config
 from uuid import uuid4
 import croniter
-from pathlib import Path
 import json
 import logging
-from os import getlogin
+import os
+from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
+from emf.common.helpers.tasks import update_task_status
+from emf.common.integrations.elastic import Elastic
+from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
@@ -51,7 +49,6 @@ def generate_tasks(task_window_duration: str,
     time_frames = {time_frame["@id"].split("/")[-1]: time_frame for time_frame in timeframe_conf}
 
     # Load the process configuration from the specified file.
-
     for process in process_conf:
 
         # Loop through each run in the process configuration.
@@ -65,7 +62,7 @@ def generate_tasks(task_window_duration: str,
             if timetravel_now:
                 now = aniso8601.parse_datetime(timetravel_now)
 
-            logger.info(f"Now -> {now}")
+            logger.info(f"Now: {now}")
 
             # Calculate the start and end of the task window for the run.
             run_window_start = reference_times[task_window_reference](now)
@@ -84,20 +81,20 @@ def generate_tasks(task_window_duration: str,
             else:
                 _ = runs.get_next(datetime)
 
-            logger.info(f"Next run of {run['@id']} at {run_timestamp}")
+            logger.info(f"Next run of {run['@id']} at: {run_timestamp}")
 
-            if not (run_timestamp >= run_window_start  and run_timestamp <= run_window_end):
-                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
+            if not (run_window_start <= run_timestamp <= run_window_end):
+                logger.info(f"Run at {run_timestamp} not in window [{run_window_start}/{run_window_end}]: {run['@id']}")
 
             # Loop through each timestamp in the current run.
             while run_timestamp <= run_window_end:
-                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}] -> {run['@id']}")
+                logger.info(f"Run at {run_timestamp} in window [{run_window_start}/{run_window_end}]: {run['@id']}")
 
                 # Get the reference time for the current timestamp in the time frame.
                 reference_time_start = reference_times[time_frame["reference_time_start"]](run_timestamp)
                 reference_time_end = reference_times[time_frame["reference_time_end"]](run_timestamp)
 
-                # Change reference time according to time shift config
+                # Change reference time according to time shift config.
                 if process_time_shift:
                     reference_time_start = reference_time_start + parse_duration(process_time_shift)
                     reference_time_end = reference_time_end + parse_duration(process_time_shift)
@@ -110,7 +107,7 @@ def generate_tasks(task_window_duration: str,
                 job_period_start_utc = convert_to_utc(job_period_start)
                 job_period_end_utc = convert_to_utc(job_period_end)
 
-                # Calculate the open and close times for the gate (the window of time before the job period start time during wich the job/tasks must be done).
+                # Calculate the open and close times for the gate (the window of time before the job period start time during which the job/tasks must be done).
                 gate_open_utc = job_period_start_utc - parse_duration(run["gate_open"])
                 gate_close_utc = job_period_start_utc - parse_duration(run["gate_close"])
 
@@ -133,7 +130,7 @@ def generate_tasks(task_window_duration: str,
                     task_id = str(uuid4())
                     task_timestamp = utcnow().isoformat()
 
-                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] -> Job: {job_id}")
+                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] for job: {job_id}")
 
                     task = {
                         "@context": "https://example.com/task_context.jsonld",
@@ -143,7 +140,7 @@ def generate_tasks(task_window_duration: str,
                         "run_id": run.get("@id", None),
                         "job_id": f"urn:uuid:{job_id}",
                         "task_type": "automatic",
-                        "task_initiator": getlogin(),
+                        "task_initiator": os.environ.get("USERNAME", "unknown"),
                         "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
                         "task_creation_time": task_timestamp,
                         "task_update_time": "",
@@ -174,13 +171,10 @@ def generate_tasks(task_window_duration: str,
                     task["task_tags"].extend(run.get("tags", []))
 
                     # Check if task already exists, then set version number accordingly
-                    if TASK_ELK_INDEX:
-                        set_task_version(task, TASK_ELK_INDEX)
-                    else:
-                        set_task_version(task)
+                    set_task_version(task=task)
 
                     # Update task status
-                    update_task_status(task, "created")
+                    update_task_status(task=task, status_text="created")
 
                     # Return Task
                     yield task
@@ -194,96 +188,53 @@ def generate_tasks(task_window_duration: str,
                 run_timestamp = runs.get_next(datetime)
 
 
-def flatten_dict(nested_dict: dict, parent_key: str = '', separator: str = '.'):
-    """
-    Flattens a nested dictionary.
+def set_task_version(task: dict):
 
-    Parameters:
-    - nested_dict (dict): The dictionary to flatten.
-    - parent_key (str): The base key string used for recursion.
-    - separator (str): The separator between parent and child keys.
+    # Check versioning mode
+    auto_versioning_enabled = False
+    if task['task_properties']['version'] == 'AUTO':
+        logger.debug("Task versioning set to AUTO mode")
+        auto_versioning_enabled = True
 
-    Returns:
-    - dict: A flattened dictionary where nested keys are concatenated into a single string.
-    """
-    items = []
-    for k, v in nested_dict.items():
-        new_key = f"{parent_key}{separator}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, separator=separator).items())
-        elif isinstance(v, list):
-            for i, item in enumerate(v):
-                if isinstance(item, dict):
-                    items.extend(flatten_dict(item, f"{new_key}[{i}]", separator=separator).items())
-                else:
-                    items.append((f"{new_key}[{i}]", item))
-        else:
-            items.append((new_key, v))
-    return dict(items)
+    query = {
+        "bool": {
+            "must": [
+                {"match": {"task_properties.timestamp_utc": task['task_properties']['timestamp_utc']}},
+                {"term": {"task_properties.time_horizon.keyword": task['task_properties']['time_horizon']}},
+                {"term": {"task_properties.merge_type.keyword": task['task_properties']['merge_type']}},
+            ]
+        }
+    }
 
-
-def filter_and_flatten_dict(nested_dict: dict, keys: list):
-    """
-    Creates a new flat dictionary from specified keys.
-
-    Parameters:
-    - nested_dict (dict): The original nested dictionary.
-    - keys (list): The list of keys to include in the new flat dictionary.
-
-    Returns:
-    - dict: A new flat dictionary with only the specified keys.
-    """
-    flattened = flatten_dict(nested_dict)
-    return {key: flattened[key] for key in keys if key in flattened}
-
-
-def update_task_status(task, status_text, publish=True):
-    """Update task status
-    Will update task_update_time
-    Will update task_status
-    Will append new status to task_status_trace"""
-
-    logger.info(f"Updating Task status to -> {status_text}")
-
-    utc_now = datetime.utcnow().isoformat()
-
-    task["task_update_time"] = utc_now
-    task["task_status"] = status_text
-
-    task["task_status_trace"].append({
-        "status": status_text,
-        "timestamp": utc_now
-    })
-
-    # TODO - better handling if elk is not available, possibly set elk connection timout really small or refactro the sending to happen via rabbit
-    if publish:
-        try:
-            publish_tasks([task])
-        except:
-            logger.warning("Task publication to Elastic failed")
-
-
-def set_task_version(task, elk_index='emfos-tasks*'):
-    query = {'task_properties.timestamp_utc': task['task_properties']['timestamp_utc'],
-             'task_properties.time_horizon': task['task_properties']['time_horizon'],
-             'task_properties.merge_type': task['task_properties']['merge_type']}
-
+    service = Elastic()
     try:
-        task_list = query_data(query, index=elk_index)
-        if task_list:
-            latest_version = max(int(item['task_properties'].get('version', "0")) for item in task_list if item['task_properties'].get('version', 1))
-            if task['task_properties']['version'] == 'AUTO':
-                task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
-            elif int(latest_version) > int(task['task_properties']['version']):
-                task['task_properties']['version'] = str(int(latest_version) + 1).zfill(3)
-            else:
-                logger.error("Version set lower than existing model")
-        else:
-            if task['task_properties']['version'] == 'AUTO':
-                task['task_properties']['version'] = '001'
+        updated_version = None
+        tasks_df = service.get_docs_by_query(index=TASK_ELK_INDEX, query=query)
 
-    except:
+        if tasks_df.empty:
+            logger.info(f"No previous runs found for task, using version from configuration: {task['task_properties']['version']}")
+            if auto_versioning_enabled:
+                logger.info("Task versioning mode 'AUTO', defaulting to: '001'")
+                updated_version = '001'
+        else:
+            latest_version = tasks_df['task_properties.version'].max()
+            logger.info(f"Latest available task version: {latest_version}")
+            if auto_versioning_enabled:
+                updated_version = str(int(latest_version) + 1).zfill(3)
+            elif int(latest_version) >= int(task['task_properties']['version']):
+                logger.warning("Latest available version is equal or higher than defined in task, increasing from latest")
+                updated_version = str(int(latest_version) + 1).zfill(3)
+            else:
+                logger.info("Using version for task configuration")
+                updated_version = task['task_properties']['version']
+
+        if updated_version:
+            task['task_properties']['version'] = updated_version
+            logger.info(f"Version set to: {updated_version}")
+
+    except Exception as e:
         logger.warning("Elastic query for task versioning unsuccessful, version not updated")
+        logger.warning(f"Exception traceback: {e}")
 
 
 if __name__ == "__main__":
@@ -297,10 +248,13 @@ if __name__ == "__main__":
 
     task_window_duration = "P1D"
     task_window_reference = "currentDayStart"
-    timeframe_conf = "../../config/task_generator/timeframe_conf.json"
-    process_conf = "../../config/task_generator/process_conf.json"
+    timeframe_conf = config.paths.task_generator.timeframe_conf
+    process_conf = config.paths.task_generator.process_conf
 
-    tasks = list(generate_tasks(task_window_duration, task_window_reference, process_conf, timeframe_conf))
+    timeframe_config_json = json.load(timeframe_conf)
+    process_config_json = json.load(process_conf)
+
+    tasks = list(generate_tasks(task_window_duration, task_window_reference, process_config_json, timeframe_config_json))
 
     tasks_table = pandas.json_normalize(tasks)
     print(tasks_table["process_id"].value_counts())

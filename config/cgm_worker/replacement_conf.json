@@ -2,10 +2,13 @@
         "configuration": {
             "validity_start": "2024-02-22T00:00:00Z",
             "validity_end": "2024-02-22T23:59:59Z",
-            "timeZone": "CET"
+            "time_zone": "CET"
         },
-        "timeHorizon": {
-            "Request_list": ["ID", "1D", "2D", "WK", "1D", "MO", "YR"]
+        "time_horizon": {
+            "request_list": ["ID", "1D", "2D", "WK", "1D", "MO", "YR"]
+        },
+        "replacement_length": {
+            "request_list": ["2w", "2w", "2w", "2w", "2w", "1m", "4m"]
         },
         "month_ahead": {
             "hours": ["07:30", "08:30", "09:30", "06:30", "05:30", "04:30"],

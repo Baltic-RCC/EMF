@@ -18,76 +18,77 @@ class OPDM(opdm_api.create_client):
     def __init__(self, server=OPDM_SERVER, username=OPDM_USERNAME, password=OPDM_PASSWORD, debug=False, verify=False):
         super().__init__(server, username, password, debug, verify)
 
-    # TODO - update query function in OPDM module
-    def query(self, object_type, meta=None):
+    def query(self, object_type, meta = None):
 
-        logger.info(f"Sending query to OPDM for {object_type} with parameters {meta}")
+        logger.info(f"Sending query to OPDM for {object_type} with parameters: {meta}")
         if meta is None:
             meta = {}
 
         raw_response = self.query_object(object_type, meta)
-        response = raw_response['sm:QueryResult']['sm:part'][1:]
-
-        if type(response) == str:
+        if raw_response.get('sm:OperationFailure'):
+            logger.error(f"OPDM responded with error: {raw_response['sm:OperationFailure']['sm:part']}")
             response = []
-
-        logger.info(f"Number of responses: {len(response)} for query")
+        else:
+            # Extract metadata objects from response
+            response = raw_response['sm:QueryResult']['sm:part'][4:]
+            if isinstance(response, str):
+                response = []
+            logger.info(f"Number of responses for query: {len(response)}")
 
         return response
 
-    def download_object(self, opdm_object, output_format='bytes', output_dir=None):
+    def download_object(self, opdm_object: dict):
 
-        if output_format == 'file':
-            for cimxml_file in opdm_object['opde:Component']:
-                file_id = cimxml_file['opdm:Profile']['opde:Id']
-                file_name = cimxml_file['opdm:Profile']['pmd:fileName']
-                file_path = os.path.join(output_dir, file_name)
+        model_meta = opdm_object
+        party = model_meta.get('pmd:modelPartReference',  model_meta.get('pmd:TSO', ''))
 
-                logger.info(f"Downloading {file_name} with ID -> {file_id}")
-                response = self.get_content(file_id, return_payload=True)
+        for pos, model_part in enumerate(model_meta['opde:Component']):
+            model_part_meta = model_part['opdm:Profile']
+            model_part_name = model_part_meta['pmd:fileName']
 
-                with open(file_path, 'wb') as file_object:
-                    message64_bytes = response['sm:GetContentResult']['sm:part'][1]['opdm:Profile']['opde:Content'].encode()
-                    file_object.write(base64.b64decode(message64_bytes))
+            # Maybe the file is all ready there (if OPDM subscription is enabled)
+            content_data = self.get_file(model_part_name)
 
-                logger.info(f"Saved to {file_path}")
-
-            return None
-
-        if output_format == 'bytes':
-            model_meta = opdm_object
-            party = model_meta.get('pmd:modelPartReference',  model_meta.get('pmd:TSO', ''))
-
-            for pos, model_part in enumerate(model_meta['opde:Component']):
-                model_part_meta = model_part['opdm:Profile']
-                model_part_name = model_part_meta['pmd:fileName']
-
-                # Maybe the file is all ready there (if OPDM subscription is enabled)
+            # If file is not available on local client, lets request it from OPDM and download it
+            # More optimal, downloads whole model first (4 files)
+            if not content_data:
+                logger.warning("File not present on local client, requesting from OPDM service the whole Model")
+                content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
                 content_data = self.get_file(model_part_name)
 
-                # If file is not available on local client, lets request it from OPDM and download it
+            # Less optimal, downloads each file separately
+            if not content_data:
+                logger.warning("File not present on local client, requesting from OPDM service the specific File")
+                content_meta = self.get_content(model_part_meta['opde:Id'])
+                content_data = self.get_file(model_part_name)
 
-                # More optimal, downloads whole model first (4 files)
-                if not content_data:
-                    logger.warning("File not present on local client, requesting from OPDM service the whole Model")
-                    content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
-                    content_data = self.get_file(model_part_name)
+            # If no data available set to None
+            if not content_data:
+                logger.error(f"{model_part_name} not available on webdav")
+                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
 
-                # Less optimal, downloads each file separately
-                if not content_data:
-                    logger.warning("File not present on local client, requesting from OPDM service the specific File")
-                    content_meta = self.get_content(model_part_meta['opde:Id'])
-                    content_data = self.get_file(model_part_name)
+            # Save data to metadata object
+            opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
 
-                # If no data available set to None
-                if not content_data:
-                    logger.error(f"{model_part_name} not available on webdav")
-                    opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
+        return opdm_object
 
-                # Save data to metadata object
-                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+    def download_object_to_filesystem(self, opdm_object: dict, output_dir: str | None = None):
 
-            return opdm_object
+        for cimxml_file in opdm_object['opdm:OPDMObject']['opde:Component']:
+            file_id = cimxml_file['opdm:Profile']['opde:Id']
+            file_name = cimxml_file['opdm:Profile']['pmd:fileName']
+            file_path = os.path.join(output_dir, file_name)
+
+            logger.info(f"Downloading {file_name} with ID: {file_id}")
+            response = self.get_content(file_id, return_payload=True)
+
+            with open(file_path, 'wb') as file_object:
+                message64_bytes = response['sm:GetContentResult']['sm:part'][4]['opdm:Profile']['opde:Content'].encode()
+                file_object.write(base64.b64decode(message64_bytes))
+
+            logger.info(f"File saved to: {file_path}")
+
+        return None
 
     def get_file(self, file_id):
 

@@ -19,6 +19,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_validator
 # RabbitMQ consumer implementation
 consumer = rabbit.RMQConsumer(queue=INPUT_RMQ_QUEUE,
                               message_handlers=[HandlerModelsValidator()],
+                              forward=OUTPUT_RMQ_EXCHANGE,
                               )
 
 try:

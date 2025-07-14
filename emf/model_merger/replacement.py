@@ -6,19 +6,20 @@ import config
 import json
 from dateutil import parser
 from pathlib import Path
-from emf.common.integrations.object_storage.models import query_data, get_content
+from emf.common.integrations.object_storage.models import query_data, get_content, fetch_unique_values
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.replacement)
+replacement_config = json.load(config.paths.cgm_worker.replacement_conf)
 
 
 def run_replacement(tso_list: list,
                     time_horizon: str,
                     scenario_date: str,
-                    config: list = json.load(config.paths.cgm_worker.replacement_conf),
+                    config: list = replacement_config,
                     data_source: str = 'OPDM',
                     ):
     """
@@ -35,9 +36,11 @@ def run_replacement(tso_list: list,
     replacements = pd.DataFrame()
     # TODO time horizon exclusion logic + exclude available models from query
     # TODO put in query object type if CGM metadata objects will be stored
+    # Get replacement length by time horizon
+    query_filter = 'now-' + config["replacement_length"]["request_list"][config["time_horizon"]["request_list"].index(time_horizon)]
+    # Query for available replacement models
     query = {"pmd:TSO.keyword": tso_list, "valid": True, "data-source": data_source}
-    body = query_data(query, QUERY_FILTER)
-    model_df = pd.DataFrame(body)
+    model_df = pd.DataFrame(query_data(query, query_filter))
 
     # Set scenario dat to UTC
     if not model_df.empty:
@@ -64,13 +67,13 @@ def run_replacement(tso_list: list,
             replaced_tso = replacements['pmd:TSO'].unique().tolist()
             not_replaced = [model for model in unique_tsos_list if model not in replaced_tso]
             if not_replaced:
-                logger.error(f"Unable to find replacements within given replacement logic for TSO's: {not_replaced}")
+                logger.warning(f"Unable to find replacements within given replacement logic for TSO's: {not_replaced}")
 
             tso_missing = [model for model in tso_list if model not in unique_tsos_list]
             if tso_missing:
                 logger.info(f"No replacement models found for TSO(s): {tso_missing}")
         else:
-            logger.error(f"No replacement models found, replacement list is empty")
+            logger.warning(f"No replacement models found, replacement list is empty")
     else:
         logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
 
@@ -154,7 +157,7 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     hour_list_final = list(map(lambda x: (date_time + parse_duration(x)).strftime("%H:%M"), hour_list))
     day_list_final = list(map(lambda x: (date_time + parse_duration(x)).strftime("%Y-%m-%d"), day_list))
 
-    business_list = conf["timeHorizon"]["Request_list"]
+    business_list = conf["time_horizon"]["request_list"]
     business_list_final = business_list[business_list.index(target_timehorizon):]  # make list of relevant businesstypes
 
     # Month ahead requires separate replacement logic
@@ -196,11 +199,13 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     return valid_models_df
 
 
-def get_available_tsos():
-    query = {"opde:Object-Type": "IGM", "valid": True}
-    body = query_data(query, QUERY_FILTER)
-    key = 'pmd:TSO'
-    return list({item[key] for item in body if key in item})
+def get_tsos_available_in_storage(time_horizon: str):
+    metadata = {"opde:Object-Type": "IGM", "valid": True}
+    # Get query length by time horizon from configuration
+    query_filter = 'now-' + replacement_config["replacement_length"]["request_list"][replacement_config["time_horizon"]["request_list"].index(time_horizon)]
+    unique_tsos = fetch_unique_values(metadata_query=metadata, field="pmd:TSO.keyword", query_filter=query_filter)
+
+    return unique_tsos
 
 
 def get_first_monday_of_last_month(timestamp):
