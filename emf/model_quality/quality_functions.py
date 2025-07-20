@@ -1,8 +1,14 @@
 from io import BytesIO
 from zipfile import ZipFile
 import logging
+import config
+import pandas as pd
+from emf.common.config_parser import parse_app_properties
+from model_statistics import get_tieflow_data, type_tableview_merge
 
 logger = logging.getLogger(__name__)
+parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.model_quality)
+
 
 def generate_quality_report(network, object_type, model_metadata):
 
@@ -24,60 +30,17 @@ def generate_quality_report(network, object_type, model_metadata):
 
          # Check LT-PL crossborder flow
         try:
-            control_areas = (network.type_tableview('ControlArea')
-                             .rename_axis('ControlArea')
-                             .reset_index())[['ControlArea', 'ControlArea.netInterchange', 'ControlArea.pTolerance',
-                                              'IdentifiedObject.energyIdentCodeEic', 'IdentifiedObject.name']]
-        except KeyError:
-            control_areas = network.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
-            ssh_areas = network.type_tableview('ControlArea').rename_axis('ControlArea').reset_index()
-            control_areas = control_areas.merge(ssh_areas, on='ControlArea')[
-                ['ControlArea', 'ControlArea.netInterchange',
-                 'ControlArea.pTolerance',
-                 'IdentifiedObject.energyIdentCodeEic',
-                 'IdentifiedObject.name']]
-        tie_flows = (network.type_tableview('TieFlow')
-                     .rename_axis('TieFlow').rename(columns={'TieFlow.ControlArea': 'ControlArea',
-                                                             'TieFlow.Terminal': 'Terminal'})
-                     .reset_index())[['ControlArea', 'Terminal', 'TieFlow.positiveFlowIn']]
-        tie_flows = tie_flows.merge(control_areas[['ControlArea']], on='ControlArea')
-        try:
-            terminals = (network.type_tableview('Terminal')
-                         .rename_axis('Terminal').reset_index())[['Terminal', 'ACDCTerminal.connected']]
-        except KeyError:
-            terminals = (network.type_tableview('Terminal')
-                         .rename_axis('Terminal').reset_index())[['Terminal']]
-        tie_flows = tie_flows.merge(terminals, on='Terminal')
-        try:
-            power_flows_pre = (network.type_tableview('SvPowerFlow')
-                               .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
-                               .reset_index())[['Terminal', 'SvPowerFlow.p']]
-            tie_flows = tie_flows.merge(power_flows_pre, on='Terminal', how='left')
-        except Exception:
-            logger.error(f"Was not able to get tie flows from original models")
-        power_flows_post = (network.type_tableview('SvPowerFlow')
-                            .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
-                            .reset_index())[['Terminal', 'SvPowerFlow.p']]
+            tie_flows = get_tieflow_data(network)
+            tie_flows = tie_flows[tie_flows['cross_border'] == 'LT-PL']
+            tie_flows = tie_flows[tie_flows['IdentifiedObject.name_TieFlow'] == 'LIETUVA']
+            tie_flow_1 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL11']
+            tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
+            tie_flow = (tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2
+            report.update({"lt_pl_flow": tie_flow, "lt_pl_xborder_check": abs(tie_flow)< float(BORDER_LIMIT)})
+        except:
+            report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
 
-        tie_flows = tie_flows.merge(power_flows_post, on='Terminal', how='left',
-                                    suffixes=('_pre', '_post'))
-
-        # TODO double check correct limit value
-        # BORDER_LIMIT = 250
-        # d_lines = network.get_dangling_lines(all_attributes=True)
-        # LT_PL_lines = d_lines[d_lines['name'].str.contains('Alytus-Elk')]
-        # if LT_PL_lines:
-        #     flow_sum = LT_PL_lines['p'].sum()
-        #     flag = flow_sum < BORDER_LIMIT
-        #     report.update({"lt_pl_flow": flow_sum, "lt_pl_xborder_check": flag})
-        # else:
-
-        # TODO fix border flow
-        report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
-
-        # TODO remake into Triplets
         # Check cross-border line inconsistencies
-        # TODO log all line info
         # pairing_keys = d_lines.groupby('pairing_key')['connected'].nunique()
         # mismatch = len(pairing_keys[pairing_keys > 1].index.tolist())
         # flag = mismatch < 1
@@ -86,18 +49,41 @@ def generate_quality_report(network, object_type, model_metadata):
         # TODO Check model outage mismatch with outage plan
         # model_outages = pd.DataFrame(get_model_outages(network=network))
 
-    # TODO define IGM quality rules
-    elif object_type == "IGM":
-        report = model_metadata[0]
-        model_metadata[0].pop('opde:Component')
-        try:
-            model_metadata[0].pop('opde:Dependencies')
-        except:
-            model_metadata[0].pop('opde:DependsOn')
+        report['object_type'] = object_type
 
+    elif object_type == "IGM":
+        # TODO define IGM quality rules
         report.update({"quality": "No Status"})
+    else:
+        logger.error("Incorrect object type metadata")
 
     return report
+
+
+def set_common_metadata(model_metadata, object_type):
+    metadata = {}
+    if object_type == "IGM":
+        opdm_object = model_metadata[0]
+        metadata['object_type'] = object_type
+        metadata['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
+        metadata['@time_horizon'] = opdm_object['pmd:timeHorizon']
+        metadata['@version'] = int(opdm_object['pmd:versionNumber'])
+        metadata['content_reference'] = opdm_object['pmd:content-reference']
+        metadata['tso'] = opdm_object['pmd:TSO']
+        metadata['minio_bucket'] = opdm_object['minio-bucket']
+
+    elif object_type == "CGM":
+        opdm_object = model_metadata
+        metadata['object_type'] = object_type
+        metadata['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
+        metadata['@time_horizon'] = opdm_object['pmd:timeHorizon']
+        metadata['@version'] = int(opdm_object['pmd:versionNumber'])
+        metadata['merge_type'] = opdm_object['pmd:Area']
+        metadata['content_reference'] = opdm_object['pmd:content-reference']
+        # metadata['minio_bucket'] = opdm_object.get('minio-bucket', 'opde-confidential-models')
+        metadata['minio_bucket'] = opdm_object.get('minio-bucket')
+
+    return metadata
 
 
 # TODO temp function, later use common one

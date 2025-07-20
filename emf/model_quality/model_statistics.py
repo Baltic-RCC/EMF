@@ -86,36 +86,51 @@ def type_tableview_merge(data, query):
     return previous_entity_data
 
 def get_tieflow_data(data):
-    logger.info("Getting Tieflow Data")
+    logger.info("Getting Tieflow data")
     try:
         tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
     except:
         try:
-            tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
-        except:
-            tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal-ConnectivityNode")
+            tieflow_data = type_tableview_merge(data, "ControlArea<-TieFlow->Terminal->TopologicalNode")
+        except Exception as e:
+            logger.error(f"Failed to load Tieflow data: {e}")
 
-
+    # TODO find a better way to identify HVDC
+    # TODO - for CGMES3/CIM17 get also the Boundary objects and use correct field to identify HVDC
     try:
         tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description"].str.startswith("HVDC")
     except:
         try:
             tieflow_data["BoundaryPoint.isDirectCurrent"] = tieflow_data["IdentifiedObject.description_ConnectivityNode"].str.startswith("HVDC")
-        except:
-            tieflow_data["BoundaryPoint.isDirectCurrent"] = False
-
-    # TODO - for CGMES3/CIM17 get also the Boundary objects and use correct field to identify HVDC
+        except Exception as e:
+            logger.error(f"Failed to load HVDC data: {e}")
 
     # Add Injections
-    tieflow_data = tieflow_data.merge(type_tableview_merge(data, "EquivalentInjection<-Terminal.ConductingEquipment"),
-                                      left_on="ID_ConnectivityNode",
-                                      right_on='Terminal.ConnectivityNode',
-                                      suffixes=("", "_EquivalentInjection"))
-    # Add line containers
-    tieflow_data = tieflow_data.merge(data.type_tableview("Line"),
-                                      left_on="ConnectivityNode.ConnectivityNodeContainer",
-                                      right_on="ID",
-                                      suffixes=("", "_Line"))
+    try:
+        tieflow_data = tieflow_data.merge(type_tableview_merge(data, "EquivalentInjection<-Terminal.ConductingEquipment"),
+                                          left_on="ID_ConnectivityNode",
+                                          right_on='Terminal.ConnectivityNode',
+                                          suffixes=("", "_EquivalentInjection"))
+        # Add line containers
+        tieflow_data = tieflow_data.merge(data.type_tableview("Line"),
+                                          left_on="ConnectivityNode.ConnectivityNodeContainer",
+                                          right_on="ID",
+                                          suffixes=("", "_Line"))
+    except:
+        try:
+            tieflow_data = tieflow_data.merge(
+                type_tableview_merge(data, "EquivalentInjection<-Terminal.ConductingEquipment"),
+                left_on="ID_TopologicalNode",
+                right_on='Terminal.TopologicalNode',
+                suffixes=("", "_EquivalentInjection"))
+
+            tieflow_data = tieflow_data.merge(data.type_tableview("Line"),
+                                              left_on="TopologicalNode.ConnectivityNodeContainer",
+                                              right_on="ID",
+                                              suffixes=("", "_Line"))
+        except Exception as e:
+            print(f"Unable to map injections: {e}")
+
 
     # Add SV results
     # if sv_results := data.type_tableview("SvPowerFlow") is not None:
@@ -145,7 +160,10 @@ def get_tieflow_data(data):
         return delimiter.join(sorted([row[col1], row[col2]]))
 
     # Apply the function to each row
-    tieflow_data['cross_border'] = tieflow_data.apply(lambda row: merge_sort_strings(row, 'ConnectivityNode.fromEndIsoCode', 'ConnectivityNode.toEndIsoCode'), axis=1)
+    try:
+        tieflow_data['cross_border'] = tieflow_data.apply(lambda row: merge_sort_strings(row, 'ConnectivityNode.fromEndIsoCode', 'ConnectivityNode.toEndIsoCode'), axis=1)
+    except:
+        tieflow_data['cross_border'] = tieflow_data.apply(lambda row: merge_sort_strings(row, 'TopologicalNode.fromEndIsoCode', 'TopologicalNode.toEndIsoCode'), axis=1)
 
     return tieflow_data
 
@@ -154,7 +172,12 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
     if tieflow_data is None or tieflow_data.empty:
         # Use only Interchange Control Area Tieflows
         tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
-        tieflow_data = get_tieflow_data(data).query("`ControlArea.type` == @tieflow_type")
+        tieflow_data = get_tieflow_data(data)
+        try:
+            tieflow_data = tieflow_data.query("`ControlArea.type` == @tieflow_type")
+        except:
+            tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
+
 
     if load_and_generation is None or load_and_generation.empty:
         load_and_generation = get_load_and_generation_ssh(data)
@@ -166,12 +189,22 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
     tieflow_np = tieflow_data[data_columns].sum().to_dict()
 
     # Summing values where BoundaryPoint.isDirectCurrent is False
-    tieflow_acnp = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == False")[data_columns].sum().to_dict()
+    try:
+        tieflow_acnp = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == False")[data_columns].sum().to_dict()
+    except:
+        tieflow_acnp = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False][data_columns].sum().to_dict()
 
     # Processing HVDC tieflow data
-    tieflow_hvdc = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == True")[
-        ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index(
-        'IdentifiedObject.energyIdentCodeEic_Line').to_dict("index")
+    try:
+        tieflow_hvdc = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == True")[
+            ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index('IdentifiedObject.energyIdentCodeEic_Line').to_dict("index")
+    except:
+        try:
+            tieflow_hvdc = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == True][
+                ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index(
+                'IdentifiedObject.energyIdentCodeEic_Line').to_dict("index")
+        except:
+            tieflow_hvdc = None
 
     # Calculating total_load, generation, and net position
     load = load_and_generation["EnergyConsumer.p"].sum()
