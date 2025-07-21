@@ -35,7 +35,7 @@ def generate_quality_report(network, object_type, model_metadata):
             tie_flows = tie_flows[tie_flows['IdentifiedObject.name_TieFlow'] == 'LIETUVA']
             tie_flow_1 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL11']
             tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
-            tie_flow = (tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2
+            tie_flow = float((tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2)
             report.update({"lt_pl_flow": tie_flow, "lt_pl_xborder_check": abs(tie_flow)< float(BORDER_LIMIT)})
         except:
             report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
