@@ -244,7 +244,7 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         } if isinstance(item, dict) else item
         for item in tieflow_hvdc
     ]
-    result['tieflow_hvdc'] = tieflow_hvdc
+    result.update({"tieflow_hvdc": tieflow_hvdc})
 
     return result
 
