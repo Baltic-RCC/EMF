@@ -680,6 +680,51 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
     return cgm_ssh_data
 
 
+def and_to_boolean(input_data, field_name: str = 'ACDCTerminal.connected'):
+    try:
+        if len(input_data.index) > 1 and not input_data[field_name].astype('bool').all():
+            logger.warning(f"Mismatch on terminals")
+            input_data[field_name] = False
+    except KeyError:
+        pass
+    except Exception as ex:
+        logger.warning(f"{ex}")
+    return input_data
+
+
+def get_unpaired_dangling_lines(model_data: list | pd.DataFrame):
+    if not isinstance(model_data, pd.DataFrame):
+        model_data = load_opdm_objects_to_triplets(model_data)
+    # Get boundary nodes
+    boundary_nodes = model_data.type_tableview('TopologicalNode').reset_index()
+    boundary_nodes = boundary_nodes[boundary_nodes['TopologicalNode.boundaryPoint'] == "true"]
+    # Merge boundary nodes to terminals
+    terminals = (model_data.type_tableview('Terminal').reset_index()
+                 .merge(boundary_nodes[['ID']].rename(columns={'ID': 'Terminal.TopologicalNode'}),
+                        on='Terminal.TopologicalNode'))
+
+    # Pypowsybl dangling line elements
+    # dangling_line_types = ['ACLineSegment', 'Switch', 'Breaker',
+    #                        'Disconnector', 'LoadBreakSwitch', 'ProtectedSwitch',
+    #                        'GroundDisconnector', 'Jumper', 'EquivalentInjection', 'PowerTransformer']
+    # outputs = {}
+    # for line_type in dangling_line_types:
+    #     table_view = model_data.type_tableview(line_type)
+    #     if isinstance(table_view, pd.DataFrame):
+    #         outputs[line_type] = table_view.reset_index()
+    # all_dangling_element_ids = (pd.concat([x[['ID']] for x in outputs.values()])
+    #                             .rename(columns={'ID': 'Terminal.ConductingEquipment'}))
+    # # Slice terminals with dangling line elements
+    # terminals = terminals.merge(all_dangling_element_ids, on='Terminal.ConductingEquipment')
+
+    # Check by devices. If any of the terminals is off maybe flip others also off.
+    terminals = (terminals.groupby('Terminal.ConductingEquipment')
+                 .apply(lambda x: and_to_boolean(x)).reset_index(drop=True))
+    connected_all_mask = terminals.groupby('Terminal.TopologicalNode')['ACDCTerminal.connected'].nunique()
+    mismatch = len(connected_all_mask[connected_all_mask > 1].index.tolist())
+    return mismatch < 1
+
+
 def check_non_boundary_equivalent_injections(cgm_sv_data,
                                              cgm_ssh_data,
                                              original_models,
