@@ -21,11 +21,9 @@ proportional to the reserve margin.
 " When all the differences between the recorded and target values of net positions of
 scheduling areas are below the discrepancy thresholds, as defined previously;
 " In any case after the 15th iteration16 (adjustments take place within the iterations).
-"""
 
-"""
 NOTES:
- - power factor sign defines whether P and Q values has opposite sign. This needs to be ensured because new Q values
+    - power factor sign defines whether P and Q values has opposite sign. This needs to be ensured because new Q values
 are calculated from P values, then the power factors sign defines what sign should be for new Q value.
 """
 
@@ -34,6 +32,7 @@ import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Union
+from collections import defaultdict
 import config
 from emf.common.config_parser import parse_app_properties
 from emf.common.decorators import performance_counter
@@ -50,27 +49,82 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 _country_col: str = 'CGMES.regionName'
 
 
-def get_areas_losses(network: pp.network.Network):
+def validate_loadflow_status(results: List):
+    if results[0].status.value == 0:
+        return True
+    else:
+        return False
+
+
+def get_areas_losses(network: pp.network.Network, buses: pd.DataFrame, components: Dict):
     # Calculate ACNP with losses (from cross-border lines)
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
+    dangling_lines = dangling_lines[dangling_lines.connected_component.isin(components.keys())]
+    dangling_lines.connected_component = dangling_lines.connected_component.astype(int)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
+    acnp_with_losses = dangling_lines[dangling_lines.isHvdc == ''].groupby([_country_col, 'connected_component']).boundary_p.sum()
 
     # Calculate ACNP without losses (from generation and consumption)
-    gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
-    loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-    generation = gens.groupby(_country_col).p.sum() * -1
-    consumption = loads.groupby(_country_col).p.sum()
+    generation = get_areas_metrics(network=network, buses=buses, components=components, metric='GENERATOR')
+    consumption = get_areas_metrics(network=network, buses=buses, components=components, metric='LOAD')
     ## Need to ensure that all series in substraction has same index values. For example when area does not have HVDC connections
     ## Otherwise we will get NaN values for areas without HVDC after regular substraction
     present_areas = generation.index.union(consumption.index)
-    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby(_country_col).boundary_p.sum().reindex(present_areas, fill_value=0)
+    dcnp = dangling_lines[dangling_lines.isHvdc == 'true'].groupby([_country_col, 'connected_component']).boundary_p.sum().reindex(present_areas, fill_value=0)
     acnp_without_losses = generation - consumption - dcnp
 
     # Calculate losses by regions
     losses = acnp_without_losses - acnp_with_losses
 
     return losses
+
+
+def get_areas_metrics(network: pp.network.Network, buses: pd.DataFrame, components: Dict, metric: str):
+    df = get_network_elements(network, getattr(pp.network.ElementType, metric), all_attributes=True)
+    df = df.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
+    df = df[df.connected_component.isin(components.keys())]
+    df.connected_component = df.connected_component.astype(int)
+    sign = -1 if metric == 'GENERATOR' else 1
+    return df.groupby([_country_col, 'connected_component']).p.sum() * sign
+
+
+def validate_converged_components(dangling_lines: pd.DataFrame, converged_components: Dict):
+    logger.info(f"Validating converged islands")
+    for k, v in list(converged_components.items()):
+        v['state'] = 'valid'
+        # In case of internal island it should contain only one area
+        if len(v['countries']) == 1:
+            component_dangling_lines = dangling_lines[dangling_lines['connected_component'] == k]
+            # Check if there are any boundary lines which belongs to component
+            if component_dangling_lines.empty:
+                v['state'] = 'internal'
+                logger.warning(f"Network component {k} considered as internal area island, excluding from scaling: {v}")
+
+    return converged_components
+
+
+def get_countries_to_components(components: Dict):
+    country_to_keys = defaultdict(set)
+    for key, entry in components.items():
+        for country in entry.get('countries', []):
+            country_to_keys[country].add(key)
+
+    return country_to_keys
+
+
+def get_fragmented_areas_participation(unpaired_dangling_lines: pd.DataFrame, areas_to_components: Dict):
+    fragmented_areas = []
+    for area, comps in areas_to_components.items():
+        if len(comps) > 1:
+            logger.warning(f"Fragmented area identified: {area} in components {list(comps)}")
+            area_dangling_lines = unpaired_dangling_lines.query("country == @area")
+            fragments_acnp = {comp: area_dangling_lines[area_dangling_lines.connected_component == comp].boundary_p.sum() for comp in comps}
+            participation = {k: abs(v) / abs(sum(fragments_acnp.values())) for k, v in fragments_acnp.items()}
+            fragmented_areas.append(pd.DataFrame({'connected_component': list(participation.keys()),
+                                                  'participation': list(participation.values()),
+                                                  'registered_resource': area}))
+    return pd.concat(fragmented_areas)
 
 
 @performance_counter(units='seconds')
@@ -92,6 +146,7 @@ def scale_balance(model: object,
     # Get pypowsybl network
     network = model.network
 
+    # Define general variables to be used in scaling algorithm
     _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
     _scaling_results = []
     _hvdc_results = []
@@ -103,6 +158,16 @@ def scale_balance(model: object,
     else:
         logger.setLevel(logging.INFO)
 
+    # Get buses
+    buses = network.get_buses()
+
+    # Get all dangling lines and define power factor
+    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power factor
+    dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
+    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
+    dangling_lines['boundary_q'] = dangling_lines['boundary_q'] * -1  # invert boundary_q sign to match flow direction
+
     # Target HVDC setpoints
     target_hvdc_sp_df = pd.DataFrame(dc_schedules)
 
@@ -113,14 +178,14 @@ def scale_balance(model: object,
     target_acnp_df = target_acnp_df.sort_values('value', key=abs, ascending=False).drop_duplicates(subset='registered_resource')
     mask = (target_acnp_df['in_domain'].notna()) & (target_acnp_df['value'] > 0.0)  # value is not zero
     target_acnp_df['value'] = np.where(mask, target_acnp_df['value'] * -1, target_acnp_df['value'])
-    target_acnp = target_acnp_df.set_index('registered_resource')['value']
+
+    # Validate presence of target AC net position by areas in network model
+    present_areas = dangling_lines[_country_col].drop_duplicates()
+    missing_ac_schedule = present_areas[~present_areas.isin(target_acnp_df.registered_resource)].to_list()
+    if missing_ac_schedule:
+        logger.warning(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
 
     # Get pre-scale HVDC setpoints
-    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
-    dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power factor
-    dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
-    dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-    dangling_lines['boundary_q'] = dangling_lines['boundary_q'] * -1  # invert boundary_q sign to match flow direction
     prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q']]
     prescale_hvdc_sp = prescale_hvdc_sp.rename(columns={'boundary_p': 'value', 'boundary_q': 'value_q'})
     _hvdc_results.append(pd.concat([prescale_hvdc_sp.set_index('lineEnergyIdentificationCodeEIC').value,
@@ -162,7 +227,7 @@ def scale_balance(model: object,
     conform_loads = loads[loads['variable_p0'] > 0]
 
     # Get network slack generators
-    slack_generators = get_slack_generators(network)
+    slack_generators = get_slack_generators(network)  # TODO
     logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
 
     # Solving initial loadflow
@@ -179,58 +244,51 @@ def scale_balance(model: object,
             logger.error(f"Terminating network scaling due to divergence in main island")
             return model
 
-    # # Balancing network to get distributed slack active power close to zero by scaling conform loads of entire network
-    # # Distributed active power will be scaled by each area sum load participation
-    # scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
-    # scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.p0.sum()
-    #
-    # ## Scale loads by participation factor
-    # distributed_power = round(pf_results[0].distributed_active_power, 2)  # using only from main connected component
-    # _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
-    # scalable_loads_diff = (distributed_power * scalable_loads.p_participation) * correction_factor
-    # scalable_loads_target = scalable_loads.p0 - scalable_loads_diff
-    # scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
-    # logger.info(f"[INITIAL] Balancing the network model to reduce to distributed active power: {distributed_power} MW")
-    # network.update_loads(id=scalable_loads_target.index,
-    #                      p0=scalable_loads_target.to_list(),
-    #                      q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
-    #
-    # # Solving loadflow after balancing the network
-    # pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-    # for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
-    #     result_dict = attr_to_dict(result)
-    #     logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
-    #     logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
-    #
-    # # Log distributed active power after network balancing
-    # distributed_power = round(pf_results[0].distributed_active_power, 2)
-    # _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
-    # logger.info(f"[INITIAL] Distributed active power after network balancing: {distributed_power} MW")
-
-    # Get pre-scale total network balance by each component -> AC+DC net position
+    # Get dangling lines after HVDC scaling and loadflow
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    ## Merge buses to dangling lines in order to know dangling lines network component
+    dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
     dangling_lines['power_factor'] = dangling_lines['boundary_q'] / dangling_lines['boundary_p']  # estimate the power
     dangling_lines['power_factor'] = dangling_lines['power_factor'].fillna(0)  # handle zero division
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-    prescale_network_np = {k: round(dangling_lines[dangling_lines.country.isin(v['countries'])].boundary_p.sum()) for k, v in converged_components.items()}
+
+    # Validate existence of internal islands and exclude them
+    converged_components = validate_converged_components(dangling_lines=dangling_lines, converged_components=converged_components)
+    valid_components = {k: v for k, v in converged_components.items() if v['state'] == 'valid'}
+
+    # Get pre-scale total network balance by each component -> AC+DC net position
+    prescale_network_np = {k: round(dangling_lines[dangling_lines.connected_component == k].boundary_p.sum()) for k, v in valid_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-np', 'GLOBAL': prescale_network_np, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
 
     # Get pre-scale total network balance by each component -> AC net position
     unpaired_dangling_lines = (dangling_lines.isHvdc == '') & (dangling_lines.tie_line_id == '')
-    prescale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").boundary_p.sum()) for k, v in converged_components.items()}
+    prescale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("connected_component == @k").boundary_p.sum()) for k, v in valid_components.items()}
     _scaling_results.append({'KEY': 'prescale-network-acnp', 'GLOBAL': prescale_network_acnp, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP by component: {prescale_network_acnp}")
+
+    # Identify fragmented IGMs - where some part of network model with boundary belongs other component
+    areas_to_components = get_countries_to_components(components=valid_components)
+    fragments_participation = get_fragmented_areas_participation(unpaired_dangling_lines=dangling_lines[unpaired_dangling_lines],
+                                                                 areas_to_components=areas_to_components)
+
+    # Map fragmented models to target ACNP schedules and recalculate values by participation
+    target_acnp_df['connected_component'] = target_acnp_df['registered_resource'].map(areas_to_components)
+    target_acnp_df = target_acnp_df.explode('connected_component')
+    target_acnp_df = target_acnp_df.merge(fragments_participation, on=['connected_component', 'registered_resource'], how='left')
+    target_acnp_df['participation'] = target_acnp_df['participation'].fillna(1)  # non fragmented areas participation set to 1
+    target_acnp_df['value'] = target_acnp_df['value'] * target_acnp_df['participation']
+    target_acnp_df['value'] = target_acnp_df['value'].round(1)
 
     # Validate total network AC net position from schedules to network model and scale to meet scheduled (per each component)
     # Scaling is done through unpaired AC dangling lines
     # From target_acnp variable need to take only areas which are present in network model
     # TODO discuss whether to scale only converged islands or try on all. Currently scales converged higher than 5 buses
     target_network_acnp = {}
-    for component_key, v in converged_components.items():
-        scheduled_component_acnp = float(target_acnp[target_acnp.index.isin(v['countries'])].sum())
+    for component_key, v in valid_components.items():
+        scheduled_component_acnp = float(target_acnp_df[target_acnp_df.connected_component == component_key]['value'].sum().round(1))
         target_network_acnp[component_key] = round(scheduled_component_acnp)  # preserve for scaling report
-        relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("country in @v['countries']")
+        relevant_dangling_lines = dangling_lines[unpaired_dangling_lines].query("connected_component == @component_key")
         relevant_dangling_lines['participation'] = relevant_dangling_lines.boundary_p.abs() / relevant_dangling_lines.boundary_p.abs().sum()
         offset_network_acnp = prescale_network_acnp.get(component_key) - scheduled_component_acnp
         prescale_network_acnp_diff = offset_network_acnp * relevant_dangling_lines.participation
@@ -258,49 +316,63 @@ def scale_balance(model: object,
 
     # Validate total network AC net position alignment
     dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-    postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("country in @v['countries']").boundary_p.sum()) for k, v in converged_components.items()}
+    postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("connected_component == @k").boundary_p.sum()) for k, v in valid_components.items()}
     _scaling_results.append({'KEY': 'postscale-network-acnp', 'GLOBAL': postscale_network_acnp, 'ITER': _iteration})
     logger.info(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP by component: {postscale_network_acnp}")
 
     # Get pre-scale generation and consumption
     if debug:
-        loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-        gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
-        prescale_generation = gens.groupby(_country_col).p.sum() * -1
-        prescale_consumption = loads.groupby(_country_col).p.sum()
+        prescale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR')
+        prescale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD')
         _scaling_results.append(pd.concat([prescale_generation, pd.Series({'KEY': 'generation', 'ITER': _iteration})]).to_dict())
         _scaling_results.append(pd.concat([prescale_consumption, pd.Series({'KEY': 'consumption', 'ITER': _iteration})]).to_dict())
 
     # Get pre-scale AC net positions for each control area
-    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
-    _scaling_results.append(pd.concat([prescale_acnp, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
-    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {prescale_acnp.round().to_dict()}")
+    dangling_lines = dangling_lines[dangling_lines.connected_component.isin(valid_components.keys())]
+    prescale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby([_country_col, 'connected_component']).boundary_p.sum().reset_index()
+    prescale_acnp.connected_component = prescale_acnp.connected_component.astype(int)
+    _pre_scale_acnp_series = prescale_acnp.set_index([_country_col, 'connected_component'])['boundary_p']
+    _scaling_results.append(pd.concat([_pre_scale_acnp_series, pd.Series({'KEY': 'prescale-acnp', 'ITER': _iteration})]).to_dict())
+    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {_pre_scale_acnp_series.round().to_dict()}")
 
     # Filtering target AC net positions series by present regions in network
-    target_acnp = target_acnp[target_acnp.index.isin(prescale_acnp.index)]
+    combined_scaling_target_df = target_acnp_df.merge(prescale_acnp, how='inner',
+                                                      left_on=['connected_component', 'registered_resource'],
+                                                      right_on=['connected_component', _country_col]
+                                                      )
+    target_acnp = combined_scaling_target_df.set_index(['registered_resource', 'connected_component'])['value']
     _scaling_results.append(pd.concat([target_acnp, pd.Series({'KEY': 'target-acnp', 'ITER': _iteration})]).to_dict())
     logger.info(f"[ITER {_iteration}] TARGET ACNP: {target_acnp.to_dict()}")
 
     # Get offsets between target and pre-scale AC net positions for each control area
-    offset_acnp = prescale_acnp - target_acnp[target_acnp.index.isin(prescale_acnp.index)]
-    offset_acnp.dropna(inplace=True)
+    combined_scaling_target_df['offset_acnp'] = combined_scaling_target_df['boundary_p'] - combined_scaling_target_df['value']
+    offset_acnp = combined_scaling_target_df.set_index(['registered_resource', 'connected_component'])['offset_acnp']
     _scaling_results.append(pd.concat([offset_acnp, pd.Series({'KEY': 'offset-acnp', 'ITER': _iteration})]).to_dict())
     logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.round().to_dict()}")
 
-    # Perform scaling of AC part of the network with loop
+    # Perform scaling of AC part schedule of the network model with loop
     while _iteration < int(MAX_ITERATION):
         _iteration += 1
 
         # Get scaling area loads participation factors
         scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
-        scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.groupby(_country_col).p0.transform('sum')
+        scalable_loads = scalable_loads.merge(buses.connected_component, left_on='bus_id', right_index=True, how='left')
+        scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.groupby([_country_col, 'connected_component']).p0.transform('sum')
+
+        # Merge ACNP offsets to scalable loads
+        scalable_loads = scalable_loads.reset_index().merge(
+            combined_scaling_target_df[[_country_col, 'connected_component', 'offset_acnp']],
+            how='left', on=[_country_col, 'connected_component']).set_index('id')
 
         # Scale loads by participation factor
-        scalable_loads_diff = (scalable_loads[_country_col].map(offset_acnp) * scalable_loads.p_participation)
+        scalable_loads_diff = scalable_loads.offset_acnp * scalable_loads.p_participation
         scalable_loads_target = scalable_loads.p0 + scalable_loads_diff
-        scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
-        conform_loads_na = conform_loads.merge((scalable_loads_target.reset_index())[['id']], left_index=True, right_on='id').set_index('id')
+        ## Removing loads which target value is NaN. It can be because missing target ACNP for this area
+        scalable_loads_target.dropna(inplace=True)
+        conform_loads_na = conform_loads.merge((scalable_loads_target.reset_index())[['id']],
+                                               left_index=True, right_on='id').set_index('id')
         network.update_loads(id=scalable_loads_target.index,
                              p0=scalable_loads_target.to_list(),
                              q0=(scalable_loads_target * conform_loads_na.power_factor).to_list())  # maintain power factor
@@ -321,53 +393,43 @@ def scale_balance(model: object,
         distributed_power = round(pf_results[0].distributed_active_power, 2)
         _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
 
-        # # Distributed slack balancing TODO BACKLOG FUNCTIONALITY
-        # scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
-        # scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.p0.sum()
-        # scalable_loads_diff = (distributed_power * scalable_loads.p_participation) * correction_factor
-        # scalable_loads_target = scalable_loads.p0 - scalable_loads_diff
-        # scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
-        # logger.info(f"[ITER {_iteration}] Balancing the network model to reduce to distributed active power: {distributed_power} MW")
-        # network.update_loads(id=scalable_loads_target.index,
-        #                      p0=scalable_loads_target.to_list(),
-        #                      q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
-        #
-        # pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
-        # for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
-        #     result_dict = attr_to_dict(result)
-        #     logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
-        #     logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
-
-        # Get post-scale generation and consumption
+        # Get post-scale generation, consumption and losses
         if debug:
-            gens = get_network_elements(network, pp.network.ElementType.GENERATOR, all_attributes=True)
-            loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True)
-            postscale_generation = gens.groupby(_country_col).p.sum() * -1
-            postscale_consumption = loads.groupby(_country_col).p.sum()
+            postscale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR')
+            postscale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD')
             _scaling_results.append(pd.concat([postscale_generation, pd.Series({'KEY': 'generation', 'ITER': _iteration})]).to_dict())
             _scaling_results.append(pd.concat([postscale_consumption, pd.Series({'KEY': 'consumption', 'ITER': _iteration})]).to_dict())
 
-        # Get post-scale network losses by regions
-        ## It is needed to estimate when loadflow engine balances entire network schedule with distributed slack enabled
-        postscale_losses = get_areas_losses(network=network)
-        total_network_losses = postscale_losses.sum()
-        _scaling_results.append(pd.concat([postscale_losses, pd.Series({'GLOBAL': total_network_losses, 'KEY': 'losses', 'ITER': _iteration})]).to_dict())
-        logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {postscale_losses.round().to_dict()}")
+            # Get post-scale network losses by regions
+            ## It is needed to estimate when loadflow engine balances entire network schedule with distributed slack enabled
+            postscale_losses = get_areas_losses(network=network, buses=buses, components=valid_components)
+            total_network_losses = postscale_losses.sum()
+            _scaling_results.append(pd.concat([postscale_losses, pd.Series({'GLOBAL': total_network_losses, 'KEY': 'losses', 'ITER': _iteration})]).to_dict())
+            logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {postscale_losses.round().to_dict()}")
 
         # Get post-scale AC net position
         dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+        dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
         dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
-        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby(_country_col).boundary_p.sum()
-        _scaling_results.append(pd.concat([postscale_acnp, pd.Series({'KEY': 'postscale-acnp', 'ITER': _iteration})]).to_dict())
-        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {postscale_acnp.round().to_dict()}")
+        dangling_lines = dangling_lines[dangling_lines.connected_component.isin(valid_components.keys())]
+        postscale_acnp = dangling_lines[dangling_lines.isHvdc == ''].groupby([_country_col, 'connected_component']).boundary_p.sum().reset_index()
+        postscale_acnp.connected_component = postscale_acnp.connected_component.astype(int)
+        _post_scale_acnp_series = postscale_acnp.set_index([_country_col, 'connected_component'])['boundary_p']
+        _scaling_results.append(pd.concat([_post_scale_acnp_series, pd.Series({'KEY': 'postscale-acnp', 'ITER': _iteration})]).to_dict())
+        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {_post_scale_acnp_series.round().to_dict()}")
 
         # Get post-scale total network balance
         prescale_total_np = dangling_lines.boundary_p.sum()
         logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
 
         # Get offset between target and post-scale AC net position
-        offset_acnp = postscale_acnp - target_acnp[target_acnp.index.isin(postscale_acnp.index)]
-        offset_acnp.dropna(inplace=True)
+        ## Drop values of boundary_p and offset from first iteration
+        combined_scaling_target_df = combined_scaling_target_df.drop(columns=['offset_acnp', 'boundary_p'])
+        combined_scaling_target_df = combined_scaling_target_df.merge(postscale_acnp, how='left',
+                                                                      on=[_country_col, 'connected_component'])
+        ## Recalculate new offset AC net position
+        combined_scaling_target_df['offset_acnp'] = combined_scaling_target_df['boundary_p'] - combined_scaling_target_df['value']
+        offset_acnp = combined_scaling_target_df.set_index(['registered_resource', 'connected_component'])['offset_acnp']
         _scaling_results.append(pd.concat([offset_acnp, pd.Series({'KEY': 'offset-acnp', 'ITER': _iteration})]).to_dict())
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {offset_acnp.round().to_dict()}")
 
@@ -393,6 +455,7 @@ def scale_balance(model: object,
     ac_melted_df = filtered_df.melt(id_vars=['KEY'], var_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
     ac_pivoted_df['success'] = abs(ac_pivoted_df['final_offset_acnp']) <= int(BALANCE_THRESHOLD)
+    ac_pivoted_df[['area', 'connected_component']] = pd.DataFrame(ac_pivoted_df['area'].tolist(), index=ac_pivoted_df.index)
     ac_scale_report_dict = ac_pivoted_df.to_dict('records')
 
     hvdc_results_df['KEY'] = hvdc_results_df['KEY'].str.replace('-', '_')
@@ -410,12 +473,53 @@ def scale_balance(model: object,
     return model
 
 
-def validate_loadflow_status(results: List):
-    if results[0].status.value == 0:
-        return True
-    else:
-        return False
+################################################    BACKLOG    #########################################################
 
+# # Balancing network to get distributed slack active power close to zero by scaling conform loads of entire network
+# # Distributed active power will be scaled by each area sum load participation
+# scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
+# scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.p0.sum()
+#
+# ## Scale loads by participation factor
+# distributed_power = round(pf_results[0].distributed_active_power, 2)  # using only from main connected component
+# _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
+# scalable_loads_diff = (distributed_power * scalable_loads.p_participation) * correction_factor
+# scalable_loads_target = scalable_loads.p0 - scalable_loads_diff
+# scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
+# logger.info(f"[INITIAL] Balancing the network model to reduce to distributed active power: {distributed_power} MW")
+# network.update_loads(id=scalable_loads_target.index,
+#                      p0=scalable_loads_target.to_list(),
+#                      q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
+#
+# # Solving loadflow after balancing the network
+# pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+# for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
+#     result_dict = attr_to_dict(result)
+#     logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
+#     logger.debug(f"[INITIAL] Loadflow results: {result_dict}")
+#
+# # Log distributed active power after network balancing
+# distributed_power = round(pf_results[0].distributed_active_power, 2)
+# _scaling_results.append({'KEY': 'distributed-power', 'GLOBAL': distributed_power, 'ITER': _iteration})
+# logger.info(f"[INITIAL] Distributed active power after network balancing: {distributed_power} MW")
+
+
+# # Distributed slack balancing in each iteration
+# scalable_loads = get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads.index)
+# scalable_loads['p_participation'] = scalable_loads.p0 / scalable_loads.p0.sum()
+# scalable_loads_diff = (distributed_power * scalable_loads.p_participation) * correction_factor
+# scalable_loads_target = scalable_loads.p0 - scalable_loads_diff
+# scalable_loads_target.dropna(inplace=True)  # removing loads which target value is NaN. It can be because missing target ACNP for this area
+# logger.info(f"[ITER {_iteration}] Balancing the network model to reduce to distributed active power: {distributed_power} MW")
+# network.update_loads(id=scalable_loads_target.index,
+#                      p0=scalable_loads_target.to_list(),
+#                      q0=(scalable_loads_target * conform_loads.power_factor).to_list())  # maintain power factor
+#
+# pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+# for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
+#     result_dict = attr_to_dict(result)
+#     logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
+#     logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
 def hvdc_schedule_mapper(row, country_col_name: str = 'country'):
     """BACKLOG FUNCTION. CURRENTLY NOT USED"""

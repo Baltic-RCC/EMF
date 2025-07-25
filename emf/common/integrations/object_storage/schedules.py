@@ -20,13 +20,16 @@ def query_hvdc_schedules(time_horizon: str,
     # Get area name to eic mapping
     try:
         area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+        hvdc_eic_codes = service.get_docs_by_query(index='config-bds-lines', query={'match_all': {}}, size=500)
+        area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
+        hvdc_eic_map = hvdc_eic_codes.set_index('IdentifiedObject.energyIdentCodeEic')['IdentifiedObject.description'].to_dict()
     except Exception as e:
         logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
         import json
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
+        hvdc_eic_map = {}
 
     # Define utc start/end times from timestamp
     utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
@@ -57,14 +60,17 @@ def query_hvdc_schedules(time_horizon: str,
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
 
+    # Map HVDC names
+    schedules_df["hvdc_name"] = schedules_df["TimeSeries.connectingLine_RegisteredResource.mRID"].map(hvdc_eic_map)
+
     # Filter to the latest revision number
     schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
-    # TODO filter out data by reason code that take only verified tada
+    # TODO filter out data by reason code that take only verified data
 
     # Get relevant structure and convert to dictionary
-    _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID"]
+    _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID", "hvdc_name"]
     schedules_df = schedules_df[_cols]
     schedules_df.rename(columns={"TimeSeries.connectingLine_RegisteredResource.mRID": "registered_resource"},
                         inplace=True)
@@ -87,7 +93,7 @@ def query_acnp_schedules(time_horizon: str,
     # Get area name to eic mapping
     try:
         area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes[['area.eic', 'area.code']].set_index('area.eic').T.to_dict('records')[0]
+        area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
     except Exception as e:
         logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
