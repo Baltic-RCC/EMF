@@ -120,7 +120,8 @@ def get_fragmented_areas_participation(unpaired_dangling_lines: pd.DataFrame, ar
             logger.warning(f"Fragmented area identified: {area} in components {list(comps)}")
             area_dangling_lines = unpaired_dangling_lines.query("country == @area")
             fragments_acnp = {comp: area_dangling_lines[area_dangling_lines.connected_component == comp].boundary_p.sum() for comp in comps}
-            participation = {k: abs(v) / abs(sum(fragments_acnp.values())) for k, v in fragments_acnp.items()}
+            total_fragments_acnp = abs(sum(fragments_acnp.values())) or 1  # removing zero division warning
+            participation = {k: abs(v) / total_fragments_acnp for k, v in fragments_acnp.items()}
             fragmented_areas.append(pd.DataFrame({'connected_component': list(participation.keys()),
                                                   'participation': list(participation.values()),
                                                   'registered_resource': area}))
@@ -183,7 +184,8 @@ def scale_balance(model: object,
     present_areas = dangling_lines[_country_col].drop_duplicates()
     missing_ac_schedule = present_areas[~present_areas.isin(target_acnp_df.registered_resource)].to_list()
     if missing_ac_schedule:
-        logger.warning(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
+        # TODO consider exit scaling here if some schedules are missing
+        logger.error(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
 
     # Get pre-scale HVDC setpoints
     prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q']]
@@ -387,6 +389,7 @@ def scale_balance(model: object,
         # Check loadflow status
         if not validate_loadflow_status(results=pf_results):
             model.scaled = False
+            logger.warning(f"Terminating network scaling due to divergence in main island after iteration: {_iteration}")
             return model
 
         # Store distributed active power after AC part scaling
@@ -456,7 +459,7 @@ def scale_balance(model: object,
     ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
     ac_pivoted_df['success'] = abs(ac_pivoted_df['final_offset_acnp']) <= int(BALANCE_THRESHOLD)
     ac_pivoted_df[['area', 'connected_component']] = pd.DataFrame(ac_pivoted_df['area'].tolist(), index=ac_pivoted_df.index)
-    ac_scale_report_dict = ac_pivoted_df.to_dict('records')
+    ac_scale_report_dict = ac_pivoted_df.astype(object).where(pd.notna(ac_pivoted_df), None).to_dict('records')
 
     hvdc_results_df['KEY'] = hvdc_results_df['KEY'].str.replace('-', '_')
     hvdc_melted_df = hvdc_results_df.melt(id_vars=['KEY'], var_name='name', value_name='value')
