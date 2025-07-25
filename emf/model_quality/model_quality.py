@@ -45,8 +45,10 @@ class HandlerModelQuality:
                 logger.error("Failed to load IGM")
                 network = pd.DataFrame
         else:
-            logger.error("Incorrect or missing metadata")
+            logger.error("Data not loaded, skipping quality check")
             network = pd.DataFrame
+
+        # TODO add tieflow calc outside the report/statistics function
 
         # Generate quality report and network statistics
         if not network.empty:
@@ -57,7 +59,9 @@ class HandlerModelQuality:
                 model_statistics = {}
                 logger.error(f"Failed to get model statistics: {e}")
         else:
-            raise TypeError("Model was not loaded correctly, either missing in MinIO or incorrect data")
+            model_statistics = {}
+            qa_report = {}
+            logger.error("Model was not loaded correctly, either missing in MinIO or incorrect data")
 
         if model_statistics:
             model_statistics.update(common_metadata)
@@ -68,7 +72,7 @@ class HandlerModelQuality:
 
             logger.info(f"Statistics report sent to elastic index: '{ELK_STATISTICS_INDEX}'")
         else:
-            raise TypeError("Statistics report generator failed, data not sent")
+            logger.error("Statistics report generator failed, data not sent")
 
         # Send validation report to Elastic
         if qa_report:

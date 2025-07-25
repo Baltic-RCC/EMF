@@ -41,10 +41,25 @@ def generate_quality_report(network, object_type, model_metadata):
             report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
 
         # Check cross-border line inconsistencies
-        # pairing_keys = d_lines.groupby('pairing_key')['connected'].nunique()
-        # mismatch = len(pairing_keys[pairing_keys > 1].index.tolist())
-        # flag = mismatch < 1
-        # report.update({"xb_mismatch": mismatch, "xb_consitency_check": flag})
+        try:
+            boundary_nodes = network.type_tableview('TopologicalNode').reset_index()
+            boundary_nodes = boundary_nodes[boundary_nodes['TopologicalNode.boundaryPoint'] == "true"]
+            # Merge boundary nodes to terminals
+            terminals = (network.type_tableview('Terminal').reset_index()
+                         .merge(boundary_nodes[['ID']].rename(columns={'ID': 'Terminal.TopologicalNode'}),
+                                on='Terminal.TopologicalNode'))
+
+
+            # Check by devices. If any of the terminals is off maybe flip others also off.
+            terminals = (terminals.groupby('Terminal.ConductingEquipment')
+                         .apply(lambda x: and_to_boolean(x)).reset_index(drop=True))
+            connected_all_mask = terminals.groupby('Terminal.TopologicalNode')['ACDCTerminal.connected'].nunique()
+            mismatch = len(connected_all_mask[connected_all_mask > 1].index.tolist())
+            mismatch_boolean = mismatch < 1
+            report.update({"xborder_inconsistencies": mismatch, "xborder_consistency_check": mismatch_boolean})
+
+        except:
+            report.update({"xborder_inconsistencies": None, "xborder_consistency_check": False})
 
         # TODO Check model outage mismatch with outage plan
         # model_outages = pd.DataFrame(get_model_outages(network=network))
@@ -58,6 +73,18 @@ def generate_quality_report(network, object_type, model_metadata):
         logger.error("Incorrect object type metadata")
 
     return report
+
+
+def and_to_boolean(input_data, field_name: str = 'ACDCTerminal.connected'):
+    try:
+        if len(input_data.index) > 1 and not input_data[field_name].astype('bool').all():
+            logger.warning(f"Mismatch on terminals")
+            input_data[field_name] = False
+    except KeyError:
+        pass
+    except Exception as ex:
+        logger.warning(f"{ex}")
+    return input_data
 
 
 def set_common_metadata(model_metadata, object_type):
