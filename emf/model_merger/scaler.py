@@ -125,7 +125,13 @@ def get_fragmented_areas_participation(unpaired_dangling_lines: pd.DataFrame, ar
             fragmented_areas.append(pd.DataFrame({'connected_component': list(participation.keys()),
                                                   'participation': list(participation.values()),
                                                   'registered_resource': area}))
-    return pd.concat(fragmented_areas)
+
+    if fragmented_areas:
+        fragmented_areas = pd.concat(fragmented_areas)
+    else:
+        fragmented_areas = pd.DataFrame(columns=['connected_component', 'participation', 'registered_resource'])
+
+    return fragmented_areas
 
 
 @performance_counter(units='seconds')
@@ -278,7 +284,7 @@ def scale_balance(model: object,
     target_acnp_df['connected_component'] = target_acnp_df['registered_resource'].map(areas_to_components)
     target_acnp_df = target_acnp_df.explode('connected_component')
     target_acnp_df = target_acnp_df.merge(fragments_participation, on=['connected_component', 'registered_resource'], how='left')
-    target_acnp_df['participation'] = target_acnp_df['participation'].fillna(1)  # non fragmented areas participation set to 1
+    target_acnp_df['participation'] = target_acnp_df['participation'].astype(float).fillna(1)  # non fragmented areas participation set to 1
     target_acnp_df['value'] = target_acnp_df['value'] * target_acnp_df['participation']
     target_acnp_df['value'] = target_acnp_df['value'].round(1)
 
