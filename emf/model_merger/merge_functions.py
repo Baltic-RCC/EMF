@@ -640,7 +640,7 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
                            .reset_index())[['Terminal', 'SvPowerFlow.p']]
         tie_flows = tie_flows.merge(power_flows_pre, on='Terminal', how='left')
     except Exception as error:
-        logger.error(f"Was not able to get tie flows from original models with exception: {error}")
+        logger.warning(f"Was not able to get tie flows from original models with exception: {error}")
     power_flows_post = (cgm_sv_data.type_tableview('SvPowerFlow')
                         .rename(columns={'SvPowerFlow.Terminal': 'Terminal'})
                         .reset_index())[['Terminal', 'SvPowerFlow.p']]
@@ -824,6 +824,7 @@ def run_post_merge_processing(input_models: list,
     injection_threshold = float(INJECTION_THRESHOLD)
     net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
+    fix_other_errors = json.loads(str(FIX_OTHER_ERRORS).lower())
 
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
                                             cgm_sv_data=sv_data,
@@ -844,7 +845,9 @@ def run_post_merge_processing(input_models: list,
                                                         original_models=input_models_triplets,
                                                         threshold=injection_threshold,
                                                         fix_errors=fix_injection_errors)
-
+    sv_data = temporary.check_for_disconnected_terminals(cgm_sv_data=sv_data,
+                                                         original_models=input_models_triplets,
+                                                         fix_errors=fix_other_errors)
     try:
         ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
                                           cgm_ssh_data=ssh_data,
@@ -853,6 +856,13 @@ def run_post_merge_processing(input_models: list,
                                           threshold=net_interchange_threshold)
     except KeyError:
         logger.warning(f"No fields for net interchange correction")
+    try:
+        ssh_data = temporary.check_energized_boundary_nodes(cgm_sv_data=sv_data,
+                                                            cgm_ssh_data=ssh_data,
+                                                            original_models=input_models_triplets,
+                                                            fix_errors=fix_other_errors)
+    except AttributeError:
+        logger.warning(f"Unable to check energized boundary nodes")
 
     return sv_data, ssh_data, opdm_object_meta
 
