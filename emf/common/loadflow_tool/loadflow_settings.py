@@ -134,19 +134,6 @@ __CGM_RELAXED_2_PROVIDER = {
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
-__CGM_RELAXED_3_CUSTOM_PROVIDER = {
-    # 'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
-    'loadPowerFactorConstant': 'True',
-    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
-    'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
-    'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
-    'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
-    'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
-    'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
-    'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
-    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
-    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
-}
 
 # Preparing CGM PROVIDER settings options from default settings
 IGM_VALIDATION_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
@@ -160,9 +147,6 @@ CGM_RELAXED_1_PROVIDER.update(__CGM_RELAXED_1_PROVIDER)
 
 CGM_RELAXED_2_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 CGM_RELAXED_2_PROVIDER.update(__CGM_RELAXED_2_PROVIDER)
-
-CGM_RELAXED_3_CUSTOM_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
-CGM_RELAXED_3_CUSTOM_PROVIDER.update(__CGM_RELAXED_3_CUSTOM_PROVIDER)
 
 # Prepare pypowsybl loadflow parameters classes
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
@@ -231,21 +215,4 @@ CGM_RELAXED_2 = pypowsybl.loadflow.Parameters(
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=CGM_RELAXED_2_PROVIDER,
-)
-
-CGM_RELAXED_3_CUSTOM = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
-    transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
-    use_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "false"
-    phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0"
-    twt_split_shunt_admittance=None,
-    shunt_compensator_voltage_control_on=False,  # cim:PowerFlowSettings.switchedShuntControlPriority "0"
-    read_slack_bus=True,
-    write_slack_bus=False,
-    distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_CONFORM_LOAD,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
-    dc_use_transformer_ratio=None,
-    countries_to_balance=None,
-    connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
-    provider_parameters=CGM_RELAXED_3_CUSTOM_PROVIDER,
 )
