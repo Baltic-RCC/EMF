@@ -165,6 +165,7 @@ class HandlerMergeModels:
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
         post_temp_fixes = task_properties['post_temp_fixes']
         force_outage_fix = task_properties['force_outage_fix']
+        lvl8_reporting = task_properties['lvl8_reporting']
 
         # Collect valid models from ObjectStorage
         downloaded_models = get_latest_models_and_download(time_horizon=time_horizon,
@@ -440,7 +441,13 @@ class HandlerMergeModels:
                     logger.error(f"Merge report sending to Elastic failed: {error}")
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
-
+            
+            #send lvl 8 report
+            if lvl8_reporting:
+                lvl8_report = merge_functions.lvl8_report_cgm(merge_report)
+                logger.debug(f"lvl8 report generated: {lvl8_report}")
+                #TODO Sending the report via EDX.
+        
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
         properties.headers = extracted_meta
@@ -500,6 +507,7 @@ if __name__ == "__main__":
             "upload_to_minio": "True",
             "send_merge_report": "False",
             "force_outage_fix": "False",
+            "lvl8_reporting" : "True"
         }
     }
 
