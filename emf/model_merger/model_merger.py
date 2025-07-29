@@ -68,7 +68,8 @@ class MergedModel:
     replacement_reason: List = field(default_factory=list)
     outages_updated: List = field(default_factory=list)
     outages_unmapped: List = field(default_factory=list)
-
+    included_opdm: List = field(default_factory=list)
+    included_local: List = field(default_factory=list)
 
 class HandlerMergeModels:
 
@@ -180,6 +181,19 @@ class HandlerMergeModels:
                                                excluded_models=excluded_models,
                                                filter_on='pmd:TSO')
 
+        merged_model.included_opdm=[
+            {
+                'tso': item['pmd:TSO'],
+                'time_horizon': item['pmd:timeHorizon'],
+                'scenario_timestamp': item['pmd:scenarioDate'],
+                'pmd:fullModel_ID': item['pmd:fullModel_ID'],
+                'pmd:version': item['pmd:version'],
+                'qualityIndicator': 'valid',
+                'pmd:creationDate': item['pmd:creationDate'],
+            }
+        for item in models
+        ]
+
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
             additional_models = get_latest_models_and_download(time_horizon=time_horizon,
@@ -189,7 +203,18 @@ class HandlerMergeModels:
             additional_models = merge_functions.filter_models(models=additional_models,
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
-
+            merged_model.included_local = [
+                {
+                    'tso': item['pmd:TSO'],
+                    'time_horizon': item['pmd:timeHorizon'],
+                    'scenario_timestamp': item['pmd:scenarioDate'],
+                    'pmd:fullModel_ID': item['pmd:fullModel_ID'],
+                    'pmd:version': item['pmd:version'],
+                    'qualityIndicator': 'valid',
+                    'pmd:creationDate': item['pmd:creationDate'],
+                }
+                for item in additional_models
+            ]
             missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
@@ -205,7 +230,13 @@ class HandlerMergeModels:
                     logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
                     replaced_entities_local = [{'tso': model['pmd:TSO'],
                                                 'time_horizon': model['pmd:timeHorizon'],
-                                                'scenario_timestamp': model['pmd:scenarioDate']} for model in replacement_models_local]
+                                                'scenario_timestamp': model['pmd:scenarioDate'],
+                                                'pmd:fullModel_ID': model['pmd:fullModel_ID'],
+                                                'pmd:version': model['pmd:version'],
+                                                'data_source' : 'PDN',
+                                                'qualityIndicator': 'replaced',
+                                                'pmd:creationDate': model['pmd:creationDate']
+                                                } for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
                     additional_models.extend(replacement_models_local)
                 except Exception as error:
@@ -236,9 +267,13 @@ class HandlerMergeModels:
                 if replacement_models:
                     logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     replaced_entities = [{'tso': model['pmd:TSO'],
-                                          'time_horizon': model['pmd:timeHorizon'],
-                                          'scenario_timestamp': model['pmd:scenarioDate']}
-                                         for model in replacement_models]
+                                        'time_horizon': model['pmd:timeHorizon'],
+                                        'scenario_timestamp': model['pmd:scenarioDate'],
+                                        'pmd:fullModel_ID': model['pmd:fullModel_ID'],
+                                        'pmd:version': model['pmd:version'],
+                                        'data_source' : 'OPDM',
+                                        'qualityIndicator': 'replaced',
+                                        'pmd:creationDate': model['pmd:creationDate'] } for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)
                     merged_model.replaced = True
