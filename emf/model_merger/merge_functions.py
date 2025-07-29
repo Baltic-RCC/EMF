@@ -860,7 +860,7 @@ def lvl8_report_cgm(merge_report):
 
     # Create <QAReport> root
     qa_attribs = {
-        'created': "2025-07-27T16:04:34Z",
+        'created': merge_report['pmd:creationDate'],
         'schemeVersion': "2.0",
         'serviceProvider': merge_report["merge_entity"],
         'xmlns': "http://entsoe.eu/checks"
@@ -921,18 +921,17 @@ def lvl8_report_cgm(merge_report):
 
 
     # TODO:pick the TSOs from QA report. Missing parameters below for all IGMs
-    for i in merge_report['included']:
+    for i in merge_report['included_opdm'] + merge_report['included_local'] + merge_report['replaced_entity']:
         igm = ET.SubElement(cgm, "IGM", {
-            'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
-            'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
-            'tso': i,
-            'version': 'version',
-            'processType': 'processType',
-            'qualityIndicator': 'qualityIndicator',
-            'resource':"resource"
+            'created': i["pmd:creationDate"],
+            'scenarioTime': datetime.datetime.fromisoformat(i['scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'tso': i['tso'],
+            'version': i['pmd:version'],
+            'processType': i['time_horizon'],
+            'qualityIndicator': i['qualityIndicator'],
         })
         resource_igm= ET.SubElement(igm, "resource")
-        resource_igm.text="resource"
+        resource_igm.text=i['pmd:fullModel_ID']
 
 
     # Add EMFInformation
