@@ -190,6 +190,7 @@ class HandlerMergeModels:
                 '@version': item['pmd:version'],
                 'qualityIndicator': 'Valid',
                 '@timestamp': item['pmd:creationDate'],
+                'filename': item['pmd:fileName']
             }
         for item in models
         ]
@@ -213,6 +214,7 @@ class HandlerMergeModels:
                     '@version': item['pmd:version'],
                     'qualityIndicator': 'Valid',
                     '@timestamp': item['pmd:creationDate'],
+                    'filename': item['pmd:fileName']
                 }
                 for item in additional_models
             ]
@@ -237,7 +239,8 @@ class HandlerMergeModels:
                                                 '@version': model['pmd:version'],
                                                 '@data_source' : 'PDN',
                                                 'qualityIndicator': 'Substituted',
-                                                '@timestamp': model['pmd:creationDate']
+                                                '@timestamp': model['pmd:creationDate'],
+                                                'filename': model['pmd:fileName']
                                                 } for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
                     additional_models.extend(replacement_models_local)
@@ -275,7 +278,8 @@ class HandlerMergeModels:
                                         '@version': model['pmd:version'],
                                         '@data_source' : 'OPDM',
                                         'qualityIndicator': 'Substituted',
-                                        '@timestamp': model['pmd:creationDate'] } for model in replacement_models]
+                                        '@timestamp': model['pmd:creationDate'], 
+                                        'filename': model['pmd:fileName']} for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)
                     merged_model.replaced = True
