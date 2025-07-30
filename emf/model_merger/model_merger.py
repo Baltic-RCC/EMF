@@ -11,7 +11,7 @@ from emf.common.helpers.time import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import opdm, minio_api, elastic
+from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
 from emf.common.loadflow_tool import loadflow_settings
