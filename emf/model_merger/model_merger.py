@@ -188,7 +188,7 @@ class HandlerMergeModels:
                 '@scenario_timestamp': item['pmd:scenarioDate'],
                 'fullModel_ID': item['pmd:fullModel_ID'],
                 '@version': item['pmd:version'],
-                'qualityIndicator': 'valid',
+                'qualityIndicator': 'Valid',
                 '@timestamp': item['pmd:creationDate'],
             }
         for item in models
@@ -211,7 +211,7 @@ class HandlerMergeModels:
                     '@scenario_timestamp': item['pmd:scenarioDate'],
                     'fullModel_ID': item['pmd:fullModel_ID'],
                     '@version': item['pmd:version'],
-                    'qualityIndicator': 'valid',
+                    'qualityIndicator': 'Valid',
                     '@timestamp': item['pmd:creationDate'],
                 }
                 for item in additional_models
@@ -236,7 +236,7 @@ class HandlerMergeModels:
                                                 'fullModel_ID': model['pmd:fullModel_ID'],
                                                 '@version': model['pmd:version'],
                                                 '@data_source' : 'PDN',
-                                                'qualityIndicator': 'replaced',
+                                                'qualityIndicator': 'Substituted',
                                                 '@timestamp': model['pmd:creationDate']
                                                 } for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
@@ -274,7 +274,7 @@ class HandlerMergeModels:
                                         'fullModel_ID': model['pmd:fullModel_ID'],
                                         '@version': model['pmd:version'],
                                         '@data_source' : 'OPDM',
-                                        'qualityIndicator': 'replaced',
+                                        'qualityIndicator': 'Substituted',
                                         '@timestamp': model['pmd:creationDate'] } for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)

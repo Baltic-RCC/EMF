@@ -864,7 +864,7 @@ def lvl8_report_cgm(merge_report):
     qa_attribs = {
         'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
         'schemeVersion': "2.0",
-        'serviceProvider': merge_report['network_meta']['fullModel_ID'],
+        'serviceProvider': merge_report["merge_entity"],
         'xmlns': "http://entsoe.eu/checks"
     }
     qa_root = ET.Element("QAReport", attrib=qa_attribs)
