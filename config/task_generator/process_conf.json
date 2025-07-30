@@ -39,7 +39,9 @@
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -73,7 +75,9 @@
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -107,7 +111,9 @@
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -141,7 +147,9 @@
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -175,7 +183,9 @@
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       }
      ]
@@ -227,7 +237,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -268,7 +280,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -309,7 +323,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -349,7 +365,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -390,7 +408,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -431,7 +451,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
       {
@@ -472,7 +494,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },   
       
@@ -517,7 +541,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       },
 
@@ -562,7 +588,9 @@
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
-        "send_merge_report": "True"
+        "send_merge_report": "True",
+        "force_outage_fix": "False",
+        "lvl8_reporting" : "True"
        }
       }
 

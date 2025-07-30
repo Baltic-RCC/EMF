@@ -184,15 +184,16 @@ class HandlerMergeModels:
         merged_model.included_opdm=[
             {
                 'tso': item['pmd:TSO'],
-                'time_horizon': item['pmd:timeHorizon'],
-                'scenario_timestamp': item['pmd:scenarioDate'],
-                'pmd:fullModel_ID': item['pmd:fullModel_ID'],
-                'pmd:version': item['pmd:version'],
+                '@time_horizon': item['pmd:timeHorizon'],
+                '@scenario_timestamp': item['pmd:scenarioDate'],
+                'fullModel_ID': item['pmd:fullModel_ID'],
+                '@version': item['pmd:version'],
                 'qualityIndicator': 'valid',
-                'pmd:creationDate': item['pmd:creationDate'],
+                '@timestamp': item['pmd:creationDate'],
             }
         for item in models
         ]
+
 
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
@@ -206,15 +207,16 @@ class HandlerMergeModels:
             merged_model.included_local = [
                 {
                     'tso': item['pmd:TSO'],
-                    'time_horizon': item['pmd:timeHorizon'],
-                    'scenario_timestamp': item['pmd:scenarioDate'],
-                    'pmd:fullModel_ID': item['pmd:fullModel_ID'],
-                    'pmd:version': item['pmd:version'],
+                    '@time_horizon': item['pmd:timeHorizon'],
+                    '@scenario_timestamp': item['pmd:scenarioDate'],
+                    'fullModel_ID': item['pmd:fullModel_ID'],
+                    '@version': item['pmd:version'],
                     'qualityIndicator': 'valid',
-                    'pmd:creationDate': item['pmd:creationDate'],
+                    '@timestamp': item['pmd:creationDate'],
                 }
                 for item in additional_models
             ]
+
             missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
@@ -229,13 +231,13 @@ class HandlerMergeModels:
 
                     logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
                     replaced_entities_local = [{'tso': model['pmd:TSO'],
-                                                'time_horizon': model['pmd:timeHorizon'],
-                                                'scenario_timestamp': model['pmd:scenarioDate'],
-                                                'pmd:fullModel_ID': model['pmd:fullModel_ID'],
-                                                'pmd:version': model['pmd:version'],
-                                                'data_source' : 'PDN',
+                                                '@time_horizon': model['pmd:timeHorizon'],
+                                                '@scenario_timestamp': model['pmd:scenarioDate'],
+                                                'fullModel_ID': model['pmd:fullModel_ID'],
+                                                '@version': model['pmd:version'],
+                                                '@data_source' : 'PDN',
                                                 'qualityIndicator': 'replaced',
-                                                'pmd:creationDate': model['pmd:creationDate']
+                                                '@timestamp': model['pmd:creationDate']
                                                 } for model in replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
                     additional_models.extend(replacement_models_local)
@@ -267,13 +269,13 @@ class HandlerMergeModels:
                 if replacement_models:
                     logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
                     replaced_entities = [{'tso': model['pmd:TSO'],
-                                        'time_horizon': model['pmd:timeHorizon'],
-                                        'scenario_timestamp': model['pmd:scenarioDate'],
-                                        'pmd:fullModel_ID': model['pmd:fullModel_ID'],
-                                        'pmd:version': model['pmd:version'],
-                                        'data_source' : 'OPDM',
+                                        '@time_horizon': model['pmd:timeHorizon'],
+                                        '@scenario_timestamp': model['pmd:scenarioDate'],
+                                        'fullModel_ID': model['pmd:fullModel_ID'],
+                                        '@version': model['pmd:version'],
+                                        '@data_source' : 'OPDM',
                                         'qualityIndicator': 'replaced',
-                                        'pmd:creationDate': model['pmd:creationDate'] } for model in replacement_models]
+                                        '@timestamp': model['pmd:creationDate'] } for model in replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)
                     merged_model.replaced = True
@@ -395,6 +397,8 @@ class HandlerMergeModels:
                                                                                         task_properties=task_properties
                                                                                         )
 
+        #for merge report need to get the final uuid.
+        merged_model.network_meta['fullModel_ID'] = opdm_object_meta['pmd:fullModel_ID']
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
         post_p_end = datetime.datetime.now(datetime.UTC)
@@ -477,11 +481,18 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
             
-            #send lvl 8 report
-            if lvl8_reporting:
+        #send lvl 8 report
+        if lvl8_reporting:    
+            try:
                 lvl8_report = merge_functions.lvl8_report_cgm(merge_report)
-                logger.debug(f"lvl8 report generated: {lvl8_report}")
-                #TODO Sending the report via EDX.
+                service_edx = edx.EDX()#.create_client(server=EDX_SERVER, username=EDX_USERNAME, password=EDX_PASSWORD)
+                message_id = service_edx.send_message(receiver_EIC=QAS_EIC,
+                                                         business_type=QAS_MSG_TYPE,
+                                                         content=lvl8_report)
+                logger.info(f"lvl8 report generated and sent-ID: {message_id}")#: {lvl8_report}")
+            except Exception as error:
+                logger.error(f"Failed to send lvl8 report: {error}")
+
         
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}

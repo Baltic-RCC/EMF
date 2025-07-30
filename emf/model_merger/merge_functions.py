@@ -9,12 +9,14 @@ import datetime
 import triplets
 import uuid
 import config
+import xml.etree.ElementTree as ET
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
+
 
 logger = logging.getLogger(__name__)
 
@@ -860,9 +862,9 @@ def lvl8_report_cgm(merge_report):
 
     # Create <QAReport> root
     qa_attribs = {
-        'created': merge_report['pmd:creationDate'],
+        'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
         'schemeVersion': "2.0",
-        'serviceProvider': merge_report["merge_entity"],
+        'serviceProvider': merge_report['network_meta']['fullModel_ID'],
         'xmlns': "http://entsoe.eu/checks"
     }
     qa_root = ET.Element("QAReport", attrib=qa_attribs)
@@ -898,7 +900,7 @@ def lvl8_report_cgm(merge_report):
     # Create <CGM>
     cgm_attribs = {
         'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'resource': "resource" ,#TODO get here correct content ID
+        'resource': merge_report['network_meta']['fullModel_ID'] ,#TODO get here correct content ID
         'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'version': str(merge_report["@version"]),
         'processType': merge_report["@time_horizon"],
@@ -923,15 +925,15 @@ def lvl8_report_cgm(merge_report):
     # TODO:pick the TSOs from QA report. Missing parameters below for all IGMs
     for i in merge_report['included_opdm'] + merge_report['included_local'] + merge_report['replaced_entity']:
         igm = ET.SubElement(cgm, "IGM", {
-            'created': i["pmd:creationDate"],
-            'scenarioTime': datetime.datetime.fromisoformat(i['scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'created': i["@timestamp"],
+            'scenarioTime': datetime.datetime.fromisoformat(i['@scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'tso': i['tso'],
-            'version': i['pmd:version'],
-            'processType': i['time_horizon'],
+            'version': i['@version'],
+            'processType': i['@time_horizon'],
             'qualityIndicator': i['qualityIndicator'],
         })
         resource_igm= ET.SubElement(igm, "resource")
-        resource_igm.text=i['pmd:fullModel_ID']
+        resource_igm.text=i['fullModel_ID']
 
 
     # Add EMFInformation
@@ -941,8 +943,8 @@ def lvl8_report_cgm(merge_report):
     })
 
     # Generate final XML
-    qa_report_lvl8 = minidom.parseString(ET.tostring(qa_root, encoding='utf-8', xml_declaration=True))
-    logger.debug(qa_report_lvl8.toprettyxml(indent="   "))
+    qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
+
     return qa_report_lvl8
 
 if __name__ == "__main__":
