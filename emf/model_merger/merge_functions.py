@@ -858,7 +858,7 @@ def run_post_merge_processing(input_models: list,
 
     return sv_data, ssh_data, opdm_object_meta
 
-def lvl8_report_cgm(merge_report):
+def lvl8_report_cgm(merge_report: dict):
 
     # Create <QAReport> root
     qa_attribs = {
@@ -932,8 +932,8 @@ def lvl8_report_cgm(merge_report):
             'processType': i['@time_horizon'],
             'qualityIndicator': i['qualityIndicator'],
         })
-        resource_igm= ET.SubElement(igm, "resource")
-        resource_igm.text=i['fullModel_ID']
+        resource_igm = ET.SubElement(igm, "resource")
+        resource_igm.text = i['fullModel_ID']
 
 
     # Add EMFInformation
@@ -946,6 +946,7 @@ def lvl8_report_cgm(merge_report):
     qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
 
     return qa_report_lvl8
+
 
 if __name__ == "__main__":
 

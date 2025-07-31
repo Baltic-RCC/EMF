@@ -181,20 +181,19 @@ class HandlerMergeModels:
                                                excluded_models=excluded_models,
                                                filter_on='pmd:TSO')
 
-        merged_model.included_opdm=[
+        merged_model.merge_included_opdm = [
             {
                 'tso': item['pmd:TSO'],
-                '@time_horizon': item['pmd:timeHorizon'],
-                '@scenario_timestamp': item['pmd:scenarioDate'],
-                'fullModel_ID': item['pmd:fullModel_ID'],
-                '@version': item['pmd:version'],
-                'qualityIndicator': 'Valid',
-                '@timestamp': item['pmd:creationDate'],
-                'filename': item['pmd:fileName']
+                'time_horizon': item['pmd:timeHorizon'],
+                'scenario_timestamp': item['pmd:scenarioDate'],
+                'model_sv_id': item['pmd:fullModel_ID'],
+                'version': item['pmd:version'],
+                'quality_indicator': 'Valid',
+                'creation_timestamp': item['pmd:creationDate'],
+                'file_name': item['pmd:fileName']
             }
-        for item in models
+            for item in models
         ]
-
 
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
@@ -205,16 +204,16 @@ class HandlerMergeModels:
             additional_models = merge_functions.filter_models(models=additional_models,
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
-            merged_model.included_local = [
+            merged_model.merge_included_local = [
                 {
                     'tso': item['pmd:TSO'],
-                    '@time_horizon': item['pmd:timeHorizon'],
-                    '@scenario_timestamp': item['pmd:scenarioDate'],
-                    'fullModel_ID': item['pmd:fullModel_ID'],
-                    '@version': item['pmd:version'],
-                    'qualityIndicator': 'Valid',
-                    '@timestamp': item['pmd:creationDate'],
-                    'filename': item['pmd:fileName']
+                    'time_horizon': item['pmd:timeHorizon'],
+                    'scenario_timestamp': item['pmd:scenarioDate'],
+                    'model_sv_id': item['pmd:fullModel_ID'],
+                    'version': item['pmd:version'],
+                    'quality_indicator': 'Valid',
+                    'creation_timestamp': item['pmd:creationDate'],
+                    'file_name': item['pmd:fileName']
                 }
                 for item in additional_models
             ]
@@ -233,7 +232,7 @@ class HandlerMergeModels:
 
                     logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
                     replaced_entities_local = [{'tso': model['pmd:TSO'],
-                                                '@time_horizon': model['pmd:timeHorizon'],
+                                                'time_horizon': model['pmd:timeHorizon'],
                                                 '@scenario_timestamp': model['pmd:scenarioDate'],
                                                 'fullModel_ID': model['pmd:fullModel_ID'],
                                                 '@version': model['pmd:version'],
@@ -485,17 +484,17 @@ class HandlerMergeModels:
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
             
-        #send lvl 8 report
+        # Send QAS level 8 report if configured
         if lvl8_reporting:    
             try:
-                lvl8_report = merge_functions.lvl8_report_cgm(merge_report)
-                service_edx = edx.EDX()#.create_client(server=EDX_SERVER, username=EDX_USERNAME, password=EDX_PASSWORD)
+                lvl8_report = merge_functions.lvl8_report_cgm(merge_report=merge_report)
+                service_edx = edx.EDX()
                 message_id = service_edx.send_message(receiver_EIC=QAS_EIC,
-                                                         business_type=QAS_MSG_TYPE,
-                                                         content=lvl8_report)
-                logger.info(f"lvl8 report generated and sent-ID: {message_id}")#: {lvl8_report}")
+                                                      business_type=QAS_MSG_TYPE,
+                                                      content=lvl8_report)
+                logger.info(f"QAS-Level-8 report generated and sent with ID: {message_id}")
             except Exception as error:
-                logger.error(f"Failed to send lvl8 report: {error}")
+                logger.error(f"Failed to send QAS-Level-8 report with error: {error}")
 
         
         # Append message headers with OPDM root metadata
