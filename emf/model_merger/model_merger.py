@@ -73,6 +73,7 @@ class MergedModel:
 @dataclass(init=False)
 class ModelEntity:
     data_source: str = "OPDM"
+    quality_indicator: str = "Valid"
     tso: str = None
     time_horizon: str = None
     scenario_timestamp: str = None
@@ -82,8 +83,9 @@ class ModelEntity:
     creation_timestamp: str = None
     file_name: str = None
 
-    def __init__(self, data_source: str, **kwargs):
+    def __init__(self, data_source: str, quality_indicator: str, **kwargs):
         self.data_source = data_source
+        self.quality_indicator = quality_indicator
         self.tso = kwargs.get('pmd:TSO', 'unknown')
         self.time_horizon = kwargs.get('pmd:timeHorizon', 'unknown')
         self.scenario_timestamp = kwargs.get('pmd:scenarioDate', 'unknown')
@@ -204,7 +206,7 @@ class HandlerMergeModels:
                                                excluded_models=excluded_models,
                                                filter_on='pmd:TSO')
 
-        merged_model.merge_included_entity = [ModelEntity(data_source='OPDM', **model).__dict__ for model in models]
+        merged_model.merge_included_entity = [ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__ for model in models]
 
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
@@ -216,7 +218,7 @@ class HandlerMergeModels:
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
             merged_model.merge_included_entity.extend(
-                [ModelEntity(data_source='PDN', **model).__dict__ for model in additional_models])
+                [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in additional_models])
 
             missing_local_import = [tso for tso in local_import_models if
                                     tso not in [model['pmd:TSO'] for model in additional_models]]
@@ -233,7 +235,7 @@ class HandlerMergeModels:
 
                     logger.info(
                         f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                    replaced_entities_local = [ModelEntity(data_source='PDN', **model).__dict__ for model in
+                    replaced_entities_local = [ModelEntity(data_source='PDN', quality_indicator='Substituted', **model).__dict__ for model in
                                                replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
                     additional_models.extend(replacement_models_local)
@@ -265,7 +267,7 @@ class HandlerMergeModels:
                 if replacement_models:
                     logger.info(
                         f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
-                    replaced_entities = [ModelEntity(data_source='OPDM', **model).__dict__ for model in
+                    replaced_entities = [ModelEntity(data_source='OPDM', quality_indicator='Substituted', **model).__dict__ for model in
                                          replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)

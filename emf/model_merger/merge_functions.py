@@ -927,7 +927,7 @@ def lvl8_report_cgm(merge_report: dict):
             'created': i["creation_timestamp"],
             'scenarioTime': datetime.datetime.fromisoformat(i['scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'tso': i['tso'],
-            'version': i['version'],
+            'version': str(i['version']),
             'processType': i['time_horizon'],
             'qualityIndicator': i['quality_indicator'],
         })
