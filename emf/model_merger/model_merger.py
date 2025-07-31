@@ -28,7 +28,6 @@ from emf.common.logging.custom_logger import get_elk_logging_handler
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 
-
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 executor = ThreadPoolExecutor(max_workers=20)
@@ -68,8 +67,31 @@ class MergedModel:
     replacement_reason: List = field(default_factory=list)
     outages_updated: List = field(default_factory=list)
     outages_unmapped: List = field(default_factory=list)
-    included_opdm: List = field(default_factory=list)
-    included_local: List = field(default_factory=list)
+    merge_included_entity: List = field(default_factory=list)
+
+
+@dataclass(init=False)
+class ModelEntity:
+    data_source: str = "OPDM"
+    tso: str = None
+    time_horizon: str = None
+    scenario_timestamp: str = None
+    model_sv_id: str = None
+    version: int = None
+    quality_indicator: str = "Valid"
+    creation_timestamp: str = None
+    file_name: str = None
+
+    def __init__(self, data_source: str, **kwargs):
+        self.data_source = data_source
+        self.tso = kwargs.get('pmd:TSO', 'unknown')
+        self.time_horizon = kwargs.get('pmd:timeHorizon', 'unknown')
+        self.scenario_timestamp = kwargs.get('pmd:scenarioDate', 'unknown')
+        self.model_sv_id = kwargs.get('pmd:fullModel_ID', 'unknown')
+        self.version = int(kwargs.get('pmd:version', 999))
+        self.creation_timestamp = kwargs.get('pmd:creationDate', 'unknown')
+        self.file_name = kwargs.get('pmd:fileName', 'unknown')
+
 
 class HandlerMergeModels:
 
@@ -83,7 +105,8 @@ class HandlerMergeModels:
         # Set starting point of lf settings priority list
         if json.loads(ENABLE_DYNAMIC_MERGE_SETTINGS.lower()):
             settings_list = [param.strip() for param in MERGE_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
-            settings_priority = next((i for i, value in enumerate(settings_list) if value == MERGE_LOAD_FLOW_SETTINGS), None)
+            settings_priority = next((i for i, value in enumerate(settings_list) if value == MERGE_LOAD_FLOW_SETTINGS),
+                                     None)
             settings_list = settings_list[settings_priority:]
         else:
             settings_list = [MERGE_LOAD_FLOW_SETTINGS]
@@ -181,19 +204,7 @@ class HandlerMergeModels:
                                                excluded_models=excluded_models,
                                                filter_on='pmd:TSO')
 
-        merged_model.merge_included_opdm = [
-            {
-                'tso': item['pmd:TSO'],
-                'time_horizon': item['pmd:timeHorizon'],
-                'scenario_timestamp': item['pmd:scenarioDate'],
-                'model_sv_id': item['pmd:fullModel_ID'],
-                'version': item['pmd:version'],
-                'quality_indicator': 'Valid',
-                'creation_timestamp': item['pmd:creationDate'],
-                'file_name': item['pmd:fileName']
-            }
-            for item in models
-        ]
+        merged_model.merge_included_entity = [ModelEntity(data_source='OPDM', **model).__dict__ for model in models]
 
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
@@ -204,21 +215,11 @@ class HandlerMergeModels:
             additional_models = merge_functions.filter_models(models=additional_models,
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
-            merged_model.merge_included_local = [
-                {
-                    'tso': item['pmd:TSO'],
-                    'time_horizon': item['pmd:timeHorizon'],
-                    'scenario_timestamp': item['pmd:scenarioDate'],
-                    'model_sv_id': item['pmd:fullModel_ID'],
-                    'version': item['pmd:version'],
-                    'quality_indicator': 'Valid',
-                    'creation_timestamp': item['pmd:creationDate'],
-                    'file_name': item['pmd:fileName']
-                }
-                for item in additional_models
-            ]
+            merged_model.merge_included_entity.extend(
+                [ModelEntity(data_source='PDN', **model).__dict__ for model in additional_models])
 
-            missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
+            missing_local_import = [tso for tso in local_import_models if
+                                    tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Perform local replacement if configured
@@ -230,17 +231,10 @@ class HandlerMergeModels:
                                                                scenario_date=scenario_datetime,
                                                                data_source='PDN')
 
-                    logger.info(f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                    replaced_entities_local = [{'tso': model['pmd:TSO'],
-                                                'time_horizon': model['pmd:timeHorizon'],
-                                                '@scenario_timestamp': model['pmd:scenarioDate'],
-                                                'fullModel_ID': model['pmd:fullModel_ID'],
-                                                '@version': model['pmd:version'],
-                                                '@data_source' : 'PDN',
-                                                'qualityIndicator': 'Substituted',
-                                                '@timestamp': model['pmd:creationDate'],
-                                                'filename': model['pmd:fileName']
-                                                } for model in replacement_models_local]
+                    logger.info(
+                        f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
+                    replaced_entities_local = [ModelEntity(data_source='PDN', **model).__dict__ for model in
+                                               replacement_models_local]
                     merged_model.replaced_entity.extend(replaced_entities_local)
                     additional_models.extend(replacement_models_local)
                 except Exception as error:
@@ -269,16 +263,10 @@ class HandlerMergeModels:
                 logger.info(f"Running replacement for missing models: {missing_models}")
                 replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
                 if replacement_models:
-                    logger.info(f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
-                    replaced_entities = [{'tso': model['pmd:TSO'],
-                                        '@time_horizon': model['pmd:timeHorizon'],
-                                        '@scenario_timestamp': model['pmd:scenarioDate'],
-                                        'fullModel_ID': model['pmd:fullModel_ID'],
-                                        '@version': model['pmd:version'],
-                                        '@data_source' : 'OPDM',
-                                        'qualityIndicator': 'Substituted',
-                                        '@timestamp': model['pmd:creationDate'], 
-                                        'filename': model['pmd:fileName']} for model in replacement_models]
+                    logger.info(
+                        f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
+                    replaced_entities = [ModelEntity(data_source='OPDM', **model).__dict__ for model in
+                                         replacement_models]
                     merged_model.replaced_entity.extend(replaced_entities)
                     models.extend(replacement_models)
                     merged_model.replaced = True
@@ -308,7 +296,8 @@ class HandlerMergeModels:
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
             tso_list = merged_model.included
-        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in replaced_tso_list):  # by default do it on Baltic merge replaced models
+        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+                                          replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
             merged_model = merge_functions.update_model_outages(merged_model=merged_model,
@@ -321,7 +310,8 @@ class HandlerMergeModels:
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
 
         # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
-        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(network=merged_model.network)
+        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(
+            network=merged_model.network)
 
         # Ensure boundary line connectivity consistency for paired boundary lines
         merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
@@ -329,7 +319,8 @@ class HandlerMergeModels:
         # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model = self.run_loadflow(merged_model=merged_model)
-        logger.info(f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
+        logger.info(
+            f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
 
         # Perform scaling
         if model_scaling:
@@ -351,7 +342,8 @@ class HandlerMergeModels:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
                                                         dc_schedules=dc_schedules,
-                                                        lf_settings=getattr(loadflow_settings, merged_model.loadflow_settings))
+                                                        lf_settings=getattr(loadflow_settings,
+                                                                            merged_model.loadflow_settings))
                 except Exception as e:
                     logger.error(e)
                     merged_model.scaled = False
@@ -400,7 +392,7 @@ class HandlerMergeModels:
                                                                                         task_properties=task_properties
                                                                                         )
 
-        #for merge report need to get the final uuid.
+        # for merge report need to get the final uuid.
         merged_model.network_meta['fullModel_ID'] = opdm_object_meta['pmd:fullModel_ID']
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
@@ -472,7 +464,8 @@ class HandlerMergeModels:
         opdm_object_meta['pmd:content-reference'] = merged_model.content_reference
         response = elastic.Elastic.send_to_elastic(index=OPDE_MODELS_ELK_INDEX, json_message=opdm_object_meta)
 
-        # Send merge report and opdm object metadata to Elastic
+        # Send merge report and OPDM object metadata to Elastic
+        merge_report = None
         if model_merge_report_send_to_elk:
             logger.info(f"Sending merge report to Elastic")
             try:
@@ -483,9 +476,9 @@ class HandlerMergeModels:
                     logger.error(f"Merge report sending to Elastic failed: {error}")
             except Exception as error:
                 logger.error(f"Failed to create merge report: {error}")
-            
+
         # Send QAS level 8 report if configured
-        if lvl8_reporting:    
+        if lvl8_reporting and merge_report:
             try:
                 lvl8_report = merge_functions.lvl8_report_cgm(merge_report=merge_report)
                 service_edx = edx.EDX()
@@ -495,8 +488,9 @@ class HandlerMergeModels:
                 logger.info(f"QAS-Level-8 report generated and sent with ID: {message_id}")
             except Exception as error:
                 logger.error(f"Failed to send QAS-Level-8 report with error: {error}")
+        else:
+            logger.warning(f"QAS-Level-8 not generated because merge report unavailable or disabled by configuration")
 
-        
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
         properties.headers = extracted_meta
@@ -510,7 +504,6 @@ class HandlerMergeModels:
 
 
 if __name__ == "__main__":
-
     sample_task = {
         "@context": "https://example.com/task_context.jsonld",
         "@type": "Task",
@@ -539,7 +532,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-07-06T12:30:00+00:00",
+            "timestamp_utc": "2025-07-31T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["LITGRID", "AST", "ELERING", "PSE"],
@@ -556,7 +549,7 @@ if __name__ == "__main__":
             "upload_to_minio": "True",
             "send_merge_report": "False",
             "force_outage_fix": "False",
-            "lvl8_reporting" : "True"
+            "lvl8_reporting": "True"
         }
     }
 

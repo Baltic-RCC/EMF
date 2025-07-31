@@ -858,11 +858,12 @@ def run_post_merge_processing(input_models: list,
 
     return sv_data, ssh_data, opdm_object_meta
 
+
 def lvl8_report_cgm(merge_report: dict):
 
     # Create <QAReport> root
     qa_attribs = {
-        'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
         'schemeVersion': "2.0",
         'serviceProvider': merge_report["merge_entity"],
         'xmlns': "http://entsoe.eu/checks"
@@ -884,8 +885,8 @@ def lvl8_report_cgm(merge_report: dict):
             'Message': "Power flow could not be calculated for CGM with CGM_RELAXED_2 settings."
         }
     ]
-    #TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
-    violations=[]
+    # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
+    violations = []
     if merge_report["loadflow_status"] == 'CONVERGED':
         if merge_report["loadflow_settings"] == 'CGM_DEFAULT':
             logger.info(f"Merge successful with default settings included in lvl8 report")
@@ -899,15 +900,14 @@ def lvl8_report_cgm(merge_report: dict):
 
     # Create <CGM>
     cgm_attribs = {
-        'created': datetime.datetime.strptime(merge_report["@timestamp"],'%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'resource': merge_report['network_meta']['fullModel_ID'] ,#TODO get here correct content ID
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'resource': merge_report['network_meta']['fullModel_ID'],  # TODO get here correct content ID
         'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'version': str(merge_report["@version"]),
         'processType': merge_report["@time_horizon"],
         'qualityIndicator': quality_indicator_cgm
     }
     cgm = ET.SubElement(qa_root, "CGM", attrib=cgm_attribs)
-
 
     try:
         for v in violations:
@@ -921,20 +921,18 @@ def lvl8_report_cgm(merge_report: dict):
     except:
         logger.info(f"No violations present in merge")
 
-
     # TODO:pick the TSOs from QA report. Missing parameters below for all IGMs
-    for i in merge_report['included_opdm'] + merge_report['included_local'] + merge_report['replaced_entity']:
+    for i in merge_report['merge_included_entity'] + merge_report['replaced_entity']:
         igm = ET.SubElement(cgm, "IGM", {
-            'created': i["@timestamp"],
-            'scenarioTime': datetime.datetime.fromisoformat(i['@scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'created': i["creation_timestamp"],
+            'scenarioTime': datetime.datetime.fromisoformat(i['scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'tso': i['tso'],
-            'version': i['@version'],
-            'processType': i['@time_horizon'],
-            'qualityIndicator': i['qualityIndicator'],
+            'version': i['version'],
+            'processType': i['time_horizon'],
+            'qualityIndicator': i['quality_indicator'],
         })
         resource_igm = ET.SubElement(igm, "resource")
-        resource_igm.text = i['fullModel_ID']
-
+        resource_igm.text = i['model_sv_id']
 
     # Add EMFInformation
     ET.SubElement(cgm, "EMFInformation", {
