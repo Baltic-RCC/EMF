@@ -48,6 +48,7 @@ def log_opdm_response(response):
 class MergedModel:
     network: pypowsybl.network = None
     time_horizon = None
+    time_horizon_id = None
     name = None
     loadflow_status: str | None = None
 
@@ -361,6 +362,7 @@ class HandlerMergeModels:
         if time_horizon.upper() == "ID":
             time_horizon = merge_functions.set_intraday_time_horizon(scenario_datetime, task_creation_time)
             logger.info(f"Setting intraday time horizon to: {time_horizon}")
+            merged_model.time_horizon_id = time_horizon_id
 
         # Set merged model name
         model_type = "RMM" if merging_area == "BA" else "CGM"
