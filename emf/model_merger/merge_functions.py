@@ -904,7 +904,7 @@ def lvl8_report_cgm(merge_report: dict):
         'resource': merge_report['network_meta']['fullModel_ID'],  # TODO get here correct content ID
         'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'version': str(merge_report["@version"]),
-        'processType': merge_report["time_horizon_id"],
+        'processType': merge_report["time_horizon_id"] if merge_report["@time_horizon"] == 'ID' else merge_report["@time_horizon"],
         'qualityIndicator': quality_indicator_cgm
     }
     cgm = ET.SubElement(qa_root, "CGM", attrib=cgm_attribs)

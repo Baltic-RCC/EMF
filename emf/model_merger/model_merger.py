@@ -47,8 +47,8 @@ def log_opdm_response(response):
 @dataclass
 class MergedModel:
     network: pypowsybl.network = None
-    time_horizon = None
-    time_horizon_id = None
+    time_horizon: str = None
+    time_horizon_id: str =field(default_factory=str)
     name = None
     loadflow_status: str | None = None
 
