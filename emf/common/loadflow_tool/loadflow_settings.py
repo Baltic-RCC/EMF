@@ -27,7 +27,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'voltagePerReactivePowerControl': 'False',
     'reactivePowerRemoteControl': 'False',
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
-    'voltageTargetPriorities': '["GENERATOR", "TRANSFORMER", "SHUNT"]',
+    'voltageTargetPriorities': 'GENERATOR,TRANSFORMER,SHUNT',
     # 'voltageInitModeOverride': None,
     'transformerVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
     'shuntVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
@@ -242,7 +242,7 @@ EU_RELAXED = pypowsybl.loadflow.Parameters(
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
-    provider_parameters=EU_RELAXED_2_PROVIDER,
+    provider_parameters=EU_RELAXED_PROVIDER,
 )
 
 #Baltic merge parameters
