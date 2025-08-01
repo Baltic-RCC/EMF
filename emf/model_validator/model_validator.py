@@ -17,6 +17,7 @@ from emf.common.helpers.utils import attr_to_dict
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
+from emf.model_validator.validator_functions import very_special_fix_for_dk
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,8 @@ class TemporaryPreMergeModifications:
         self.sanitize_file_name()
         if json.loads(OPEN_NON_RETAINED_SWITCHES.lower()):
             self.open_non_retained_switches()
-
+        if json.loads(FIX_DK_REGIONS.lower()):
+            self.network = very_special_fix_for_dk(self.network)
         return self.network
 
 
