@@ -17,7 +17,6 @@ from emf.common.helpers.utils import attr_to_dict
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
-from emf.model_validator.validator_functions import very_special_fix_for_dk
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +144,9 @@ class PostLFValidator:
 class TemporaryPreMergeModifications:
     """Run pre-processing modification important for successful merge process"""
     # TODO needs to keep in mind that this is meant as temporary fixes and needs to be revised often
-    def __init__(self, network: pd.DataFrame):
+    def __init__(self, network: pd.DataFrame, tso: str):
         self.network = network
+        self.tso = tso
         self.report = {'modification': {}}
 
     def update_header_from_file_name(self):
@@ -176,14 +176,24 @@ class TemporaryPreMergeModifications:
             self.network = original_data
             self.report['modification']['open_non_retained_switches'] = True
 
+    # TODO TSO specific modifications
+    def update_region_names(self):
+        self.report['modification']['update_region_names'] = False
+        # Update GeographicalRegion names for Denmark
+        modified_data = validator_functions.modify_region_name_for_denmark(input_data=self.network)
+        if not pd.concat([self.network, modified_data]).drop_duplicates(keep=False).empty:
+            self.network = modified_data
+            self.report['modification']['update_region_names'] = True
+
     @performance_counter(units='seconds')
     def run_pre_process_modifications(self):
         self.update_header_from_file_name()
         self.sanitize_file_name()
         if json.loads(OPEN_NON_RETAINED_SWITCHES.lower()):
             self.open_non_retained_switches()
-        if json.loads(FIX_DK_REGIONS.lower()):
-            self.network = very_special_fix_for_dk(self.network)
+        if json.loads(MODIFY_DK_REGIONS.lower()) and self.tso in ['DKE', 'DKW']:
+            self.update_region_names()
+
         return self.network
 
 
@@ -238,7 +248,8 @@ class HandlerModelsValidator:
                 opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
 
                 # Apply pre-processing modification to models and store in Minio
-                pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets)
+                pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets,
+                                                                        tso=opdm_object["pdm:TSO"])
                 network_triplets = pre_merge_modification.run_pre_process_modifications()
                 cgmes_modified_model = export_to_cgmes_zip([network_triplets])
                 for component in opdm_object['opde:Component']:
