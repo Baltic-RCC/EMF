@@ -882,20 +882,20 @@ def lvl8_report_cgm(merge_report: dict):
             'ruleId': "CGMConvergenceRelaxed",
             'validationLevel': "8",
             'severity': "ERROR",
-            'Message': "Power flow could not be calculated for CGM with CGM_RELAXED_2 settings."
+            'Message': "Power flow could not be calculated for CGM with EU_RELAXED settings."
         }
     ]
     # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
-    violations = []
+    violations = list()
     if merge_report["loadflow_status"] == 'CONVERGED':
-        if merge_report["loadflow_settings"] == 'CGM_DEFAULT':
+        if merge_report["loadflow_settings"] == 'EU_DEFAULT':
             logger.info(f"Merge successful with default settings included in lvl8 report")
             quality_indicator_cgm = "Valid"
         else:
             violations.append(violations_list[0])
             quality_indicator_cgm = "Warning - non fatal inconsistencies"
     else:
-        violations = violations.append(violations_list)
+        violations = violations_list
         quality_indicator_cgm = "Invalid - inconsistent data"
 
     # Create <CGM>

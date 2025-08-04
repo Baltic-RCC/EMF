@@ -29,8 +29,8 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
     'voltageTargetPriorities': 'GENERATOR,TRANSFORMER,SHUNT',
     # 'voltageInitModeOverride': None,
-    'transformerVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
-    'shuntVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',  # TODO - check this
+    'transformerVoltageControlMode': 'AFTER_GENERATOR_VOLTAGE_CONTROL',  
+    'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',  
     'minPlausibleTargetVoltage': '0.8',
     'maxPlausibleTargetVoltage': '1.2',
     'minRealisticVoltage': '0.4',
