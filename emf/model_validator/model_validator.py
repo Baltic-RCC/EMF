@@ -249,7 +249,7 @@ class HandlerModelsValidator:
 
                 # Apply pre-processing modification to models and store in Minio
                 pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets,
-                                                                        tso=opdm_object["pdm:TSO"])
+                                                                        tso=opdm_object["pmd:TSO"])
                 network_triplets = pre_merge_modification.run_pre_process_modifications()
                 cgmes_modified_model = export_to_cgmes_zip([network_triplets])
                 for component in opdm_object['opde:Component']:
