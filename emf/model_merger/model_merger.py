@@ -98,10 +98,10 @@ class ModelEntity:
 
 class HandlerMergeModels:
 
-    def __init__(self):
-        self.opdm_service = opdm.OPDM()
+    def __init__(self)
         self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
+        self.opdm_service = None
 
     @staticmethod
     def run_loadflow(merged_model):
@@ -407,6 +407,7 @@ class HandlerMergeModels:
         # Upload to OPDM
         if model_upload_to_opdm:
             try:
+                self.opdm_service = opdm.OPDM()
                 for item in serialized_data:
                     logger.info(f"Uploading to OPDM: {item.name}")
                     time.sleep(2)
