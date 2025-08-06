@@ -200,7 +200,7 @@ def scale_balance(model: object,
                                     pd.Series({'KEY': 'prescale-setpoint'})]).to_dict())
     for dclink in prescale_hvdc_sp.sort_values('lineEnergyIdentificationCodeEIC').to_dict('records'):
         logger.info(f"[INITIAL] PRE-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
-        logger.debug(f"[INITIAL] PRE-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MW")
+        logger.debug(f"[INITIAL] PRE-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MVar")
 
     # Mapping HVDC schedules to network
     _cols_to_keep = ['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code', 'power_factor']
