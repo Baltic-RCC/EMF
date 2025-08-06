@@ -33,11 +33,11 @@ jobs:
 
       - name: Pull base image or fallback to build
         run: |
-          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:main || \
+          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest || \
           docker build . \
             --file docker/Dockerfile \
             --target emfos-base \
-            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:main
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
 
       - name: Build worker image
         run: |
