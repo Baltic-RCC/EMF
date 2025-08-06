@@ -225,7 +225,6 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         'tieflow_abs': tieflow_abs,
         'tieflow_np': tieflow_np,
         'tieflow_acnp': tieflow_acnp,
-        'tieflow_hvdc': tieflow_hvdc,
     }
 
     # Fixes for ELK data storage

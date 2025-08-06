@@ -2,89 +2,33 @@ from io import BytesIO
 from zipfile import ZipFile
 import logging
 import config
-import pandas as pd
 from emf.common.config_parser import parse_app_properties
-from model_statistics import get_tieflow_data, type_tableview_merge
+from quality_rules import *
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.model_quality)
 
 
-def generate_quality_report(network, object_type, model_metadata):
+def generate_quality_report(handler, network, object_type, model_metadata, tieflow_data=None):
 
     report = {}
 
     if object_type == "CGM" and model_metadata['pmd:Area'] == 'BA':
 
-        # Check Kruonis generators
-        generators = network.type_tableview('SynchronousMachine').rename_axis('Terminal').reset_index()
-        kruonis_generators = generators[generators['IdentifiedObject.name'].str.contains('KHAE_G')]
-
-        if not kruonis_generators.empty:
-            gen_count = kruonis_generators[kruonis_generators['RotatingMachine.p'] > 0].shape[0]
-            flag = gen_count < 3
-            report.update({"kruonis_generators": gen_count, "kruonis_check": flag})
-        else:
-            report.update({"kruonis_generators": None, "kruonis_check": False})
-
-
-         # Check LT-PL crossborder flow
-        try:
-            tie_flows = get_tieflow_data(network)
-            tie_flows = tie_flows[tie_flows['cross_border'] == 'LT-PL']
-            tie_flows = tie_flows[tie_flows['IdentifiedObject.name_TieFlow'] == 'LIETUVA']
-            tie_flow_1 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL11']
-            tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
-            tie_flow = float((tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2)
-            report.update({"lt_pl_flow": tie_flow, "lt_pl_xborder_check": abs(tie_flow)< float(BORDER_LIMIT)})
-        except:
-            report.update({"lt_pl_flow": None, "lt_pl_xborder_check": False})
-
-        # Check cross-border line inconsistencies
-        try:
-            boundary_nodes = network.type_tableview('TopologicalNode').reset_index()
-            boundary_nodes = boundary_nodes[boundary_nodes['TopologicalNode.boundaryPoint'] == "true"]
-            # Merge boundary nodes to terminals
-            terminals = (network.type_tableview('Terminal').reset_index()
-                         .merge(boundary_nodes[['ID']].rename(columns={'ID': 'Terminal.TopologicalNode'}),
-                                on='Terminal.TopologicalNode'))
-
-
-            # Check by devices. If any of the terminals is off maybe flip others also off.
-            terminals = (terminals.groupby('Terminal.ConductingEquipment')
-                         .apply(lambda x: and_to_boolean(x)).reset_index(drop=True))
-            connected_all_mask = terminals.groupby('Terminal.TopologicalNode')['ACDCTerminal.connected'].nunique()
-            mismatch = len(connected_all_mask[connected_all_mask > 1].index.tolist())
-            mismatch_boolean = mismatch < 1
-            report.update({"xborder_inconsistencies": mismatch, "xborder_consistency_check": mismatch_boolean})
-
-        except:
-            report.update({"xborder_inconsistencies": None, "xborder_consistency_check": False})
-
-        # TODO Check model outage mismatch with outage plan
-        # model_outages = pd.DataFrame(get_model_outages(network=network))
-
-        report['object_type'] = object_type
+        report = check_generator_quality(report, network)
+        report = check_lt_pl_crossborder(report, network, tieflow_data=tieflow_data, border_limit=BORDER_LIMIT)
+        report = check_crossborder_inconsistencies(report, network)
+        report = check_outage_inconsistencies(report, network, handler, model_metadata)
 
     elif object_type == "IGM":
-        # TODO define IGM quality rules
-        report.update({"quality": "No Status"})
-    else:
-        logger.error("Incorrect object type metadata")
+        tso = model_metadata[0]['pmd:TSO']
+
+        report = check_line_impedance(report, network)
+
+        if tso in ['LITGRID', 'AST', 'ELERING']:
+            report = check_line_limits(report, network, handler, limit_temperature=LINE_LIMIT_TEMPERATURE)
 
     return report
-
-
-def and_to_boolean(input_data, field_name: str = 'ACDCTerminal.connected'):
-    try:
-        if len(input_data.index) > 1 and not input_data[field_name].astype('bool').all():
-            logger.warning(f"Mismatch on terminals")
-            input_data[field_name] = False
-    except KeyError:
-        pass
-    except Exception as ex:
-        logger.warning(f"{ex}")
-    return input_data
 
 
 def set_common_metadata(model_metadata, object_type):
@@ -114,22 +58,30 @@ def set_common_metadata(model_metadata, object_type):
 
 
 # TODO temp function, later use common one
-def query_elk_uap(index, time_horizon=None):
+def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, index='opc-outages-baltics*'):
 
-    from datetime import datetime
+    import datetime
 
     logger.info(f"Retrieving outages from ELK index: '{index}'")
 
     # now represents the time of the run, in P0W case it should be current time
-    now = datetime.now()
+    now = datetime.datetime.now()
     now = now.strftime("%Y-%m-%dT%H:%M") + "Z"
+
+    if time_horizon.isdigit() or time_horizon in ['ID', '1D', '2D']:
+        time_horizon = 'WK'
 
     if time_horizon == 'WK':
         merge_type_list = ['week']
+        filter_range = '2w'
     elif time_horizon == 'MO':
         merge_type_list = ['week', 'month']
+        filter_range = '4w'
     elif time_horizon == 'YR':
         merge_type_list = ['year']
+        filter_range = '4M'
+    else:
+        raise TypeError('Incorrect time horizon')
 
     query = {
         "bool": {
@@ -137,11 +89,13 @@ def query_elk_uap(index, time_horizon=None):
                 {"exists": {"field": "name"}},
                 {"terms": {"Merge": merge_type_list}},
             ],
-            "filter": [{"range": {"reportParsedDate": {"lte": now, "gte": "now-2w"}}}],
+            "filter": [{"range": {"reportParsedDate": {"lte": now, "gte": f"now-{filter_range}"}}}],
         }
     }
-    response = get_docs_by_query(index=index, query=query, size=10000, return_df=True)
-    result = pd.DataFrame()
+    response = handler.elastic_service.get_docs_by_query(index=index, query=query, size=10000, return_df=True)
+    outage_df = pd.DataFrame()
+
+    eic_mrid_map = handler.elastic_service.get_docs_by_query(index='config-network', query={"match_all": {}}, size=10000, return_df=True)
 
     if not response.empty:
 
@@ -165,8 +119,37 @@ def query_elk_uap(index, time_horizon=None):
             end_time = row['end_date']
 
             if eic not in last_end_time or start_time > last_end_time[eic]:
-                result = pd.concat([result, pd.DataFrame([row])], ignore_index=True)
+                outage_df = pd.concat([outage_df, pd.DataFrame([row])], ignore_index=True)
                 last_end_time[eic] = end_time
+
+    BRELL_LINES = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
+                   '10T-LV-RU-00001A', '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
+                   '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
+
+    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES)].copy()
+
+    model_scenario_time = datetime.datetime.fromisoformat(model_timestamp)
+    if model_scenario_time.tzinfo is None:
+        logger.warning("model_scenario_time is timezone naive, assuming UTC")
+        model_scenario_time = model_scenario_time.replace(tzinfo=datetime.timezone.utc)
+    elif model_scenario_time.tzinfo != datetime.timezone.utc:
+        logger.warning(f"Converting model_scenario_time from {model_scenario_time.tzinfo} to UTC")
+        model_scenario_time = model_scenario_time.astimezone(datetime.timezone.utc)
+
+    outage_df['start_date'] = pd.to_datetime(outage_df['start_date'], utc=True)
+    outage_df['end_date'] = pd.to_datetime(outage_df['end_date'], utc=True)
+
+
+    relevant_mask = ((outage_df['start_date'] <= model_scenario_time) & (outage_df['end_date'] >= model_scenario_time))
+
+    # Use .loc for boolean indexing and .copy() to avoid SettingWithCopyWarning later
+    relevant_outages = outage_df.loc[relevant_mask].copy()
+
+    result = relevant_outages.merge(eic_mrid_map, on='eic', how='left')
+
+    missing_outages = ', '.join(result[result['mrid'].isna()]['name'].to_list())
+    if missing_outages:
+        logger.error(f"Missing mrid of outages: {missing_outages}")
 
     return result
 

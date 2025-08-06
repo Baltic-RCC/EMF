@@ -9,6 +9,7 @@ from emf.common.integrations.object_storage import models
 from triplets.rdf_parser import load_all_to_dataframe
 from emf.model_quality.model_statistics import get_system_metrics
 from emf.model_quality.quality_functions import generate_quality_report, process_zipped_cgm, set_common_metadata
+from model_statistics import get_tieflow_data
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class HandlerModelQuality:
         object_type = properties.headers['opde:Object-Type']
         common_metadata = set_common_metadata(model_metadata, object_type)
 
+
         if object_type == 'CGM':
             model_data = self.minio_service.download_object(model_metadata.get('minio-bucket', 'opde-confidential-models'),
                                                               model_metadata.get('pmd:content-reference'))
@@ -46,15 +48,16 @@ class HandlerModelQuality:
                 network = pd.DataFrame
         else:
             logger.error("Data not loaded, skipping quality check")
+            model_data = None
             network = pd.DataFrame
-
-        # TODO add tieflow calc outside the report/statistics function
 
         # Generate quality report and network statistics
         if not network.empty:
-            qa_report = generate_quality_report(network, object_type, model_metadata)
+            tieflow_data = get_tieflow_data(network)
+            qa_report = generate_quality_report(self, network=network, object_type=object_type,
+                                                model_metadata=model_metadata, tieflow_data=tieflow_data)
             try:
-                model_statistics = get_system_metrics(network)
+                model_statistics = get_system_metrics(network, tieflow_data=tieflow_data)
             except Exception as e:
                 model_statistics = {}
                 logger.error(f"Failed to get model statistics: {e}")
@@ -85,5 +88,7 @@ class HandlerModelQuality:
             logger.info(f"Quality report sent to elastic index: '{ELK_QUALITY_INDEX}'")
         else:
             logger.error("Error, quality report generator failed, data not sent")
+
+        del model_data, model_metadata, network
 
         return message, properties
