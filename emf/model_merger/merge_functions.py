@@ -9,12 +9,14 @@ import datetime
 import triplets
 import uuid
 import config
+import xml.etree.ElementTree as ET
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic
 from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
+
 
 logger = logging.getLogger(__name__)
 
@@ -855,6 +857,93 @@ def run_post_merge_processing(input_models: list,
         logger.warning(f"No fields for net interchange correction")
 
     return sv_data, ssh_data, opdm_object_meta
+
+
+def lvl8_report_cgm(merge_report: dict):
+
+    # Create <QAReport> root
+    qa_attribs = {
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'schemeVersion': "2.0",
+        'serviceProvider': merge_report["merge_entity"],
+        'xmlns': "http://entsoe.eu/checks"
+    }
+    qa_root = ET.Element("QAReport", attrib=qa_attribs)
+
+    # Add RuleViolations
+    violations_list = [
+        {
+            'ruleId': "CGMConvergence",
+            'validationLevel': "8",
+            'severity': "WARNING",
+            'Message': "Power flow could not be calculated for CGM with default settings."
+        },
+        {
+            'ruleId': "CGMConvergenceRelaxed",
+            'validationLevel': "8",
+            'severity': "ERROR",
+            'Message': "Power flow could not be calculated for CGM with EU_RELAXED settings."
+        }
+    ]
+    # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
+    violations = list()
+    if merge_report["loadflow_status"] == 'CONVERGED':
+        if merge_report["loadflow_settings"] == 'EU_DEFAULT':
+            logger.info(f"Merge successful with default settings included in lvl8 report")
+            quality_indicator_cgm = "Valid"
+        else:
+            violations.append(violations_list[0])
+            quality_indicator_cgm = "Warning - non fatal inconsistencies"
+    else:
+        violations = violations_list
+        quality_indicator_cgm = "Invalid - inconsistent data"
+
+    # Create <CGM>
+    cgm_attribs = {
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'resource': merge_report['network_meta']['fullModel_ID'],  # TODO get here correct content ID
+        'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'version': str(merge_report["@version"]),
+        'processType': merge_report["time_horizon_id"] if merge_report["@time_horizon"] == 'ID' else merge_report["@time_horizon"],
+        'qualityIndicator': quality_indicator_cgm
+    }
+    cgm = ET.SubElement(qa_root, "CGM", attrib=cgm_attribs)
+
+    try:
+        for v in violations:
+            rv = ET.SubElement(cgm, "RuleViolation", {
+                'ruleId': v['ruleId'],
+                'validationLevel': v['validationLevel'],
+                'severity': v['severity']
+            })
+            msg = ET.SubElement(rv, "Message")
+            msg.text = v['Message']
+    except:
+        logger.info(f"No violations present in merge")
+
+    # TODO:pick the TSOs from QA report. Missing parameters below for all IGMs
+    for i in merge_report['merge_included_entity'] + merge_report['replaced_entity']:
+        igm = ET.SubElement(cgm, "IGM", {
+            'created': i["creation_timestamp"],
+            'scenarioTime': datetime.datetime.fromisoformat(i['scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'tso': i['tso'],
+            'version': str(i['version']),
+            'processType': i['time_horizon'],
+            'qualityIndicator': i['quality_indicator'],
+        })
+        resource_igm = ET.SubElement(igm, "resource")
+        resource_igm.text = i['model_sv_id']
+
+    # Add EMFInformation
+    ET.SubElement(cgm, "EMFInformation", {
+        'mergingEntity': merge_report["merge_entity"],
+        'cgmType': merge_report["merge_type"]
+    })
+
+    # Generate final XML
+    qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
+
+    return qa_report_lvl8
 
 
 if __name__ == "__main__":

@@ -109,3 +109,42 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
     return original_data, violated_switches
+
+
+def modify_region_name_for_denmark(input_data: pandas.DataFrame):
+    """
+    For fixing issues when GeographicalRegion ids do not match
+    """
+    # Get all Geographical regions
+    geo_regions = (input_data.type_tableview('GeographicalRegion').reset_index()
+                   .rename(columns={'ID': 'SubGeographicalRegion.Region'}))
+
+    # Slice it with control area EIC codes: get region that has to be
+    control_areas = input_data.type_tableview('ControlArea').reset_index()
+    ca_geo_regions = geo_regions.merge(control_areas[['IdentifiedObject.energyIdentCodeEic']],
+                                       on='IdentifiedObject.energyIdentCodeEic')
+    sub_regions = input_data.type_tableview('SubGeographicalRegion').reset_index()
+
+    # Cut out the SubGeographical region from boundary just in case
+    sub_regions = sub_regions[sub_regions['IdentifiedObject.name'] != 'ENTSO-E']
+
+    # Cut regions to DK (because some other TSOs like to redeclare the geographical regions)
+    geo_regions = geo_regions[geo_regions['IdentifiedObject.name'].str.contains('DK')]
+    sub_regions = sub_regions.merge(geo_regions[['SubGeographicalRegion.Region']], on='SubGeographicalRegion.Region')
+    sub_regions_with_eic = sub_regions.merge(ca_geo_regions[['SubGeographicalRegion.Region']],
+                                             on='SubGeographicalRegion.Region')
+    if not sub_regions_with_eic.empty:
+        return input_data
+
+    if not sub_regions.empty and not ca_geo_regions.empty:
+        logger.warning(f"Detected {len(sub_regions)} sub regions and {len(ca_geo_regions)} regions with EIC in IGM")
+        sub_regions = sub_regions.drop(columns='SubGeographicalRegion.Region')
+        new_region_names = ca_geo_regions['SubGeographicalRegion.Region'].unique().tolist()
+        if len(new_region_names) > 1:
+            logger.warning(f"More than 1 region found, returning")
+            return input_data
+
+        sub_regions['SubGeographicalRegion.Region'] = new_region_names[0]
+        input_data = triplets.rdf_parser.update_triplet_from_tableview(input_data, sub_regions, update=True)
+
+    return input_data
