@@ -18,12 +18,12 @@ https://www.powsybl.org/pages/documentation/simulation/powerflow/
 #DEFAULT settings applicable for all processes
 OPENLOADFLOW_DEFAULT_PROVIDER = {
     'slackBusesIds': '',
-    'lowImpedanceBranchMode': 'REPLACE_BY_ZERO_IMPEDANCE_LINE',
+    'lowImpedanceBranchMode': 'REPLACE_BY_ZERO_IMPEDANCE_LINE', 
     'voltageRemoteControl': 'True',
     'throwsExceptionInCaseOfSlackDistributionFailure': 'False',
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency TODO - check this
+    'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency TODO - check this
     'plausibleActivePowerLimit': '5000.0',
-    'slackBusPMaxMismatch': '1.0',
+    'slackBusPMaxMismatch': '0.1', #slackBusDistributionThreshold
     'voltagePerReactivePowerControl': 'False',
     'reactivePowerRemoteControl': 'False',
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
@@ -37,7 +37,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'maxRealisticVoltage': '2.0',
     'reactiveRangeCheckMode': 'MAX',
     'networkCacheEnabled': 'False',
-    'svcVoltageMonitoring': 'True',
+    'svcVoltageMonitoring': 'False',
     # 'stateVectorScalingMode': None,
     'maxSlackBusCount': '1',  # TODO - check this
     # 'debugDir': '',
@@ -52,7 +52,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit TODO - How to convert
     'maxRatioMismatch': '1.0E-5',
     'maxSusceptanceMismatch': '1.0E-4',
-    'phaseShifterControlMode': 'CONTINUOUS_WITH_DISCRETISATION',
+    'phaseShifterControlMode': 'INCREMENTAL',
     'alwaysUpdateNetwork': 'False',
     'mostMeshedSlackBusSelectorMaxNominalVoltagePercentile': '95.0',
     # 'reportedFeatures': [],
@@ -61,14 +61,14 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'asymmetrical': 'False',
     'minNominalVoltageTargetVoltageCheck': '20.0',
     # For loadflow
-    'stateVectorScalingMode': 'LINE_SEARCH',
+    'stateVectorScalingMode': 'MAX_VOLTAGE_CHANGE',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     # Fix Kirchoff 1st law error
     'slackDistributionFailureBehavior': 'FAIL',
 }
 
 OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority
@@ -77,11 +77,12 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_P_MAX,  # cim:PowerFlowSettings.slackDistributionKind
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN,  # cim:PowerFlowSettings.slackDistributionKind
     dc_use_transformer_ratio=True,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN - defines islands to be solved
     provider_parameters=OPENLOADFLOW_DEFAULT_PROVIDER,
+    dcPowerFactor=1.0
 )
 
 
@@ -90,6 +91,8 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
 #Used for CGM main merging  process
 __IGM_VALIDATION_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '30',
     'maxOuterLoopIterations': '30',  
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false"
@@ -99,9 +102,12 @@ __IGM_VALIDATION_PROVIDER = {
     'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '0.0001',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10"
+    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 __EU_DEFAULT_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
@@ -111,10 +117,13 @@ __EU_DEFAULT_PROVIDER = {
     'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '0.0001',  # cim:PowerFlowSettings.voltageTolerance "0.0001"
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
-    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1'
+    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 __EU_RELAXED_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
@@ -125,6 +134,7 @@ __EU_RELAXED_PROVIDER = {
     'maxVoltageMismatch': '0.0001',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 
 
@@ -197,7 +207,7 @@ BA_RELAXED_2_PROVIDER.update(__BA_RELAXED_2_PROVIDER)
 ##############
 #Used for CGM main merging  process
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -213,7 +223,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     provider_parameters=IGM_VALIDATION_PROVIDER,
 )
 EU_DEFAULT = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -229,7 +239,7 @@ EU_DEFAULT = pypowsybl.loadflow.Parameters(
     provider_parameters=EU_DEFAULT_PROVIDER,
 )
 EU_RELAXED = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
     use_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "false"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0"
@@ -238,7 +248,7 @@ EU_RELAXED = pypowsybl.loadflow.Parameters(
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_CONFORM_LOAD,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
