@@ -65,6 +65,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     # Fix Kirchoff 1st law error
     'slackDistributionFailureBehavior': 'FAIL',
+    'dcPowerFactor': '1.0',
 }
 
 OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
@@ -82,7 +83,6 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,  # ALL / MAIN - defines islands to be solved
     provider_parameters=OPENLOADFLOW_DEFAULT_PROVIDER,
-    dcPowerFactor=1.0
 )
 
 
@@ -91,7 +91,7 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
 #Used for CGM main merging  process
 __IGM_VALIDATION_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
-    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '30',
     'maxOuterLoopIterations': '30',  
@@ -106,7 +106,7 @@ __IGM_VALIDATION_PROVIDER = {
 }
 __EU_DEFAULT_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
-    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
@@ -122,7 +122,7 @@ __EU_DEFAULT_PROVIDER = {
 }
 __EU_RELAXED_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
-    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY'
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
