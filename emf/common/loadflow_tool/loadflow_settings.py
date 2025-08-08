@@ -92,6 +92,7 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
 __IGM_VALIDATION_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
+    'generatorReactivePowerRemoteControl': 'True',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '30',
     'maxOuterLoopIterations': '30',  
@@ -107,6 +108,7 @@ __IGM_VALIDATION_PROVIDER = {
 __EU_DEFAULT_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
+    'generatorReactivePowerRemoteControl': 'True',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
@@ -123,6 +125,7 @@ __EU_DEFAULT_PROVIDER = {
 __EU_RELAXED_PROVIDER = {
     'slackBusSelectionMode': 'LARGEST_GENERATOR',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
+    'generatorReactivePowerRemoteControl': 'True',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
@@ -141,6 +144,7 @@ __EU_RELAXED_PROVIDER = {
 #Baltic merge parameters
 __BA_DEFAULT_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
+    'generatorReactivePowerRemoteControl': 'True',
     'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '15',
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
@@ -154,6 +158,7 @@ __BA_DEFAULT_PROVIDER = {
 }
 __BA_RELAXED_1_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
+    'generatorReactivePowerRemoteControl': 'False',
     'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '15',
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
