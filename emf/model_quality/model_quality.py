@@ -28,7 +28,7 @@ class HandlerModelQuality:
         model_metadata = json.loads(message)
         object_type = properties.headers['opde:Object-Type']
         common_metadata = set_common_metadata(model_metadata, object_type)
-
+        rule_sets = {'igm_rule_set': IGM_RULE_SET.split(','), 'cgm_rule_set': CGM_RULE_SET.split(',')}
 
         if object_type == 'CGM':
             model_data = self.minio_service.download_object(model_metadata.get('minio-bucket', 'opde-confidential-models'),
@@ -44,18 +44,22 @@ class HandlerModelQuality:
                 for opdm_object in model_data:
                     network = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
             except:
-                logger.error("Failed to load IGM")
+                logger.error("Failed to load IGM data")
                 network = pd.DataFrame
         else:
-            logger.error("Data not loaded, skipping quality check")
+            logger.error("Object type metadata is incorrect")
             model_data = None
             network = pd.DataFrame
 
         # Generate quality report and network statistics
         if not network.empty:
             tieflow_data = get_tieflow_data(network)
-            qa_report = generate_quality_report(self, network=network, object_type=object_type,
-                                                model_metadata=model_metadata, tieflow_data=tieflow_data)
+            try:
+                qa_report = generate_quality_report(self, network=network, object_type=object_type,
+                                                    model_metadata=model_metadata, rule_sets=rule_sets,
+                                                    tieflow_data=tieflow_data)
+            except Exception as e:
+                logger.error(f"Failed to generate quality report: {e}")
             try:
                 model_statistics = get_system_metrics(network, tieflow_data=tieflow_data)
             except Exception as e:

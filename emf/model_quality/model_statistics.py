@@ -1,6 +1,8 @@
 import logging
 import sys
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -133,7 +135,6 @@ def get_tieflow_data(data):
 
 
     # Add SV results
-    # if sv_results := data.type_tableview("SvPowerFlow") is not None:
     try:
         tieflow_data = tieflow_data.merge(data.type_tableview("SvPowerFlow"),
                                           left_on="TieFlow.Terminal",
@@ -151,9 +152,7 @@ def get_tieflow_data(data):
 
     # Fix some names
     tieflow_data = tieflow_data.rename(columns={
-        "IdentifiedObject.energyIdentCodeEic_Terminal": "IdentifiedObject.energyIdentCodeEic_ControlArea",
-        "IdentifiedObject.energyIdentCodeEic": "IdentifiedObject.energyIdentCodeEic_Line"
-    })
+        "IdentifiedObject.energyIdentCodeEic_Terminal": "IdentifiedObject.energyIdentCodeEic_ControlArea"})
 
     # Add cross borders data
     def merge_sort_strings(row, col1, col2, delimiter='-'):
@@ -173,10 +172,7 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
         # Use only Interchange Control Area Tieflows
         tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
         tieflow_data = get_tieflow_data(data)
-        try:
-            tieflow_data = tieflow_data.query("`ControlArea.type` == @tieflow_type")
-        except:
-            tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
+        tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
 
 
     if load_and_generation is None or load_and_generation.empty:
@@ -189,22 +185,15 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
     tieflow_np = tieflow_data[data_columns].sum().to_dict()
 
     # Summing values where BoundaryPoint.isDirectCurrent is False
-    try:
-        tieflow_acnp = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == False")[data_columns].sum().to_dict()
-    except:
-        tieflow_acnp = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False][data_columns].sum().to_dict()
+    tieflow_acnp = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False][data_columns].sum().to_dict()
 
     # Processing HVDC tieflow data
     try:
-        tieflow_hvdc = tieflow_data.query("`BoundaryPoint.isDirectCurrent` == True")[
-            ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index('IdentifiedObject.energyIdentCodeEic_Line').to_dict("index")
+        tieflow_hvdc = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == True][
+            ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index(
+            'IdentifiedObject.energyIdentCodeEic_Line').drop_duplicates().to_dict("index")
     except:
-        try:
-            tieflow_hvdc = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == True][
-                ['IdentifiedObject.energyIdentCodeEic_Line'] + data_columns].set_index(
-                'IdentifiedObject.energyIdentCodeEic_Line').to_dict("index")
-        except:
-            tieflow_hvdc = None
+        tieflow_hvdc = {}
 
     # Calculating total_load, generation, and net position
     load = load_and_generation["EnergyConsumer.p"].sum()

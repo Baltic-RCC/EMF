@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 from model_statistics import get_tieflow_data, type_tableview_merge
 from quality_functions import get_uap_outages_from_scenario_time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def check_generator_quality(report, network):
     # Check Kruonis and Riga TEC generators
@@ -151,7 +154,8 @@ def check_line_impedance(report, network):
             impedance_warning_dict = {}
         report.update({"impedance_errors": impedance_error_dict, "impedance_warnings:": impedance_warning_dict,
                        "impedance_check": impedance_bool})
-    except:
+    except Exception as e:
+        logger.error(f"Failed to calculate impedance: {e}")
         report.update({"impedance_errors": None, "impedance_warnings": None, "impedance_check": None})
 
     return report
