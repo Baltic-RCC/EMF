@@ -20,12 +20,18 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'slackBusesIds': '',
     'lowImpedanceBranchMode': 'REPLACE_BY_ZERO_IMPEDANCE_LINE', 
     'voltageRemoteControl': 'True',
-    'throwsExceptionInCaseOfSlackDistributionFailure': 'False',
+
+    # Legacy, not found in code, can be removed
+    # 'throwsExceptionInCaseOfSlackDistributionFailure': 'False',
+
     'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency TODO - check this
     'plausibleActivePowerLimit': '5000.0',
     'slackBusPMaxMismatch': '0.1', #slackBusDistributionThreshold
     'voltagePerReactivePowerControl': 'False',
-    'reactivePowerRemoteControl': 'False',
+
+    # Legacy, not found in code, can be removed, replaced with generator, transformer etc control
+    # 'reactivePowerRemoteControl': 'False',
+
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
     'voltageTargetPriorities': 'GENERATOR,TRANSFORMER,SHUNT',
     # 'voltageInitModeOverride': None,
@@ -43,7 +49,10 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     # 'debugDir': '',
     'incrementalTransformerVoltageControlOuterLoopMaxTapShift': '3',  # TODO - check this
     'secondaryVoltageControl': 'False',
-    'controllerToPilotPointVoltageSensiEpsilon': '0.01',
+
+    # Legacy, not found in code, can be removed
+    # 'controllerToPilotPointVoltageSensiEpsilon': '0.01',
+
     'reactiveLimitsMaxPqPvSwitch': '3',
     'newtonRaphsonStoppingCriteriaType': 'UNIFORM_CRITERIA',
     'maxActivePowerMismatch': '0.01',  # cim:PowerFlowSettings.activePowerTolerance
@@ -106,13 +115,13 @@ __IGM_VALIDATION_PROVIDER = {
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 __EU_DEFAULT_PROVIDER = {
-    'slackBusSelectionMode': 'LARGEST_GENERATOR',
+    'slackBusSelectionMode': 'MOST_MESHED',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'generatorReactivePowerRemoteControl': 'True',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
+    'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
     'lowImpedanceThreshold': '0.00003',  # cim:PowerFlowSettings.impedanceThreshold "1e-05"
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
@@ -123,13 +132,13 @@ __EU_DEFAULT_PROVIDER = {
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
 __EU_RELAXED_PROVIDER = {
-    'slackBusSelectionMode': 'LARGEST_GENERATOR',
+    'slackBusSelectionMode': 'MOST_MESHED',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'generatorReactivePowerRemoteControl': 'True',
     'reactivePowerRemoteControl': 'True',
     'maxNewtonRaphsonIterations': '50',
     'maxOuterLoopIterations': '50',  
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
     'lowImpedanceThreshold': '0.00003',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
@@ -237,7 +246,7 @@ EU_DEFAULT = pypowsybl.loadflow.Parameters(
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_CONFORM_LOAD, #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
@@ -253,7 +262,7 @@ EU_RELAXED = pypowsybl.loadflow.Parameters(
     read_slack_bus=True,
     write_slack_bus=False,
     distributed_slack=True,  # cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
-    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
+    balance_type=pypowsybl._pypowsybl.BalanceType.PROPORTIONAL_TO_CONFORM_LOAD,  #cim:PowerFlowSettings.slackDistributionKind cim:SlackDistributionKind.generationDistributionActivePowerAndVoltageNodesOnly
     dc_use_transformer_ratio=None,
     countries_to_balance=None,
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
