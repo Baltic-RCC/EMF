@@ -12,7 +12,7 @@
         },
         "month_ahead": {
             "hours": ["07:30", "08:30", "09:30", "06:30", "05:30", "04:30"],
-            "business_type": ["1D"]
+            "business_type": ["1D","2D"]
         },
         "hours": [
             {
