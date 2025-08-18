@@ -116,6 +116,13 @@ __EU_DEFAULT_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1'
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
+
+    # 'extrapolateReactiveLimits': 'true',
+    'disableInconsistentVoltageControls': 'true',
+    'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'phaseShifterControlMode': 'INCREMENTAL',
+
 }
 __EU_RELAXED_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
@@ -133,6 +140,11 @@ __EU_RELAXED_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
+
+    'disableInconsistentVoltageControls': 'true',
+    'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
+    'phaseShifterControlMode': 'INCREMENTAL',
 }
 
 ## Baltic merge parameters
