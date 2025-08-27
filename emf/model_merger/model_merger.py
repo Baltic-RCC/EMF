@@ -404,19 +404,22 @@ class HandlerMergeModels:
         logger.debug(f"Post processing took: {(post_p_end - post_p_start).total_seconds()} seconds")
         logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
-        # Upload to OPDM
+        # Upload to OPDM 
         if model_upload_to_opdm:
-            try:
-                self.opdm_service = opdm.OPDM()
-                for item in serialized_data:
-                    logger.info(f"Uploading to OPDM: {item.name}")
-                    time.sleep(2)
-                    async_call(function=self.opdm_service.publication_request,
-                               callback=log_opdm_response,
-                               file_path_or_file_object=item)
-                merged_model.uploaded_to_opde = True
-            except Exception as error:
-                logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
+
+            if merged_model.loadflow[0]['status'] == 'CONVERGED': #Only upload if the model PF is solved
+                try:
+                    for item in serialized_data:
+                        logger.info(f"Uploading to OPDM: {item.name}")
+                        time.sleep(2)
+                        async_call(function=self.opdm_service.publication_request,
+                                callback=log_opdm_response,
+                                file_path_or_file_object=item)
+                    merged_model.uploaded_to_opde = True
+                except Exception as error:
+                    logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
+            else:
+                logger.info(f"Model not uploaded to OPDM due to convergance issue: {merged_model.loadflow[0]['status']}")
 
         # Create zipped model data
         merged_model_object = BytesIO()
