@@ -98,10 +98,10 @@ class ModelEntity:
 
 class HandlerMergeModels:
 
-    def __init__(self):
-        self.opdm_service = opdm.OPDM()
+    def __init__(self)
         self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
+        self.opdm_service = None
 
     @staticmethod
     def run_loadflow(merged_model):
@@ -404,9 +404,10 @@ class HandlerMergeModels:
         logger.debug(f"Post processing took: {(post_p_end - post_p_start).total_seconds()} seconds")
         logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
-        # Upload to OPDM
+        # Upload to OPDM 
         if model_upload_to_opdm:
-            if merged_model.loadflow[0]['status'] == 'CONVERGED':
+
+            if merged_model.loadflow[0]['status'] == 'CONVERGED': #Only upload if the model PF is solved
                 try:
                     for item in serialized_data:
                         logger.info(f"Uploading to OPDM: {item.name}")
@@ -419,7 +420,6 @@ class HandlerMergeModels:
                     logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
             else:
                 logger.info(f"Model not uploaded to OPDM due to convergance issue: {merged_model.loadflow[0]['status']}")
-
 
         # Create zipped model data
         merged_model_object = BytesIO()
