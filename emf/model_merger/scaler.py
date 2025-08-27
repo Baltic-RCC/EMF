@@ -118,7 +118,7 @@ def get_fragmented_areas_participation(unpaired_dangling_lines: pd.DataFrame, ar
     for area, comps in areas_to_components.items():
         if len(comps) > 1:
             logger.warning(f"Fragmented area identified: {area} in components {list(comps)}")
-            area_dangling_lines = unpaired_dangling_lines.query("country == @area")
+            area_dangling_lines = unpaired_dangling_lines[unpaired_dangling_lines[_country_col] == area]
             fragments_acnp = {comp: area_dangling_lines[area_dangling_lines.connected_component == comp].boundary_p.sum() for comp in comps}
             total_fragments_acnp = abs(sum(fragments_acnp.values())) or 1  # removing zero division warning
             participation = {k: abs(v) / total_fragments_acnp for k, v in fragments_acnp.items()}
