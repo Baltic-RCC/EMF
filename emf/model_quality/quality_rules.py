@@ -13,17 +13,19 @@ def check_generator_quality(report, network):
     rtec_generators = generators[generators['IdentifiedObject.name'].str.contains('RTEC')]
 
     if not kruonis_generators.empty:
-        gen_count1 = kruonis_generators[kruonis_generators['RotatingMachine.p'] > 0].shape[0]
+        kruonis_total_p = kruonis_generators['RotatingMachine.p'].abs().sum()
+        gen_count1 = kruonis_generators[kruonis_generators['RotatingMachine.p'].abs() > 0].shape[0]
         flag1 = gen_count1 < 3
-        report.update({"kruonis_generators": gen_count1, "kruonis_check": flag1})
+        report.update({"kruonis_generators": gen_count1, "kruonis_check": flag1, "kruonis_total_p": kruonis_total_p})
     else:
-        report.update({"kruonis_generators": None, "kruonis_check": None})
+        report.update({"kruonis_generators": None, "kruonis_check": None, "kruonis_total_p": None})
     if not rtec_generators.empty:
-        gen_count2 = rtec_generators[rtec_generators['RotatingMachine.p'] > 0.000001].shape[0]
+        rtec_total_p = rtec_generators['RotatingMachine.p'].abs().sum()
+        gen_count2 = rtec_generators[rtec_generators['RotatingMachine.p'].abs() > 0.00001].shape[0]
         flag2 = gen_count2 < 3
-        report.update({"rtec_generators": gen_count2, "rtec_check": flag2})
+        report.update({"rtec_generators": gen_count2, "rtec_check": flag2, "rtec_total_p": rtec_total_p})
     else:
-        report.update({"rtec_generators": None, "rtec_check": None})
+        report.update({"rtec_generators": None, "rtec_check": None, "rtec_total_p": None})
 
     return report
 
@@ -190,5 +192,63 @@ def check_line_limits(report, network, handler, limit_temperature='25 C'):
             {"line_rating_mismatch": line_rating_mismatch, "line_rating_check": not bool(line_rating_mismatch)})
     except:
         report.update({"line_rating_mismatch": None, "line_rating_check": None})
+
+    return report
+
+
+def check_reactive_power_limits(report, network):
+
+    try:
+        terminals = network.type_tableview('Terminal').reset_index()
+        gen_terminals = terminals.merge(network.type_tableview("SynchronousMachine"),
+                                                 left_on="Terminal.ConductingEquipment",
+                                                 right_on="ID",
+                                                 suffixes=("", "_Gen"))
+
+        gen_on = gen_terminals[gen_terminals['ACDCTerminal.connected'] == 'true']
+
+        areas = network.type_tableview('GeographicalRegion').reset_index()
+        regions = network.type_tableview('SubGeographicalRegion').reset_index()
+        substations = network.type_tableview('Substation').reset_index()
+        voltage_levels = type_tableview_merge(network, "VoltageLevel->BaseVoltage")
+        nodes = network.type_tableview('ConnectivityNode').reset_index()
+
+        area_id = regions.merge(areas, left_on='SubGeographicalRegion.Region', right_on='ID', suffixes=("", "_Area"))[
+            ['ID', 'IdentifiedObject.name_Area']]
+        substation_id = substations.merge(area_id, left_on='Substation.Region', right_on='ID', suffixes=("", "_Region"))
+
+        voltage_id = voltage_levels.merge(substation_id, left_on='VoltageLevel.Substation', right_on='ID',
+                                          suffixes=("", "Substation"))
+        node_id = nodes.merge(voltage_id, left_on='ConnectivityNode.ConnectivityNodeContainer', right_on='ID_VoltageLevel',
+                              suffixes=("", "_Voltage"))
+        gen_full = gen_on.merge(node_id, left_on='Terminal.ConnectivityNode', right_on='ID', suffixes=("", "_Node"))
+        gen_filtered = gen_full[gen_full['IdentifiedObject.name_Area'] != 'PL']
+
+        total_max_q_limtis = gen_filtered['SynchronousMachine.maxQ'].sum()
+        total_min_q_limtis = gen_filtered['SynchronousMachine.minQ'].sum()
+        total_q = gen_filtered['RotatingMachine.q'].sum()
+
+        violations = gen_filtered[(gen_filtered['RotatingMachine.q'] < gen_filtered['SynchronousMachine.minQ']) |
+                                  (gen_filtered['RotatingMachine.q'] > gen_filtered['SynchronousMachine.maxQ'])]
+
+        violations_filtered = violations[violations['BaseVoltage.nominalVoltage'] >= 110]
+
+        violations_filtered = violations_filtered.rename(columns={
+            'RotatingMachine.q': 'q', 'SynchronousMachine.minQ': 'min_q',
+            'SynchronousMachine.maxQ': 'max_q', 'IdentifiedObject.name_Gen': 'name',
+            'IdentifiedObject.name_Area': 'area'})
+
+        violations_list = violations_filtered[['name', 'q', 'min_q', 'max_q', 'area']].to_dict('records')
+
+        flag = total_min_q_limtis < total_q < total_max_q_limtis
+
+        report.update({"total_area_q": total_q, "sum_max_q_limit": total_max_q_limtis,
+                       "sum_min_q_limit": total_min_q_limtis, "reactive_power_check": flag,
+                       "q_limit_errors": violations_list})
+
+    except:
+        report.update({"total_area_q": None, "sum_max_q_limit": None,
+                       "sum_min_q_limit": None, "reactive_power_check": None,
+                       "q_limit_errors": None})
 
     return report

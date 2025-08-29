@@ -19,6 +19,8 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
         report = check_lt_pl_crossborder(report, network, tieflow_data=tieflow_data, border_limit=BORDER_LIMIT)
         report = check_crossborder_inconsistencies(report, network)
         report = check_outage_inconsistencies(report, network, handler, model_metadata)
+        report = check_reactive_power_limits(report, network)
+
         report = set_quality_flag(report, object_type, rule_sets)
 
     elif object_type == "IGM":
