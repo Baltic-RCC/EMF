@@ -98,7 +98,7 @@ class ModelEntity:
 
 class HandlerMergeModels:
 
-    def __init__(self)
+    def __init__(self):
         self.minio_service = minio_api.ObjectStorage()
         self.elk_logging_handler = get_elk_logging_handler()
         self.opdm_service = None
