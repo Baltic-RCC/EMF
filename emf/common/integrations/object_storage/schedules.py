@@ -31,9 +31,8 @@ def query_hvdc_schedules(time_horizon: str,
             area_eic_map = json.loads(f.read())
         hvdc_eic_map = {}
 
-    # Define utc start/end times from timestamp
-    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
-    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+    # Define utc end time from timestamp
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=15)
 
     # Define business type by time horizon
     business_type = "B63" if time_horizon in ["1D", "ID"] else "B67"
@@ -47,7 +46,7 @@ def query_hvdc_schedules(time_horizon: str,
     # Get HVDC schedules
     schedules_df = service.query_schedules_from_elk(
         index="emfos-schedules*",
-        utc_start=utc_start.isoformat(),
+        utc_start=scenario_timestamp,
         utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
@@ -101,9 +100,8 @@ def query_acnp_schedules(time_horizon: str,
         with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
             area_eic_map = json.loads(f.read())
 
-    # Define utc start/end times from timestamp
-    utc_start = datetime.fromisoformat(scenario_timestamp) - timedelta(minutes=30)
-    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=30)
+    # Define utc end time from timestamp
+    utc_end = datetime.fromisoformat(scenario_timestamp) + timedelta(minutes=15)
 
     # Define metadata dictionary
     metadata = {
@@ -114,7 +112,7 @@ def query_acnp_schedules(time_horizon: str,
     # Get AC area schedules
     schedules_df = service.query_schedules_from_elk(
         index="emfos-schedules*",
-        utc_start=utc_start.isoformat(),
+        utc_start=scenario_timestamp,
         utc_end=utc_end.isoformat(),
         metadata=metadata,
         period_overlap=True,
