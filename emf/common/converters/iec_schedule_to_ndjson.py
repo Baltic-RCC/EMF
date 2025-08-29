@@ -99,7 +99,7 @@ def get_metadata_from_xml(xml, include_namespace=True, prefix_root=False):
     return properties_dict
 
 
-def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT1H'):
+def parse_iec_xml(element_tree: bytes, return_values_per_mtu: bool = True, mtu_resolution: str = 'PT15M'):
     """Parses iec xml to dictionary, meta on the same row with value and start/end time"""
     # TODO make return_values_per_mtu argument in parameters
     # TODO - maybe first analyse the xml, by getting all elements and try to match names, ala point_element_name = unique_element_namelist.contains("point") etc.
