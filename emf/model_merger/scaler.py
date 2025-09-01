@@ -31,6 +31,7 @@ import pypowsybl as pp
 import logging
 import pandas as pd
 import numpy as np
+import json
 from typing import Dict, List, Union
 from collections import defaultdict
 import config
@@ -154,7 +155,7 @@ def scale_balance(model: object,
                   ac_schedules: List[Dict[str, Union[str, float, None]]],
                   dc_schedules: List[Dict[str, Union[str, float, None]]],
                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
-                  debug=bool(DEBUG),
+                  debug=json.loads(DEBUG.lower()),
                   ):
     """
     Main method to scale each CGM area to target balance
@@ -169,6 +170,7 @@ def scale_balance(model: object,
     network = model.network
 
     # Define general variables to be used in scaling algorithm
+    _CONSTANT_POWER_FACTOR = json.loads(CONSTANT_POWER_FACTOR.lower())
     _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
     _scaling_results = []
     _hvdc_results = []
@@ -233,7 +235,10 @@ def scale_balance(model: object,
 
     # Updating HVDC network elements to scheduled values
     scalable_hvdc_target = scalable_hvdc[['value', 'lineEnergyIdentificationCodeEIC', 'power_factor']]
-    scalable_hvdc_target['value_q'] = scalable_hvdc_target.value * scalable_hvdc_target.power_factor  # ensure power factor is kept
+    if _CONSTANT_POWER_FACTOR:
+        scalable_hvdc_target['value_q'] = scalable_hvdc_target.value * scalable_hvdc_target.power_factor  # ensure power factor is kept
+    else:
+        scalable_hvdc_target['value_q'] = dangling_lines.loc[scalable_hvdc_target.index].q0
     network.update_dangling_lines(id=scalable_hvdc_target.index, p0=scalable_hvdc_target.value, q0=scalable_hvdc_target.value_q)
     _hvdc_results.append(pd.concat([scalable_hvdc_target.set_index('lineEnergyIdentificationCodeEIC').value,
                                     pd.Series({'KEY': 'postscale-setpoint'})]).to_dict())
@@ -316,10 +321,14 @@ def scale_balance(model: object,
         prescale_network_acnp_diff = offset_network_acnp * relevant_dangling_lines.participation
         prescale_network_acnp_target = relevant_dangling_lines.p0 - prescale_network_acnp_diff
         prescale_network_acnp_target.dropna(inplace=True)
+        if _CONSTANT_POWER_FACTOR:
+            _component_dl_q_values = prescale_network_acnp_target * relevant_dangling_lines.power_factor
+        else:
+            _component_dl_q_values = relevant_dangling_lines.q0
         logger.info(f"[ITER {_iteration}] Scaling network component {component_key} {v['countries']} ACNP to scheduled: {scheduled_component_acnp}")
         network.update_dangling_lines(id=prescale_network_acnp_target.index,
                                       p0=prescale_network_acnp_target.to_list(),
-                                      q0=(prescale_network_acnp_target * relevant_dangling_lines.power_factor).to_list())
+                                      q0=_component_dl_q_values.to_list())
     _scaling_results.append({'KEY': 'target-network-acnp', 'GLOBAL': target_network_acnp, 'ITER': _iteration})
 
     # Solving loadflow after aligning total network AC net position to scheduled
@@ -474,6 +483,7 @@ def scale_balance(model: object,
     filtered_df = filtered_df.drop(columns='GLOBAL')
     filtered_df.loc[(filtered_df.index == 0) & (filtered_df['KEY'] == 'offset-acnp'), 'KEY'] = 'initial-offset-acnp'
     filtered_df.loc[(filtered_df.index != 0) & (filtered_df['KEY'] == 'offset-acnp'), 'KEY'] = 'final-offset-acnp'
+    filtered_df = filtered_df.dropna(axis=1)
     filtered_df['KEY'] = filtered_df['KEY'].str.replace('-', '_')
     ac_melted_df = filtered_df.melt(id_vars=['KEY'], var_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', columns='KEY', values='value').reset_index()
