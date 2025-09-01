@@ -336,3 +336,125 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
     updated_q_value["KEY"] = "EquivalentInjection.q"
     updated_q_value["VALUE"] = 0
     return cgm_ssh_data.update_triplet_from_triplet(pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+
+
+def check_energized_boundary_nodes(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False):
+    """
+    On one case (1D RTEFrance alone on 01.08.2024 12.30Z) pypowsybl calculates the loadflow and updates
+    the voltages on boundaries, however the powerflows are still copied over from the original files.
+    This, therefore, joins a lot of tables and ,eventually, if voltage at some boundary node is zero and
+    equivalentinjection is not then it sets this to zero
+    """
+    # all_boundary_nodes = original_models.type_tableview('TopologicalNode')
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    boundary_nodes = original_models.query('KEY == "TopologicalNode.boundaryPoint" & VALUE == "true"')[['ID']]
+    terminals = (original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
+                 .merge(boundary_nodes.rename(columns={'ID': 'Terminal.TopologicalNode'}),
+                        on='Terminal.TopologicalNode'))[['Terminal', 'ACDCTerminal.connected',
+                                                         'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
+    new_voltages = (cgm_sv_data.type_tableview('SvVoltage').rename_axis('SvVoltage').reset_index()
+                    .merge(boundary_nodes.rename(columns={'ID': 'SvVoltage.TopologicalNode'}),
+                           on='SvVoltage.TopologicalNode')).sort_values(by=['SvVoltage'])
+    old_voltages = (original_models.type_tableview('SvVoltage').rename_axis('SvVoltage').reset_index()
+                    .merge(boundary_nodes.rename(columns={'ID': 'SvVoltage.TopologicalNode'}),
+                           on='SvVoltage.TopologicalNode')).sort_values(by=['SvVoltage.TopologicalNode'])
+    voltage_diff = ((old_voltages[['SvVoltage.TopologicalNode', 'SvVoltage.v', 'SvVoltage.angle']]
+                     .merge(new_voltages[['SvVoltage.TopologicalNode', 'SvVoltage.v', 'SvVoltage.angle']],
+                            on='SvVoltage.TopologicalNode', suffixes=('_old', '_new')))
+                    .sort_values(by=['SvVoltage.TopologicalNode']))
+    old_powerflows = ((original_models.type_tableview('SvPowerFlow').rename_axis('SvPowerFlow').reset_index()
+                       .merge(terminals.rename(columns={'Terminal': 'SvPowerFlow.Terminal'}),
+                              on='SvPowerFlow.Terminal'))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    new_powerflows = ((cgm_sv_data.type_tableview('SvPowerFlow').rename_axis('SvPowerFlow').reset_index()
+                       .merge(terminals.rename(columns={'Terminal': 'SvPowerFlow.Terminal'}),
+                              on='SvPowerFlow.Terminal'))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    powerflow_diff = ((old_powerflows[['SvPowerFlow.Terminal', 'SvPowerFlow.p',
+                                       'SvPowerFlow.q',
+                                       # 'ACDCTerminal.connected'
+                                       ]]
+                       .merge(new_powerflows[['SvPowerFlow.Terminal',
+                                              'SvPowerFlow.p',
+                                              'SvPowerFlow.q',
+                                              'SvPowerFlow',
+                                              # 'ACDCTerminal.connected',
+                                              'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']],
+                              on='SvPowerFlow.Terminal', suffixes=('_old', '_new')))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    old_injections = ((original_models.type_tableview('EquivalentInjection')
+                       .rename_axis('EquivalentInjection').reset_index())
+                      .merge(terminals.rename(columns={'Terminal.ConductingEquipment': 'EquivalentInjection'}),
+                             on='EquivalentInjection')).sort_values(by=['Terminal.TopologicalNode'])
+    new_injections = ((cgm_ssh_data.type_tableview('EquivalentInjection')
+                       .rename_axis('EquivalentInjection').reset_index())
+                      .merge(terminals.rename(columns={'Terminal.ConductingEquipment': 'EquivalentInjection'}),
+                             on='EquivalentInjection')).sort_values(by=['Terminal.TopologicalNode'])
+    injection_diff = ((old_injections[['EquivalentInjection', 'EquivalentInjection.p', 'EquivalentInjection.q']]
+                       .merge(new_injections[['EquivalentInjection', 'EquivalentInjection.p', 'EquivalentInjection.q',
+                                              # 'Terminal',
+                                              # 'Terminal.TopologicalNode'
+                                              ]], on='EquivalentInjection', suffixes=('_old', '_new')))
+                      .sort_values(by=['EquivalentInjection']))
+    all_together = (powerflow_diff.rename(columns={'SvPowerFlow.Terminal': 'Terminal',
+                                                   'Terminal.ConductingEquipment': 'EquivalentInjection',
+                                                   'Terminal.TopologicalNode': 'TopologicalNode'})
+                    .merge(injection_diff, on='EquivalentInjection', how='left'))
+    all_together = all_together.merge(voltage_diff.rename(columns={'SvVoltage.TopologicalNode': 'TopologicalNode'}),
+                                      on='TopologicalNode', how='left').sort_values(by=['TopologicalNode'])
+    # Okay it seems that voltage may be set to zero at some boundary nodes while powerflow and equivalent injection
+    # are not zero.
+    zero_voltages = all_together[(all_together["SvVoltage.v_new"] == 0) & (all_together["SvVoltage.angle_new"] == 0)]
+    zero_voltages['Summed_flow'] = (zero_voltages[[
+        # 'SvPowerFlow.p_new',
+        # 'SvPowerFlow.q_new',
+        'EquivalentInjection.p_new',
+        'EquivalentInjection.q_new'
+    ]].astype(float).abs().sum(axis=1, skipna=True))
+    not_zero_flows = zero_voltages[zero_voltages['Summed_flow'] != 0]
+    if not not_zero_flows.empty and fix_errors:
+        logger.warning(f"{len(not_zero_flows.index)} cases voltage level is zero at boundary but injection is not")
+        if fix_errors:
+            logger.info(f"Setting injection at boundary to zero")
+            updated_injections = (not_zero_flows.copy(deep=True)[['EquivalentInjection']]
+                                  .rename(columns={'EquivalentInjection': 'ID'}))
+            # Set P to 0
+            updated_p_value = updated_injections[["ID"]].copy()
+            updated_p_value["KEY"] = "EquivalentInjection.p"
+            updated_p_value["VALUE"] = 0
+
+            # Set Q to 0
+            updated_q_value = updated_injections[["ID"]].copy()
+            updated_q_value["KEY"] = "EquivalentInjection.q"
+            updated_q_value["VALUE"] = 0
+            cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(pd.concat([updated_p_value, updated_q_value],
+                                                                                  ignore_index=True), add=False)
+    return cgm_ssh_data
+
+
+def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: bool = False):
+    """
+    Checks if disconnected terminals have powerflow different from 0
+    :param cgm_sv_data: merged sv profile
+    :param original_models: original profiles
+    :param fix_errors: sets flows to zero
+    :return (updated) sv profile
+    """
+    all_terminals = original_models.type_tableview('Terminal').rename_axis('SvPowerFlow.Terminal').reset_index()
+    disconnected_terminals = all_terminals[all_terminals['ACDCTerminal.connected'] == 'false']
+    power_flows_post = cgm_sv_data.type_tableview('SvPowerFlow').reset_index()
+    disconnected_powerflows = power_flows_post.merge(disconnected_terminals[['SvPowerFlow.Terminal']],
+                                                     on='SvPowerFlow.Terminal')
+    flows_on_powerflows = disconnected_powerflows[(abs(disconnected_powerflows['SvPowerFlow.p'].astype('float')) > 0) |
+                                                  (abs(disconnected_powerflows['SvPowerFlow.q'].astype('float')) > 0)]
+    if not flows_on_powerflows.empty:
+        logger.warning(f"Found {len(flows_on_powerflows.index)} disconnected terminals which have flows set")
+        if fix_errors:
+            logger.info(f"Setting flows on disconnected terminals to zero")
+            flows_on_powerflows.loc[:, 'SvPowerFlow.p'] = 0
+            flows_on_powerflows.loc[:, 'SvPowerFlow.q'] = 0
+            cgm_sv_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_sv_data,
+                                                                            flows_on_powerflows,
+                                                                            add=False,
+                                                                            update=True)
+    return cgm_sv_data
