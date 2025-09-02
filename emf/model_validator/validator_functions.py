@@ -1,6 +1,8 @@
 import logging
 import pandas
 import triplets
+import xml.etree.ElementTree as ET
+import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
 
 logger = logging.getLogger(__name__)
@@ -109,6 +111,67 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
     return original_data, violated_switches
+
+
+def lvl8_report_igm(report: dict):
+
+    # Create <QAReport> root
+    qa_attribs = {
+        'created': datetime.datetime.strptime(report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'schemeVersion': "2.0",
+        'serviceProvider': "BALTICRCC",
+        'xmlns': "http://entsoe.eu/checks"
+    }
+    qa_root = ET.Element("QAReport", attrib=qa_attribs)
+
+    # Add RuleViolations if present
+    violations_list = [
+        {
+            'ruleId': "IGMConvergence",
+            'validationLevel': "8",
+            'severity': "WARNING",
+            'Message': "Power flow could not be calculated for IGM with default settings."
+        },
+    ]
+    
+    #later possible to add violation conditions and checks
+    violations = list()
+    if report["loadflow"]["status_text"] == 'Converged':
+            logger.info(f"Merge successful with default settings included in lvl8 report")
+            quality_indicator_igm = "Valid"
+    else:
+        violations = violations_list
+        quality_indicator_igm = "Invalid - inconsistent data"
+
+    # Create <QAReport> <IGM>
+    igm = ET.SubElement(qa_root, "IGM", {
+        'created': datetime.datetime.strptime(report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'scenarioTime': datetime.datetime.fromisoformat(report['@scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'tso': report['tso'],
+        'version': str(report['@version']),
+        'processType': report['@time_horizon'],
+        'qualityIndicator': quality_indicator_igm,
+    })
+    resource_igm = ET.SubElement(igm, "resource")
+    resource_igm.text = report['fullModel_ID']
+
+    try:
+        for v in violations:
+            rv = ET.SubElement(igm, "RuleViolation", {
+                'ruleId': v['ruleId'],
+                'validationLevel': v['validationLevel'],
+                'severity': v['severity']
+            })
+            msg = ET.SubElement(rv, "Message")
+            msg.text = v['Message']
+    except:
+        logger.info(f"No violations present in merge")
+
+
+    # Generate final XML
+    qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
+
+    return qa_report_lvl8
 
 
 def modify_region_name_for_denmark(input_data: pandas.DataFrame):
