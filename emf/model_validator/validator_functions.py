@@ -113,7 +113,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     return original_data, violated_switches
 
 
-def lvl8_report_igm(report: dict):
+def get_lvl8_report_igm(report: dict):
 
     # Create <QAReport> root
     qa_attribs = {
@@ -134,11 +134,11 @@ def lvl8_report_igm(report: dict):
         },
     ]
     
-    #later possible to add violation conditions and checks
+    # Later possible to add violation conditions and checks
     violations = list()
     if report["loadflow"]["status_text"] == 'Converged':
-            logger.info(f"Merge successful with default settings included in lvl8 report")
-            quality_indicator_igm = "Valid"
+        logger.info(f"IGM validation success status included in lvl8 report")
+        quality_indicator_igm = "Valid"
     else:
         violations = violations_list
         quality_indicator_igm = "Invalid - inconsistent data"
@@ -155,7 +155,7 @@ def lvl8_report_igm(report: dict):
     resource_igm = ET.SubElement(igm, "resource")
     resource_igm.text = report['fullModel_ID']
 
-    try:
+    if violations:
         for v in violations:
             rv = ET.SubElement(igm, "RuleViolation", {
                 'ruleId': v['ruleId'],
@@ -164,9 +164,8 @@ def lvl8_report_igm(report: dict):
             })
             msg = ET.SubElement(rv, "Message")
             msg.text = v['Message']
-    except:
-        logger.info(f"No violations present in merge")
-
+    else:
+        logger.info(f"No violations present for IGM-level-8 report")
 
     # Generate final XML
     qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
