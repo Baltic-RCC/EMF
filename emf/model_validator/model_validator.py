@@ -17,6 +17,7 @@ from emf.common.helpers.utils import attr_to_dict
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
+from emf.model_validator.validator_functions import get_net_position, get_sum_of_loads
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,10 @@ class HandlerModelsValidator:
                 network_triplets = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
                 pre_lf_validation = PreLFValidator(network=network_triplets)
                 pre_lf_validation.run_validation()
+
+                report['nettedAreaACPosition'] = get_net_position(models_as_triplets=network_triplets)
+                report['sumConformLoads'] = get_sum_of_loads(models_as_triplets=network_triplets,
+                                                             parameter_name='ConformLoad')
 
                 # Run post-loadflow validations
                 network = load_network_model(opdm_objects=[opdm_object, latest_boundary])
