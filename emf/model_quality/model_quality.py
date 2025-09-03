@@ -7,9 +7,8 @@ from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
 from triplets.rdf_parser import load_all_to_dataframe
-from emf.model_quality.model_statistics import get_system_metrics
+from emf.common.helpers.statistics import get_system_metrics, get_tieflow_data
 from emf.model_quality.quality_functions import generate_quality_report, process_zipped_cgm, set_common_metadata
-from model_statistics import get_tieflow_data
 
 logger = logging.getLogger(__name__)
 

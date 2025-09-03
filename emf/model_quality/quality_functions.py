@@ -3,7 +3,7 @@ from zipfile import ZipFile
 import logging
 import config
 from emf.common.config_parser import parse_app_properties
-from quality_rules import *
+from emf.model_quality.quality_rules import *
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.model_quality)

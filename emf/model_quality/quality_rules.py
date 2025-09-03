@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-from model_statistics import get_tieflow_data, type_tableview_merge
-from quality_functions import get_uap_outages_from_scenario_time
+from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
+from emf.model_quality.quality_functions import get_uap_outages_from_scenario_time
 import logging
 
 logger = logging.getLogger(__name__)

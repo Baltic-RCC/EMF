@@ -14,6 +14,7 @@ logging.basicConfig(
 
 def sum_on_KEY(data, KEY, precision=1):
     return round(data.query("KEY == @KEY").VALUE.astype(float).sum(), precision)
+
 def get_load_and_generation_ssh(data):
     logger.info("Getting Load and Generation data") # TODO add wrapper with timing and logging
     return {

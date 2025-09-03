@@ -4,7 +4,7 @@ import triplets
 import xml.etree.ElementTree as ET
 import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
-from emf.model_quality.model_statistics import get_tieflow_data, sum_on_KEY
+from emf.common.helpers.statistics import get_tieflow_data, sum_on_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
 
 def get_ac_net_position(models_as_triplets: pandas.DataFrame):
     """
-    Taken from model_quality/model_statistics.py. Finds sum of EquivalentInjection on the borders
+    Taken from model_quality/statistics.py. Finds sum of EquivalentInjection on the borders
 
     :param models_as_triplets: input dataframe of model as triplets
     """
@@ -136,7 +136,7 @@ def get_ac_net_position(models_as_triplets: pandas.DataFrame):
 
 def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
     """
-    Taken from model_quality/model_statistics.py. Slices the data and takes sum of values
+    Taken from model_quality/statistics.py. Slices the data and takes sum of values
 
     :param models_as_triplets: input dataframe of model as triplets
     :param parameter_name: VALUE that can be used to slice the input data
