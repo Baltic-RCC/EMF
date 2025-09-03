@@ -17,7 +17,7 @@ from emf.common.helpers.utils import attr_to_dict
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
-from emf.model_validator.validator_functions import get_net_position, get_sum_of_loads
+from emf.model_validator.validator_functions import get_ac_net_position, get_sum_of_loads
 
 logger = logging.getLogger(__name__)
 
@@ -290,8 +290,8 @@ class HandlerModelsValidator:
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
                 opdm_object["valid"] = valid
                 opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
-                opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,parameter_name='ConformLoad')
-                
+                opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,
+                                                                   parameter_name='ConformLoad')
                 self.elastic_service.send_to_elastic_bulk(
                     index=METADATA_ELK_INDEX,
                     json_message_list=[opdm_object],
