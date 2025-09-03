@@ -114,7 +114,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     return original_data, violated_switches
 
 
-def get_net_position(models_as_triplets: pandas.DataFrame):
+def get_ac_net_position(models_as_triplets: pandas.DataFrame):
     """
     Taken from model_quality/model_statistics.py. Finds sum of EquivalentInjection on the borders
 
@@ -131,7 +131,7 @@ def get_net_position(models_as_triplets: pandas.DataFrame):
         pass
     data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
     tieflow_values = tieflow_data[data_columns].sum().to_dict()
-    return tieflow_values.get("EquivalentInjection.p", 0)
+    return tieflow_values.get("EquivalentInjection.p", None)
 
 
 def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
@@ -150,7 +150,7 @@ def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str =
         # "RotatingMachine.p": sum_on_KEY(input_data, 'RotatingMachine.p'),
         # "RotatingMachine.q": sum_on_KEY(input_data, 'RotatingMachine.q')
     }
-    return output.get("EnergyConsumer.p", 0)
+    return output.get("EnergyConsumer.p", None)
 
 
 def get_lvl8_report_igm(report: dict):
