@@ -1,10 +1,107 @@
 import pandas as pd
 import numpy as np
 from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
-from emf.model_quality.quality_functions import get_uap_outages_from_scenario_time
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# TODO temp function, later use common one
+def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, index='opc-outages-baltics*'):
+
+    import datetime
+
+    logger.info(f"Retrieving outages from ELK index: '{index}'")
+
+    # now represents the time of the run, in P0W case it should be current time
+    now = datetime.datetime.now()
+    now = now.strftime("%Y-%m-%dT%H:%M") + "Z"
+
+    if time_horizon.isdigit() or time_horizon in ['ID', '1D', '2D']:
+        time_horizon = 'WK'
+
+    if time_horizon == 'WK':
+        merge_type_list = ['week']
+        filter_range = '2w'
+    elif time_horizon == 'MO':
+        merge_type_list = ['week', 'month']
+        filter_range = '4w'
+    elif time_horizon == 'YR':
+        merge_type_list = ['year']
+        filter_range = '4M'
+    else:
+        raise TypeError('Incorrect time horizon')
+
+    query = {
+        "bool": {
+            "must": [
+                {"exists": {"field": "name"}},
+                {"terms": {"Merge": merge_type_list}},
+            ],
+            "filter": [{"range": {"reportParsedDate": {"lte": now, "gte": f"now-{filter_range}"}}}],
+        }
+    }
+    response = handler.elastic_service.get_docs_by_query(index=index, query=query, size=10000, return_df=True)
+    outage_df = pd.DataFrame()
+
+    eic_mrid_map = handler.elastic_service.get_docs_by_query(index='config-network', query={"match_all": {}}, size=10000, return_df=True)
+
+    if not response.empty:
+
+        # Get only latest report data
+        response['reportParsedDate'] = pd.to_datetime(response['reportParsedDate'])
+        response = response[response['reportParsedDate'] == response['reportParsedDate'].max()]
+        # Only keep latest outages
+        duplicated_outages = response[response.duplicated('eic', keep=False)]
+        latest_duplicate = duplicated_outages.groupby('eic')['date_of_last_change'].idxmax()
+        response = response.loc[response.index.isin(latest_duplicate) | ~response['eic'].duplicated(keep=False)]
+
+        response = response[response['outage_type'].isin(['OUT'])]
+
+        response = response.sort_values(by=['eic', 'start_date', 'end_date']).reset_index(drop=True)
+        last_end_time = {}
+
+        # Remove outage duplicate if there is time overlap
+        for _, row in response.iterrows():
+            eic = row['eic']
+            start_time = row['start_date']
+            end_time = row['end_date']
+
+            if eic not in last_end_time or start_time > last_end_time[eic]:
+                outage_df = pd.concat([outage_df, pd.DataFrame([row])], ignore_index=True)
+                last_end_time[eic] = end_time
+
+    BRELL_LINES = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
+                   '10T-LV-RU-00001A', '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
+                   '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
+
+    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES)].copy()
+
+    model_scenario_time = datetime.datetime.fromisoformat(model_timestamp)
+    if model_scenario_time.tzinfo is None:
+        logger.warning("model_scenario_time is timezone naive, assuming UTC")
+        model_scenario_time = model_scenario_time.replace(tzinfo=datetime.timezone.utc)
+    elif model_scenario_time.tzinfo != datetime.timezone.utc:
+        logger.warning(f"Converting model_scenario_time from {model_scenario_time.tzinfo} to UTC")
+        model_scenario_time = model_scenario_time.astimezone(datetime.timezone.utc)
+
+    outage_df['start_date'] = pd.to_datetime(outage_df['start_date'], utc=True)
+    outage_df['end_date'] = pd.to_datetime(outage_df['end_date'], utc=True)
+
+
+    relevant_mask = ((outage_df['start_date'] <= model_scenario_time) & (outage_df['end_date'] >= model_scenario_time))
+
+    # Use .loc for boolean indexing and .copy() to avoid SettingWithCopyWarning later
+    relevant_outages = outage_df.loc[relevant_mask].copy()
+
+    result = relevant_outages.merge(eic_mrid_map, on='eic', how='left')
+
+    missing_outages = ', '.join(result[result['mrid'].isna()]['name'].to_list())
+    if missing_outages:
+        logger.error(f"Missing mrid of outages: {missing_outages}")
+
+    return result
+
 
 def check_generator_quality(report, network):
     # Check Kruonis and Riga TEC generators
