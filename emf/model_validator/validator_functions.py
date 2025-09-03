@@ -142,7 +142,7 @@ def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str =
     :param parameter_name: VALUE that can be used to slice the input data
 
     """
-    input_data = models_as_triplets.merge(models_as_triplets.query("VALUE == @parameter_name")[['ID']], on='ID') \
+    input_data = models_as_triplets.merge(models_as_triplets.query("KEY == 'Type' & VALUE == @parameter_name")[['ID']], on='ID') \
         if parameter_name is not None else models_as_triplets
     output = {
         "EnergyConsumer.p": sum_on_KEY(input_data, 'EnergyConsumer.p'),
