@@ -4,6 +4,7 @@ import triplets
 import xml.etree.ElementTree as ET
 import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
+from emf.model_quality.model_statistics import get_tieflow_data, sum_on_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,45 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
     return original_data, violated_switches
+
+
+def get_net_position(models_as_triplets: pandas.DataFrame):
+    """
+    Taken from model_quality/model_statistics.py. Finds sum of EquivalentInjection on the borders
+
+    :param models_as_triplets: input dataframe of model as triplets
+    """
+    # Use only Interchange Control Area Tieflows
+    tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
+    tieflow_data = get_tieflow_data(models_as_triplets)
+    tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
+    # AC was needed?
+    try:
+        tieflow_data = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False]
+    except KeyError:
+        pass
+    data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
+    tieflow_values = tieflow_data[data_columns].sum().to_dict()
+    return tieflow_values.get("EquivalentInjection.p", 0)
+
+
+def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
+    """
+    Taken from model_quality/model_statistics.py. Slices the data and takes sum of values
+
+    :param models_as_triplets: input dataframe of model as triplets
+    :param parameter_name: VALUE that can be used to slice the input data
+
+    """
+    input_data = models_as_triplets.merge(models_as_triplets.query("KEY == 'Type' & VALUE == @parameter_name")[['ID']], on='ID') \
+        if parameter_name is not None else models_as_triplets
+    output = {
+        "EnergyConsumer.p": sum_on_KEY(input_data, 'EnergyConsumer.p'),
+        "EnergyConsumer.q": sum_on_KEY(input_data, 'EnergyConsumer.q'),
+        # "RotatingMachine.p": sum_on_KEY(input_data, 'RotatingMachine.p'),
+        # "RotatingMachine.q": sum_on_KEY(input_data, 'RotatingMachine.q')
+    }
+    return output.get("EnergyConsumer.p", 0)
 
 
 def get_lvl8_report_igm(report: dict):
