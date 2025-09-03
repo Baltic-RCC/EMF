@@ -240,10 +240,6 @@ class HandlerModelsValidator:
                 pre_lf_validation = PreLFValidator(network=network_triplets)
                 pre_lf_validation.run_validation()
 
-                report['nettedAreaACPosition'] = get_net_position(models_as_triplets=network_triplets)
-                report['sumConformLoads'] = get_sum_of_loads(models_as_triplets=network_triplets,
-                                                             parameter_name='ConformLoad')
-
                 # Run post-loadflow validations
                 network = load_network_model(opdm_objects=[opdm_object, latest_boundary])
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
@@ -293,6 +289,9 @@ class HandlerModelsValidator:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
                 opdm_object["valid"] = valid
+                opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
+                opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,parameter_name='ConformLoad')
+                
                 self.elastic_service.send_to_elastic_bulk(
                     index=METADATA_ELK_INDEX,
                     json_message_list=[opdm_object],
