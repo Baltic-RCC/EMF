@@ -406,7 +406,7 @@ class HandlerMergeModels:
 
         # Upload to OPDM 
         if model_upload_to_opdm:
-
+            self.opdm_service = opdm.OPDM()
             if merged_model.loadflow[0]['status'] == 'CONVERGED': #Only upload if the model PF is solved
                 try:
                     for item in serialized_data:
