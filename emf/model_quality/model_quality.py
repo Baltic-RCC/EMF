@@ -7,7 +7,7 @@ from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
 from emf.common.integrations import elastic, minio_api
 from emf.common.integrations.object_storage import models
 from triplets.rdf_parser import load_all_to_dataframe
-from emf.model_quality.model_statistics import get_system_metrics
+from emf.common.helpers.statistics import get_system_metrics, get_tieflow_data
 from emf.model_quality.quality_functions import generate_quality_report, process_zipped_cgm, set_common_metadata
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class HandlerModelQuality:
         model_metadata = json.loads(message)
         object_type = properties.headers['opde:Object-Type']
         common_metadata = set_common_metadata(model_metadata, object_type)
+        rule_sets = {'igm_rule_set': IGM_RULE_SET.split(','), 'cgm_rule_set': CGM_RULE_SET.split(',')}
 
         if object_type == 'CGM':
             model_data = self.minio_service.download_object(model_metadata.get('minio-bucket', 'opde-confidential-models'),
@@ -42,19 +43,24 @@ class HandlerModelQuality:
                 for opdm_object in model_data:
                     network = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
             except:
-                logger.error("Failed to load IGM")
+                logger.error("Failed to load IGM data")
                 network = pd.DataFrame
         else:
-            logger.error("Data not loaded, skipping quality check")
+            logger.error("Object type metadata is incorrect")
+            model_data = None
             network = pd.DataFrame
-
-        # TODO add tieflow calc outside the report/statistics function
 
         # Generate quality report and network statistics
         if not network.empty:
-            qa_report = generate_quality_report(network, object_type, model_metadata)
+            tieflow_data = get_tieflow_data(network)
             try:
-                model_statistics = get_system_metrics(network)
+                qa_report = generate_quality_report(self, network=network, object_type=object_type,
+                                                    model_metadata=model_metadata, rule_sets=rule_sets,
+                                                    tieflow_data=tieflow_data)
+            except Exception as e:
+                logger.error(f"Failed to generate quality report: {e}")
+            try:
+                model_statistics = get_system_metrics(network, tieflow_data=tieflow_data)
             except Exception as e:
                 model_statistics = {}
                 logger.error(f"Failed to get model statistics: {e}")
@@ -85,5 +91,7 @@ class HandlerModelQuality:
             logger.info(f"Quality report sent to elastic index: '{ELK_QUALITY_INDEX}'")
         else:
             logger.error("Error, quality report generator failed, data not sent")
+
+        del model_data, model_metadata, network
 
         return message, properties

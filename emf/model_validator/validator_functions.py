@@ -1,7 +1,10 @@
 import logging
 import pandas
 import triplets
+import xml.etree.ElementTree as ET
+import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
+from emf.common.helpers.statistics import get_tieflow_data, sum_on_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,105 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
 
     return original_data, violated_switches
+
+
+def get_ac_net_position(models_as_triplets: pandas.DataFrame):
+    """
+    Taken from model_quality/statistics.py. Finds sum of EquivalentInjection on the borders
+
+    :param models_as_triplets: input dataframe of model as triplets
+    """
+    # Use only Interchange Control Area Tieflows
+    tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
+    tieflow_data = get_tieflow_data(models_as_triplets)
+    tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
+    # AC was needed?
+    try:
+        tieflow_data = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False]
+    except KeyError:
+        pass
+    data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
+    tieflow_values = tieflow_data[data_columns].sum().to_dict()
+    return tieflow_values.get("EquivalentInjection.p", None)
+
+
+def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
+    """
+    Taken from model_quality/statistics.py. Slices the data and takes sum of values
+
+    :param models_as_triplets: input dataframe of model as triplets
+    :param parameter_name: VALUE that can be used to slice the input data
+
+    """
+    input_data = models_as_triplets.merge(models_as_triplets.query("KEY == 'Type' & VALUE == @parameter_name")[['ID']], on='ID') \
+        if parameter_name is not None else models_as_triplets
+    output = {
+        "EnergyConsumer.p": sum_on_KEY(input_data, 'EnergyConsumer.p'),
+        "EnergyConsumer.q": sum_on_KEY(input_data, 'EnergyConsumer.q'),
+        # "RotatingMachine.p": sum_on_KEY(input_data, 'RotatingMachine.p'),
+        # "RotatingMachine.q": sum_on_KEY(input_data, 'RotatingMachine.q')
+    }
+    return output.get("EnergyConsumer.p", None)
+
+
+def get_lvl8_report_igm(report: dict):
+
+    # Create <QAReport> root
+    qa_attribs = {
+        'created': datetime.datetime.strptime(report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'schemeVersion': "2.0",
+        'serviceProvider': "BALTICRCC",
+        'xmlns': "http://entsoe.eu/checks"
+    }
+    qa_root = ET.Element("QAReport", attrib=qa_attribs)
+
+    # Add RuleViolations if present
+    violations_list = [
+        {
+            'ruleId': "IGMConvergence",
+            'validationLevel': "8",
+            'severity': "WARNING",
+            'Message': "Power flow could not be calculated for IGM with default settings."
+        },
+    ]
+    
+    # Later possible to add violation conditions and checks
+    violations = list()
+    if report["loadflow"]["status_text"] == 'Converged':
+        logger.info(f"IGM validation success status included in lvl8 report")
+        quality_indicator_igm = "Valid"
+    else:
+        violations = violations_list
+        quality_indicator_igm = "Invalid - inconsistent data"
+
+    # Create <QAReport> <IGM>
+    igm = ET.SubElement(qa_root, "IGM", {
+        'created': datetime.datetime.strptime(report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'scenarioTime': datetime.datetime.fromisoformat(report['@scenario_timestamp']).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'tso': report['tso'],
+        'version': str(report['@version']),
+        'processType': report['@time_horizon'],
+        'qualityIndicator': quality_indicator_igm,
+    })
+    resource_igm = ET.SubElement(igm, "resource")
+    resource_igm.text = report['fullModel_ID']
+
+    if violations:
+        for v in violations:
+            rv = ET.SubElement(igm, "RuleViolation", {
+                'ruleId': v['ruleId'],
+                'validationLevel': v['validationLevel'],
+                'severity': v['severity']
+            })
+            msg = ET.SubElement(rv, "Message")
+            msg.text = v['Message']
+    else:
+        logger.info(f"No violations present for IGM-level-8 report")
+
+    # Generate final XML
+    qa_report_lvl8 = ET.tostring(qa_root, encoding='utf-8', xml_declaration=True)
+
+    return qa_report_lvl8
 
 
 def modify_region_name_for_denmark(input_data: pandas.DataFrame):

@@ -8,7 +8,7 @@ import pypowsybl as pp
 import uuid
 import triplets
 from emf.common.config_parser import parse_app_properties
-from emf.common.integrations import elastic, minio_api
+from emf.common.integrations import elastic, minio_api, edx
 from emf.common.integrations.object_storage import models
 from emf.common.loadflow_tool import loadflow_settings
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, clean_data_from_opdm_objects
@@ -17,6 +17,7 @@ from emf.common.helpers.utils import attr_to_dict
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.model_validator import validator_functions
 from emf.common.decorators import performance_counter
+from emf.model_validator.validator_functions import get_ac_net_position, get_sum_of_loads
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,7 @@ class HandlerModelsValidator:
                 # Include relevant metadata fields
                 report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
                 report['@time_horizon'] = opdm_object['pmd:timeHorizon']
+                report['fullModel_ID'] = opdm_object['pmd:fullModel_ID']
                 report['@version'] = int(opdm_object['pmd:versionNumber'])
                 report['content_reference'] = opdm_object['pmd:content-reference']
                 report['tso'] = opdm_object['pmd:TSO']
@@ -287,6 +289,9 @@ class HandlerModelsValidator:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
                 opdm_object["valid"] = valid
+                opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
+                opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,
+                                                                   parameter_name='ConformLoad')
                 self.elastic_service.send_to_elastic_bulk(
                     index=METADATA_ELK_INDEX,
                     json_message_list=[opdm_object],
@@ -302,6 +307,20 @@ class HandlerModelsValidator:
                 response = self.elastic_service.send_to_elastic(index=VALIDATION_ELK_INDEX, json_message=report)
             except Exception as error:
                 logger.error(f"Validation report sending to Elastic failed: {error}")
+
+            # Send QAR lvl8 report (only models from OPDM data source)
+            if report and json.loads(ENABLE_LVL8_REPORTS.lower()):
+                try:
+                    lvl8_report = validator_functions.get_lvl8_report_igm(report=report)
+                    service_edx = edx.EDX()
+                    message_id = service_edx.send_message(receiver_EIC=QAS_EIC,
+                                                          business_type=QAS_MSG_TYPE,
+                                                          content=lvl8_report)
+                    logger.info(f"QAS-Level-8 report generated and sent with ID: {message_id}")
+                except Exception as error:
+                    logger.error(f"Failed to send QAS-Level-8 report with error: {error}")
+            else:
+                logger.warning(f"QAS-Level-8 not generated because report unavailable or disabled by configuration")
 
             logger.info(f"Model validation status: {valid} [duration {report['duration_s']}s]")
 

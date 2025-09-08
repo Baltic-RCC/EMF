@@ -15,26 +15,17 @@ https://www.powsybl.org/pages/documentation/simulation/powerflow/
 # TODO - NOT AVAILABLE - cim:PowerFlowSettings.transformerRatioTapControlPriority "1" ;
 # TODO - USE IN SCALING - eumd:PowerFlowSettings.maxIterationNumberAIC "15" ;
 
-#DEFAULT settings applicable for all processes
+# DEFAULT settings applicable for all processes
 OPENLOADFLOW_DEFAULT_PROVIDER = {
     'slackBusesIds': '',
     'lowImpedanceBranchMode': 'REPLACE_BY_ZERO_IMPEDANCE_LINE', 
     'voltageRemoteControl': 'True',
-
-    # Legacy, not found in code, can be removed
-    # 'throwsExceptionInCaseOfSlackDistributionFailure': 'False',
-
     'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency TODO - check this
     'plausibleActivePowerLimit': '5000.0',
     'slackBusPMaxMismatch': '0.1', #slackBusDistributionThreshold
     'voltagePerReactivePowerControl': 'False',
-
-    # Legacy, not found in code, can be removed, replaced with generator, transformer etc control
-    # 'reactivePowerRemoteControl': 'False',
-
     'newtonRaphsonConvEpsPerEq': '1.0E-4',
     'voltageTargetPriorities': 'GENERATOR,TRANSFORMER,SHUNT',
-    # 'voltageInitModeOverride': None,
     'transformerVoltageControlMode': 'AFTER_GENERATOR_VOLTAGE_CONTROL',  
     'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',  
     'minPlausibleTargetVoltage': '0.8',
@@ -49,10 +40,6 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     # 'debugDir': '',
     'incrementalTransformerVoltageControlOuterLoopMaxTapShift': '3',  # TODO - check this
     'secondaryVoltageControl': 'False',
-
-    # Legacy, not found in code, can be removed
-    # 'controllerToPilotPointVoltageSensiEpsilon': '0.01',
-
     'reactiveLimitsMaxPqPvSwitch': '3',
     'newtonRaphsonStoppingCriteriaType': 'UNIFORM_CRITERIA',
     'maxActivePowerMismatch': '0.01',  # cim:PowerFlowSettings.activePowerTolerance
@@ -96,8 +83,7 @@ OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
 
 
 # Deviation of default provider from the default
-#############
-#Used for CGM main merging  process
+## Used for CGM main merging  process
 __IGM_VALIDATION_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
@@ -130,12 +116,11 @@ __EU_DEFAULT_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1'
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
-
-     # 'extrapolateReactiveLimits': 'true',
     'disableInconsistentVoltageControls': 'true',
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'phaseShifterControlMode': 'INCREMENTAL',
+
 }
 __EU_RELAXED_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
@@ -153,15 +138,13 @@ __EU_RELAXED_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
-
     'disableInconsistentVoltageControls': 'true',
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'phaseShifterControlMode': 'INCREMENTAL',
 }
 
-
-#Baltic merge parameters
+## Baltic merge parameters
 __BA_DEFAULT_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
     'generatorReactivePowerRemoteControl': 'True',
@@ -206,11 +189,9 @@ __BA_RELAXED_2_PROVIDER = {
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
 }
-############
 
 # Preparing PROVIDER settings options from default settings
-#############
-#Used for CGM main merging  process
+## Used for CGM main merging process
 IGM_VALIDATION_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 IGM_VALIDATION_PROVIDER.update(__IGM_VALIDATION_PROVIDER)
 EU_DEFAULT_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
@@ -218,19 +199,16 @@ EU_DEFAULT_PROVIDER.update(__EU_DEFAULT_PROVIDER)
 EU_RELAXED_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 EU_RELAXED_PROVIDER.update(__EU_RELAXED_PROVIDER)
 
-#Baltic merge parameters
+## Baltic merge parameters
 BA_DEFAULT_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 BA_DEFAULT_PROVIDER.update(__BA_DEFAULT_PROVIDER)
 BA_RELAXED_1_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 BA_RELAXED_1_PROVIDER.update(__BA_RELAXED_1_PROVIDER)
 BA_RELAXED_2_PROVIDER = OPENLOADFLOW_DEFAULT_PROVIDER.copy()
 BA_RELAXED_2_PROVIDER.update(__BA_RELAXED_2_PROVIDER)
-##############
-
 
 # Prepare pypowsybl loadflow parameters classes
-##############
-#Used for CGM main merging  process
+## Used for CGM main merging  process
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1"
@@ -247,6 +225,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.MAIN,
     provider_parameters=IGM_VALIDATION_PROVIDER,
 )
+
 EU_DEFAULT = pypowsybl.loadflow.Parameters(
     #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1"
@@ -263,6 +242,7 @@ EU_DEFAULT = pypowsybl.loadflow.Parameters(
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=EU_DEFAULT_PROVIDER,
 )
+
 EU_RELAXED = pypowsybl.loadflow.Parameters(
     #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
@@ -280,7 +260,7 @@ EU_RELAXED = pypowsybl.loadflow.Parameters(
     provider_parameters=EU_RELAXED_PROVIDER,
 )
 
-#Baltic merge parameters
+## Baltic merge parameters
 BA_DEFAULT = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1"
@@ -297,6 +277,7 @@ BA_DEFAULT = pypowsybl.loadflow.Parameters(
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=BA_DEFAULT_PROVIDER,
 )
+
 BA_RELAXED_1 = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
@@ -330,4 +311,3 @@ BA_RELAXED_2 = pypowsybl.loadflow.Parameters(
     connected_component_mode=pypowsybl._pypowsybl.ConnectedComponentMode.ALL,
     provider_parameters=BA_RELAXED_2_PROVIDER,
 )
-#################
