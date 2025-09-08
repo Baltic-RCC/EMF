@@ -308,8 +308,8 @@ class HandlerModelsValidator:
             except Exception as error:
                 logger.error(f"Validation report sending to Elastic failed: {error}")
 
-            # Send QAR lvl8 report
-            if report:
+            # Send QAR lvl8 report (only models from OPDM data source)
+            if report and json.loads(ENABLE_LVL8_REPORTS.lower()):
                 try:
                     lvl8_report = validator_functions.get_lvl8_report_igm(report=report)
                     service_edx = edx.EDX()
