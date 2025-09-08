@@ -65,7 +65,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
 }
 
 OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority
@@ -116,8 +116,6 @@ __EU_DEFAULT_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1'
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
-
-    # 'extrapolateReactiveLimits': 'true',
     'disableInconsistentVoltageControls': 'true',
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
@@ -140,7 +138,6 @@ __EU_RELAXED_PROVIDER = {
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
     'disableVoltageControlOfGeneratorsOutsideActivePowerLimits': 'true', # supress q part of igm-ssh-vs-cgm-ssh error
-
     'disableInconsistentVoltageControls': 'true',
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'shuntVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
@@ -213,7 +210,7 @@ BA_RELAXED_2_PROVIDER.update(__BA_RELAXED_2_PROVIDER)
 # Prepare pypowsybl loadflow parameters classes
 ## Used for CGM main merging  process
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -230,7 +227,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
 )
 
 EU_DEFAULT = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -247,7 +244,7 @@ EU_DEFAULT = pypowsybl.loadflow.Parameters(
 )
 
 EU_RELAXED = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
     use_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "false"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0"

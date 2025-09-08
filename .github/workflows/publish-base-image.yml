@@ -20,8 +20,8 @@ jobs:
           docker build . \
             --file docker/Dockerfile \
             --target emfos-base \
-            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
-          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:latest
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:main
+          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:main
 
 
       - name: Display Success Message

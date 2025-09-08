@@ -5,8 +5,8 @@ on:
   push:
     tags:
       - "v*"
-    branches: 
-      - main
+#    branches:
+#      - main
 
 jobs:
   build_workers:
@@ -34,11 +34,11 @@ jobs:
 
       - name: Pull base image or fallback to build
         run: |
-          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:latest || \
+          docker pull ${{ vars.DOCKER_USERNAME }}/emfos-base:main || \
           docker build . \
             --file docker/Dockerfile \
             --target emfos-base \
-            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:main
 
       - name: Build worker image
         run: |
