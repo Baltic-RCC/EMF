@@ -42,30 +42,22 @@ class OPDM(opdm_api.create_client):
         model_meta = opdm_object
         party = model_meta.get('pmd:modelPartReference',  model_meta.get('pmd:TSO', ''))
 
+        logger.warning("File not present on local client, requesting from OPDM service the whole Model")
+        content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
+
         for pos, model_part in enumerate(model_meta['opde:Component']):
             model_part_meta = model_part['opdm:Profile']
             model_part_name = model_part_meta['pmd:fileName']
 
-            # Maybe the file is all ready there (if OPDM subscription is enabled)
+            # Assuming the model query was successful
             content_data = self.get_file(model_part_name)
 
-            # If file is not available on local client, lets request it from OPDM and download it
-            # More optimal, downloads whole model first (4 files)
+            # If no data available jump out and let message be requed 3 times. 
             if not content_data:
-                logger.warning("File not present on local client, requesting from OPDM service the whole Model")
-                content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
-                content_data = self.get_file(model_part_name)
+                logger.error(f"{model_part_name} not available on webdav due to timeout of get-content")
+                #opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
+                return False
 
-            # Less optimal, downloads each file separately
-            if not content_data:
-                logger.warning("File not present on local client, requesting from OPDM service the specific File")
-                content_meta = self.get_content(model_part_meta['opde:Id'])
-                content_data = self.get_file(model_part_name)
-
-            # If no data available set to None
-            if not content_data:
-                logger.error(f"{model_part_name} not available on webdav")
-                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
 
             # Save data to metadata object
             opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
