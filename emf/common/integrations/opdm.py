@@ -38,29 +38,29 @@ class OPDM(opdm_api.create_client):
         return response
 
     def download_object(self, opdm_object: dict):
-
         model_meta = opdm_object
-        party = model_meta.get('pmd:modelPartReference',  model_meta.get('pmd:TSO', ''))
+        party = model_meta.get('pmd:modelPartReference', model_meta.get('pmd:TSO', ''))
 
-        logger.warning("File not present on local client, requesting from OPDM service the whole Model")
-        content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
-
+        # Firstly, try to get all files from local storage if subscriptions set up and works
+        received = True
         for pos, model_part in enumerate(model_meta['opde:Component']):
-            model_part_meta = model_part['opdm:Profile']
-            model_part_name = model_part_meta['pmd:fileName']
+            content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
+            if content_data:
+                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+            else:
+                received = False
+                break
 
-            # Assuming the model query was successful
-            content_data = self.get_file(model_part_name)
-
-            # If no data available jump out and let message be requed 3 times. 
-            if not content_data:
-                logger.error(f"{model_part_name} not available on webdav due to timeout of get-content")
-                #opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = None
-                return False
-
-
-            # Save data to metadata object
-            opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+        if not received:
+            logger.warning("Part of model content not present on local storage, executing get-content from OPDM")
+            content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
+            for pos, model_part in enumerate(model_meta['opde:Component']):
+                content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
+                if content_data:
+                    opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+                else:
+                    logger.error(f"{model_part['opdm:Profile']['pmd:fileName']} not present on local storage due to failure of get-content")
+                    raise Exception("Failure in model retrieving, message going to be rejected")
 
         return opdm_object
 
