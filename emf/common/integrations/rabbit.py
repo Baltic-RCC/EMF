@@ -397,9 +397,9 @@ class RMQConsumer:
                 ack = False
                 self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
                 logger.error(f"Message rejected due to handler error")
-                break
-                    # self.connection.close()
-                    # self.stop()
+                
+                # self.connection.close()
+                # self.stop()
 
         # Process message acknowledgment
         if ack:
