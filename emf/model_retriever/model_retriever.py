@@ -30,9 +30,17 @@ class HandlerModelsFromOPDM:
         # Load from binary to json
         opdm_objects = json.loads(message)
 
-        for opdm_object in opdm_objects:
-            self.opdm_service.download_object(opdm_object=opdm_object)
-            opdm_object["data-source"] = "OPDM"
+        party = opdm_object.get('pmd:modelPartReference', opdm_object.get('pmd:TSO', ''))
+        time_horizon = opdm_object.get('pmd:modelPartReference', opdm_object.get('pmd:timeHorizon', ''))
+
+        if party in ['ELERING','AST','LITGRID','PSE'] or time_horizon in ['1D','2D']:
+
+            for opdm_object in opdm_objects:
+                self.opdm_service.download_object(opdm_object=opdm_object)
+                opdm_object["data-source"] = "OPDM"
+        else:
+            logger.warning(f"{model_part['opdm:Profile']['pmd:fileName']} skipping as OPDM is not fast enough")
+            raise Exception("Model filtered out, not possible with current setup")
 
         return opdm_objects, properties
 
