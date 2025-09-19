@@ -50,19 +50,21 @@ class HandlerModelsFromBytesIO:
     def __init__(self):
         pass
 
-    def handle(self, message: bytes, properties: dict, **kwargs):
+   def handle(self, message: bytes, properties: dict, **kwargs):
+        # Load from binary to json
+        opdm_objects = json.loads(message)
 
-        message_content = BytesIO(message)
-        message_content.name = 'unknown.zip'
-        rdfxml_files = triplets.rdf_parser.find_all_xml([message_content])
 
-        # Repackage to form of zip(xml)
-        rdfzip_files = []
-        for xml in rdfxml_files:
-            rdfzip_files.append(zip_xml(xml_file_object=xml))
+        for opdm_object in opdm_objects:
 
-        # Create OPDM objects
-        opdm_objects = create_opdm_objects(models=[rdfzip_files], metadata={"data-source": "PDN"})
+            party = opdm_object.get('pmd:TSO', '')
+            time_horizon = opdm_object.get('pmd:timeHorizon', '')
+            if (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH):
+                self.opdm_service.download_object(opdm_object=opdm_object)
+                opdm_object["data-source"] = "OPDM"
+            else:
+                logger.warning(f"{party} and {time_horizon} skipping")
+                raise Exception("Model filtered out, not possible with current setup, taking another one")
 
         return opdm_objects, properties
 
