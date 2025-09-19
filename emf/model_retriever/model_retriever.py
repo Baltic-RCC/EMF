@@ -30,8 +30,8 @@ class HandlerModelsFromOPDM:
         # Load from binary to json
         opdm_objects = json.loads(message)
 
-        party = opdm_object.get('pmd:modelPartReference', opdm_object.get('pmd:TSO', ''))
-        time_horizon = opdm_object.get('pmd:modelPartReference', opdm_object.get('pmd:timeHorizon', ''))
+        party = opdm_objects.get('pmd:modelPartReference', opdm_objects.get('pmd:TSO', ''))
+        time_horizon = opdm_objects.get('pmd:modelPartReference', opdm_objects.get('pmd:timeHorizon', ''))
 
         if party in ['ELERING','AST','LITGRID','PSE'] or time_horizon in ['1D','2D']:
 
