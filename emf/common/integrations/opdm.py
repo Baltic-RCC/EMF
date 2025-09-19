@@ -40,33 +40,28 @@ class OPDM(opdm_api.create_client):
     def download_object(self, opdm_object: dict):
         model_meta = opdm_object
         party = model_meta.get('pmd:modelPartReference', model_meta.get('pmd:TSO', ''))
-        time_horizon = model_meta.get('pmd:modelPartReference', model_meta.get('pmd:timeHorizon', ''))
 
+        # Firstly, try to get all files from local storage if subscriptions set up and works
+        received = True
+        for pos, model_part in enumerate(model_meta['opde:Component']):
+            content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
+            if content_data:
+                opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
+            else:
+                received = False
+                break
 
-        if party in ['ELERING','AST','LITGRID'] or time_horizon in ['1D','2D']
-            # Firstly, try to get all files from local storage if subscriptions set up and works
-            received = True
+        if not received:
+            logger.warning("Part of model content not present on local storage, executing get-content from OPDM")
+            content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
             for pos, model_part in enumerate(model_meta['opde:Component']):
                 content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
                 if content_data:
                     opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
                 else:
-                    received = False
-                    break
+                    logger.error(f"{model_part['opdm:Profile']['pmd:fileName']} not present on local storage due to failure of get-content")
+                    raise Exception("Failure in model retrieving, message going to be rejected")
 
-            if not received:
-                logger.warning("Part of model content not present on local storage, executing get-content from OPDM")
-                content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
-                for pos, model_part in enumerate(model_meta['opde:Component']):
-                    content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
-                    if content_data:
-                        opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
-                    else:
-                        logger.error(f"{model_part['opdm:Profile']['pmd:fileName']} not present on local storage due to failure of get-content")
-                        raise Exception("Failure in model retrieving, message going to be rejected")
-        else:
-            logger.warning(f"{model_part['opdm:Profile']['pmd:fileName']} skipping as OPDM is not fast enough")
-            raise Exception("Model filtered out, not possible with current setup")
         return opdm_object
 
     def download_object_to_filesystem(self, opdm_object: dict, output_dir: str | None = None):
