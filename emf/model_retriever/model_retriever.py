@@ -34,7 +34,7 @@ class HandlerModelsFromOPDM:
 
             party = opdm_object.get('pmd:TSO', '') # import only the filtered parties
             time_horizon = opdm_object.get('pmd:timeHorizon', '') # import only filtered timeframes
-            if (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH): 
+            if (not PROCESS_PARTY) or (not PROCESS_TH) or (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH): 
                 self.opdm_service.download_object(opdm_object=opdm_object)
                 opdm_object["data-source"] = "OPDM"
             else:
