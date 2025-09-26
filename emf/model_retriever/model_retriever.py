@@ -30,17 +30,16 @@ class HandlerModelsFromOPDM:
         # Load from binary to json
         opdm_objects = json.loads(message)
 
-        party = opdm_objects.get('pmd:modelPartReference', opdm_objects.get('pmd:TSO', ''))
-        time_horizon = opdm_objects.get('pmd:modelPartReference', opdm_objects.get('pmd:timeHorizon', ''))
+        for opdm_object in opdm_objects:
 
-        if party in ['ELERING','AST','LITGRID','PSE'] or time_horizon in ['1D','2D']:
-
-            for opdm_object in opdm_objects:
+            party = opdm_object.get('pmd:TSO', '') # import only the filtered parties
+            time_horizon = opdm_object.get('pmd:timeHorizon', '') # import only filtered timeframes
+            if (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH): 
                 self.opdm_service.download_object(opdm_object=opdm_object)
                 opdm_object["data-source"] = "OPDM"
-        else:
-            logger.warning(f"{model_part['opdm:Profile']['pmd:fileName']} skipping as OPDM is not fast enough")
-            raise Exception("Model filtered out, not possible with current setup")
+            else:
+                logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
+                raise Exception("Model filtered out, not possible with current setup, taking another one")
 
         return opdm_objects, properties
 
@@ -50,21 +49,19 @@ class HandlerModelsFromBytesIO:
     def __init__(self):
         pass
 
-   def handle(self, message: bytes, properties: dict, **kwargs):
-        # Load from binary to json
-        opdm_objects = json.loads(message)
+    def handle(self, message: bytes, properties: dict, **kwargs):
 
+        message_content = BytesIO(message)
+        message_content.name = 'unknown.zip'
+        rdfxml_files = triplets.rdf_parser.find_all_xml([message_content])
 
-        for opdm_object in opdm_objects:
+        # Repackage to form of zip(xml)
+        rdfzip_files = []
+        for xml in rdfxml_files:
+            rdfzip_files.append(zip_xml(xml_file_object=xml))
 
-            party = opdm_object.get('pmd:TSO', '')
-            time_horizon = opdm_object.get('pmd:timeHorizon', '')
-            if (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH):
-                self.opdm_service.download_object(opdm_object=opdm_object)
-                opdm_object["data-source"] = "OPDM"
-            else:
-                logger.warning(f"{party} and {time_horizon} skipping")
-                raise Exception("Model filtered out, not possible with current setup, taking another one")
+        # Create OPDM objects
+        opdm_objects = create_opdm_objects(models=[rdfzip_files], metadata={"data-source": "PDN"})
 
         return opdm_objects, properties
 
