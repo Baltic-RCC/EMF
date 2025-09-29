@@ -34,12 +34,13 @@ class HandlerModelsFromOPDM:
 
             party = opdm_object.get('pmd:TSO', '') # import only the filtered parties
             time_horizon = opdm_object.get('pmd:timeHorizon', '') # import only filtered timeframes
-            if (not PROCESS_PARTY) or (not PROCESS_TH) or (party in PROCESS_PARTY) or (time_horizon in PROCESS_TH): 
-                self.opdm_service.download_object(opdm_object=opdm_object)
-                opdm_object["data-source"] = "OPDM"
-            else:
-                logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
-                raise Exception("Model filtered out, not possible with current setup, taking another one")
+            if (not PROCESS_PARTY.split(',')) or (party in PROCESS_PARTY.split(',')):
+                if (not PROCESS_TH.split(','))  or (time_horizon in PROCESS_TH.split(',')): 
+                    self.opdm_service.download_object(opdm_object=opdm_object)
+                    opdm_object["data-source"] = "OPDM"
+                else:
+                    logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
+                    raise Exception("Model filtered out, not possible with current setup, taking another one")
 
         return opdm_objects, properties
 
