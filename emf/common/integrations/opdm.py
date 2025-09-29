@@ -107,7 +107,7 @@ class OPDM(opdm_api.create_client):
         try:
             response = requests.request(
                 "PUT",
-                f"{WEBDAV_SERVER}/{file_id}",
+                f"{WEBDAV_SERVER_PUT}/{file_id}",
                 data=file_content,
                 verify=False,
                 auth=auth
