@@ -410,18 +410,17 @@ class HandlerMergeModels:
                 try:
                     self.opdm_service = opdm.OPDM()
 
-                    if SEND_TYPE == SOAP:
+                    if SEND_TYPE == 'SOAP':
                         for item in serialized_data:
                             logger.info(f"Uploading to OPDM: {item.name}")
                             time.sleep(1)
                             async_call(function=self.opdm_service.publication_request,
                                     callback=log_opdm_response,
                                     file_path_or_file_object=item)
-                    elif SEND_TYPE == FS:
+                    elif SEND_TYPE == 'FS':
                         for item in serialized_data:
                             logger.info(f"Uploading to OPDM: {item.name}")
-                            time.sleep(1)
-                            opdm.put_file(file_id=item.name,
+                            self.opdm_service.put_file(file_id=item.name,
                                           file_content=item)
 
                     merged_model.uploaded_to_opde = True
