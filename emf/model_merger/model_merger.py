@@ -409,12 +409,21 @@ class HandlerMergeModels:
             if merged_model.loadflow[0]['status'] == 'CONVERGED':  # Only upload if the model LF is solved
                 try:
                     self.opdm_service = opdm.OPDM()
-                    for item in serialized_data:
-                        logger.info(f"Uploading to OPDM: {item.name}")
-                        time.sleep(4)
-                        async_call(function=self.opdm_service.publication_request,
-                                callback=log_opdm_response,
-                                file_path_or_file_object=item)
+
+                    if SEND_TYPE == SOAP:
+                        for item in serialized_data:
+                            logger.info(f"Uploading to OPDM: {item.name}")
+                            time.sleep(1)
+                            async_call(function=self.opdm_service.publication_request,
+                                    callback=log_opdm_response,
+                                    file_path_or_file_object=item)
+                    elif SEND_TYPE == FS:
+                        for item in serialized_data:
+                            logger.info(f"Uploading to OPDM: {item.name}")
+                            time.sleep(1)
+                            opdm.put_file(file_id=item.name,
+                                          file_content=item)
+
                     merged_model.uploaded_to_opde = True
                 except Exception as error:
                     logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
