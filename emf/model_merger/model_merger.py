@@ -413,7 +413,7 @@ class HandlerMergeModels:
                     if SEND_TYPE == 'SOAP':
                         for item in serialized_data:
                             logger.info(f"Uploading to OPDM: {item.name}")
-                            time.sleep(1)
+                            #time.sleep(1) tested before with 2 and 4. Currently removing as FS gonna be default. 
                             async_call(function=self.opdm_service.publication_request,
                                     callback=log_opdm_response,
                                     file_path_or_file_object=item)
