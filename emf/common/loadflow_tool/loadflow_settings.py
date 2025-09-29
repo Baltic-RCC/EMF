@@ -210,7 +210,7 @@ BA_RELAXED_2_PROVIDER.update(__BA_RELAXED_2_PROVIDER)
 # Prepare pypowsybl loadflow parameters classes
 ## Used for CGM main merging  process
 IGM_VALIDATION = pypowsybl.loadflow.Parameters(
-    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -227,7 +227,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
 )
 
 EU_DEFAULT = pypowsybl.loadflow.Parameters(
-    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # @cim:PowerFlowSettings.transformerRatioTapControlPriority": "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "1"
@@ -244,7 +244,7 @@ EU_DEFAULT = pypowsybl.loadflow.Parameters(
 )
 
 EU_RELAXED = pypowsybl.loadflow.Parameters(
-    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
+    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "0"
     use_reactive_limits=False,  # cim:PowerFlowSettings.respectReactivePowerLimits "false"
     phase_shifter_regulation_on=True,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority "0"

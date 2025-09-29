@@ -14,7 +14,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.common.loadflow_tool import loadflow_settings
+from emf.common.loadflow_tool import loadflow_settings, settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
@@ -117,8 +117,9 @@ class HandlerMergeModels:
         for lf_settings in settings_list:
             logger.info(f"Solving loadflow with settings: {lf_settings}")
             # report = pypowsybl.report.Reporter()
+            manager = settings_manager.LoadflowSettingsManager(settings_keyword=lf_settings)
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
-                                               parameters=getattr(loadflow_settings, lf_settings),
+                                               parameters=manager.build_pypowsybl_parameters(),
                                                # reporter=loadflow_report,
                                                )
             if result[0].status_text == 'Converged':
