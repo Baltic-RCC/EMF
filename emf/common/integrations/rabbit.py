@@ -393,7 +393,7 @@ class RMQConsumer:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
             except Exception as error:
-                logger.error(f"Message handling failed: {error}-- with handler: {message_handler.__class__.__name__}", exc_info=True)
+                logger.error(f"Message handling failed: {error}", exc_info=True)
                 ack = False
                 self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
                 logger.error(f"Message rejected due to handler error")
