@@ -14,7 +14,7 @@ from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
-from emf.common.loadflow_tool import loadflow_settings
+from emf.common.loadflow_tool import loadflow_settings, settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
@@ -117,8 +117,9 @@ class HandlerMergeModels:
         for lf_settings in settings_list:
             logger.info(f"Solving loadflow with settings: {lf_settings}")
             # report = pypowsybl.report.Reporter()
+            manager = settings_manager.LoadflowSettingsManager(settings_keyword=lf_settings)
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
-                                               parameters=getattr(loadflow_settings, lf_settings),
+                                               parameters=manager.build_pypowsybl_parameters(),
                                                # reporter=loadflow_report,
                                                )
             if result[0].status_text == 'Converged':
@@ -409,12 +410,20 @@ class HandlerMergeModels:
             if merged_model.loadflow[0]['status'] == 'CONVERGED':  # Only upload if the model LF is solved
                 try:
                     self.opdm_service = opdm.OPDM()
-                    for item in serialized_data:
-                        logger.info(f"Uploading to OPDM: {item.name}")
-                        time.sleep(4)
-                        async_call(function=self.opdm_service.publication_request,
-                                callback=log_opdm_response,
-                                file_path_or_file_object=item)
+
+                    if SEND_TYPE == 'SOAP':
+                        for item in serialized_data:
+                            logger.info(f"Uploading to OPDM: {item.name}")
+                            #time.sleep(1) tested before with 2 and 4. Currently removing as FS gonna be default. 
+                            async_call(function=self.opdm_service.publication_request,
+                                    callback=log_opdm_response,
+                                    file_path_or_file_object=item)
+                    elif SEND_TYPE == 'FS':
+                        for item in serialized_data:
+                            logger.info(f"Uploading to OPDM: {item.name}")
+                            self.opdm_service.put_file(file_id=item.name,
+                                          file_content=item)
+
                     merged_model.uploaded_to_opde = True
                 except Exception as error:
                     logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)

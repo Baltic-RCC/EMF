@@ -3,6 +3,7 @@ import config
 from io import BytesIO
 import json
 import triplets
+import time
 from emf.common.helpers.opdm_objects import create_opdm_objects
 from emf.common.helpers.utils import zip_xml
 from emf.common.config_parser import parse_app_properties
@@ -16,15 +17,31 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever
 class HandlerModelsFromOPDM:
 
     def __init__(self):
-        self.opdm_service = opdm.OPDM()
+        while True:
+            try:
+                self.opdm_service = opdm.OPDM()
+                print("Connected to OPDM successfully")
+                break
+            except Exception as e:
+                print(f"Failed to connect to OPDM: {e}")
+                time.sleep(60)  # wait 60 seconds before retry
 
     def handle(self, message: bytes, properties: dict, **kwargs):
         # Load from binary to json
         opdm_objects = json.loads(message)
 
         for opdm_object in opdm_objects:
-            self.opdm_service.download_object(opdm_object=opdm_object)
-            opdm_object["data-source"] = "OPDM"
+
+            party = opdm_object.get('pmd:TSO', '') # import only the filtered parties
+            time_horizon = opdm_object.get('pmd:timeHorizon', '') # import only filtered timeframes
+            process_party_exclusion = PROCESS_PARTY.split(',')
+            process_timehorizon_exclusion = PROCESS_TH.split(',')
+            if (party not in process_party_exclusion) and (time_horizon not in process_timehorizon_exclusion):
+                self.opdm_service.download_object(opdm_object=opdm_object)
+                opdm_object["data-source"] = "OPDM"
+            else:
+                logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
+                raise Exception("Model filtered out, not possible with current setup, taking another one")
 
         return opdm_objects, properties
 

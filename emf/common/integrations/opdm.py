@@ -99,6 +99,74 @@ class OPDM(opdm_api.create_client):
             logger.warning(f"Status Code {response.status_code}; Message: {response.content}")
             return None
 
+
+    def put_file(self, file_id, file_content):
+        logger.info(f"Uploading file to OPDM local storage with ID -> {file_id}")
+
+        url = f"{WEBDAV_SERVER_PUT.rstrip('/')}/{str(file_id).lstrip('/')}"
+        auth = (WEBDAV_USERNAME, WEBDAV_PASSWORD)
+
+        headers = {"Content-Type": "application/octet-stream"}
+
+        # Normalize data + content-length to avoid chunked transfer
+        data = None
+        try:
+            if isinstance(file_content, (bytes, bytearray)):
+                data = file_content
+                headers["Content-Length"] = str(len(data))
+            elif hasattr(file_content, "read"):
+                # It's a file-like object
+                try:
+                    file_content.seek(0)
+                except Exception:
+                    pass
+                data = file_content
+                # Best-effort content-length from fileno(); falls back to reading into memory
+                size = None
+                if hasattr(file_content, "fileno"):
+                    try:
+                        import os
+                        size = os.fstat(file_content.fileno()).st_size
+                    except Exception:
+                        size = None
+                if size is None:
+                    # As a last resort, read to bytes to ensure a Content-Length
+                    buf = file_content.read()
+                    if hasattr(file_content, "seek"):
+                        try:
+                            file_content.seek(0)
+                        except Exception:
+                            pass
+                    data = buf
+                    headers["Content-Length"] = str(len(buf))
+                else:
+                    headers["Content-Length"] = str(size)
+            else:
+                raise TypeError("file_content must be bytes/bytearray or a file-like object")
+        except Exception as prep_err:
+            logger.error(f"Failed preparing payload for {file_id}: {prep_err}")
+            return False
+
+        try:
+            response = requests.put(
+                url,
+                data=data,
+                headers=headers,
+                auth=auth,
+                verify=False,         # consider True + proper CA in production
+                timeout=120,
+            )
+            if response.status_code in (200, 201, 204):
+                logger.info(f"Successfully uploaded file with ID -> {file_id}")
+                return True
+            else:
+                logger.warning(f"Failed to upload file with ID -> {file_id}")
+                logger.warning(f"Status Code {response.status_code}; Message: {response.content}")
+                return False
+        except Exception as e:
+            logger.error(f"Exception while uploading file with ID -> {file_id}: {e}")
+            return False
+
     def get_latest_models_and_download(self, time_horizon, scenario_date, tso=None):
 
         meta = {'pmd:scenarioDate': scenario_date, 'pmd:timeHorizon': time_horizon}
