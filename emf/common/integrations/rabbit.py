@@ -392,6 +392,7 @@ class RMQConsumer:
                 for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
+
             except Exception as error:
                 logger.error(f"Message handling failed: {error}", exc_info=True)
                 ack = False
@@ -400,6 +401,7 @@ class RMQConsumer:
                 
                 # self.connection.close()
                 # self.stop()
+
 
         # Process message acknowledgment
         if ack:
