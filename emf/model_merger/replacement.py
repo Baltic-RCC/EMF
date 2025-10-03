@@ -21,6 +21,7 @@ def run_replacement(tso_list: list,
                     scenario_date: str,
                     config: list = replacement_config,
                     data_source: str = 'OPDM',
+                    ac_netpos_dict: dict = None
                     ):
     """
      Args:
@@ -46,6 +47,10 @@ def run_replacement(tso_list: list,
     if not model_df.empty:
         scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
         replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, config)
+        # Exclude models that are outside scheduled AC net position deadband of 200MW
+        replacement_df =  replacement_df[(replacement_df['ac_net_position'] - replacement_df['pmd:TSO'].map(ac_netpos_dict)).abs() <= 200]
+        # Exclude models that sum_conform_load*0.2 < acnp - schedule_acnp
+        replacement_df =  replacement_df[replacement_df['sum_conform_load'] * 0.2 > (replacement_df['ac_net_position'] - replacement_df['pmd:TSO'].map(ac_netpos_dict)).abs()]
         if not replacement_df.empty:
             unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
             for unique_tso in unique_tsos_list:
@@ -75,7 +80,7 @@ def run_replacement(tso_list: list,
         else:
             logger.warning(f"No replacement models found, replacement list is empty")
     else:
-        logger.info(f"No replacement models found in Elastic for TSO(s): {tso_list}")
+        logger.warning(f"No replacement models found in Elastic for TSO(s): {tso_list}")
 
     return replacement_models
 

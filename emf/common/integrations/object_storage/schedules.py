@@ -130,8 +130,23 @@ def query_acnp_schedules(time_horizon: str,
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # Get relevant structure and convert to dictionary
-    _cols = ["value", "in_domain", "out_domain"]
+    _cols = ["value", "in_domain", "out_domain", "TimeSeries.in_Domain.name", "TimeSeries.out_Domain.party"]
     schedules_df = schedules_df[_cols]
     schedules_dict = schedules_df.to_dict('records')
 
     return schedules_dict
+
+
+def calculate_ac_net_position(ac_schedules):
+    import pandas as pd
+
+    # Create Elastic client
+
+    acnp = pd.DataFrame(ac_schedules)
+    acnp = (
+        pd.concat([
+            (acnp.loc[acnp['TimeSeries.in_Domain.name'].notna()].set_index('TimeSeries.in_Domain.name')['value'].mul(-1)),
+            (acnp.loc[acnp['TimeSeries.out_Domain.party'].notna()].set_index('TimeSeries.out_Domain.party')['value'])
+        ]).groupby(level=0).sum())
+
+    return acnp.to_dict()
