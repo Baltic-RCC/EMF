@@ -458,6 +458,21 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
     return filtered_models
 
 
+def filter_models_by_acnp(models, acnp_dict, acnp_threshold, conform_load_factor):
+
+    if isinstance(models, list):
+        models[:] = [m for m in models
+                     if m['pmd:TSO'] not in acnp_dict
+                     or abs(m['ac_net_position'] - acnp_dict[m['pmd:TSO']]) <= float(acnp_threshold)
+                     and m['sum_conform_load'] * float(conform_load_factor) > abs(m['ac_net_position'] - acnp_dict.get(m['pmd:TSO']))]
+
+    elif isinstance(models, pd.DataFrame):
+        models = models[(models['ac_net_position'] - models['pmd:TSO'].map(acnp_dict)).abs() <= float(acnp_threshold)]
+        models = models[models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].map(acnp_dict)).abs()]
+
+    return models
+
+
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
 
     area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
