@@ -22,6 +22,7 @@ from emf.common.helpers.loadflow import load_network_model
 from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
+from emf.model_merger.merge_functions import filter_models_by_acnp
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
 from emf.model_merger.temporary import handle_igm_ssh_vs_cgm_ssh_error
 from emf.common.logging.custom_logger import get_elk_logging_handler
@@ -239,13 +240,11 @@ class HandlerMergeModels:
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Exclude models that are outside scheduled AC net position deadband of 200MW
-            additional_models[:] = [m for m in additional_models
-                                    if m['pmd:TSO'] not in acnp_dict
-                                    or abs(m['ac_net_position'] - acnp_dict[m['pmd:TSO']]) <= 200
-                                    and m['sum_conform_load'] * 0.2 > abs(m['ac_net_position'] - acnp_dict.get(m['pmd:TSO']))]
+            additional_models = filter_models_by_acnp(additional_models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
             excluded_incorrect = [tso for tso in local_import_models
                                   if tso not in [model['pmd:TSO'] for model in additional_models] if tso not in missing_local_import]
             if excluded_incorrect:
+                logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in excluded_incorrect])
                 missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
 
@@ -257,7 +256,9 @@ class HandlerMergeModels:
                                                                time_horizon=time_horizon,
                                                                scenario_date=scenario_datetime,
                                                                data_source='PDN',
-                                                               ac_netpos_dict=acnp_dict)
+                                                               acnp_dict=acnp_dict,
+                                                               acnp_threshold=ACNP_THRESHOLD,
+                                                               conform_load_factor=CONFORM_LOAD_FACTOR)
 
                     logger.info(
                         f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
@@ -286,21 +287,23 @@ class HandlerMergeModels:
                 missing_models = []
 
         # Exclude models that are outside scheduled AC net position deadband of 200MW
-
         if included_models:
-            models[:] = [m for m in models
-                         if m['pmd:TSO'] not in acnp_dict
-                         or abs(m['ac_net_position'] - acnp_dict[m['pmd:TSO']]) <= 200
-                         and m['sum_conform_load'] * 0.2 > abs(m['ac_net_position'] - acnp_dict.get(m['pmd:TSO']))]
+            models = filter_models_by_acnp(models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
             excluded_incorrect = [model for model in included_models if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
             if excluded_incorrect:
+                logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in missing_models])
 
         # Run replacement on missing models
         if model_replacement and missing_models:
             try:
                 logger.info(f"Running replacement for missing models: {missing_models}")
-                replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime, ac_netpos_dict=acnp_dict)
+                replacement_models = run_replacement(missing_models,
+                                                     time_horizon,
+                                                     scenario_datetime,
+                                                     acnp_dict=acnp_dict,
+                                                     acnp_threshold=ACNP_THRESHOLD,
+                                                     conform_load_factor=CONFORM_LOAD_FACTOR)
                 if replacement_models:
                     logger.info(
                         f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
@@ -573,13 +576,13 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-09-28T12:30:00+00:00",
+            "timestamp_utc": "2025-10-07T12:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["PSE", "AST"],
             "excluded": [],
             "local_import": ["LITGRID", "ELERING"],
-            "time_horizon": "1D",
+            "time_horizon": "2D",
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
