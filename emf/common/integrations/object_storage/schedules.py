@@ -93,6 +93,7 @@ def query_acnp_schedules(time_horizon: str,
     try:
         area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
         area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
+        area_name_map = area_eic_codes.set_index('area.code')['party.name'].to_dict()
     except Exception as e:
         logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
@@ -124,6 +125,9 @@ def query_acnp_schedules(time_horizon: str,
     # Map eic codes to area names
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
+    # Rename party names to IGM TSO names
+    schedules_df["TimeSeries.in_Domain.party"] = schedules_df["in_domain"].map(area_name_map)
+    schedules_df["TimeSeries.out_Domain.party"] = schedules_df["out_domain"].map(area_name_map)
 
     # Filter to the latest revision number
     schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
