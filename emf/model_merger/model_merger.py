@@ -240,13 +240,14 @@ class HandlerMergeModels:
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Exclude models that are outside scheduled AC net position deadband of 200MW
-            additional_models = filter_models_by_acnp(additional_models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-            excluded_incorrect = [tso for tso in local_import_models
-                                  if tso not in [model['pmd:TSO'] for model in additional_models] if tso not in missing_local_import]
-            if excluded_incorrect:
-                logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
-                merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in excluded_incorrect])
-                missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
+            if acnp_dict:
+                additional_models = filter_models_by_acnp(additional_models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+                excluded_incorrect = [tso for tso in local_import_models
+                                      if tso not in [model['pmd:TSO'] for model in additional_models] if tso not in missing_local_import]
+                if excluded_incorrect:
+                    logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
+                    merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in excluded_incorrect])
+                    missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
 
             # Perform local replacement if configured
             if model_replacement and missing_local_import:
@@ -288,11 +289,12 @@ class HandlerMergeModels:
 
         # Exclude models that are outside scheduled AC net position deadband of 200MW
         if included_models:
-            models = filter_models_by_acnp(models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-            excluded_incorrect = [model for model in included_models if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
-            if excluded_incorrect:
-                logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
-                merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in missing_models])
+            if acnp_dict:
+                models = filter_models_by_acnp(models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+                excluded_incorrect = [model for model in included_models if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
+                if excluded_incorrect:
+                    logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
+                    merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in missing_models])
 
         # Run replacement on missing models
         if model_replacement and missing_models:

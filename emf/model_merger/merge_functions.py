@@ -1,5 +1,6 @@
 import json
 import math
+import numpy as np
 from xml.sax.expatreader import version
 import pandas as pd
 import pypowsybl
@@ -467,8 +468,12 @@ def filter_models_by_acnp(models, acnp_dict, acnp_threshold, conform_load_factor
                      and m['sum_conform_load'] * float(conform_load_factor) > abs(m['ac_net_position'] - acnp_dict.get(m['pmd:TSO']))]
 
     elif isinstance(models, pd.DataFrame):
-        models = models[models['pmd:TSO'].map(acnp_dict).isna() | (models['ac_net_position'] - models['pmd:TSO'].map(acnp_dict)).abs() <= float(acnp_threshold)]
-        models = models[models['pmd:TSO'].map(acnp_dict).isna() | (models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].map(acnp_dict)).abs())]
+        models = models[
+            (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+            ((models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs() <= float(acnp_threshold))]
+        models = models[
+            (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+            (models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs())]
 
     return models
 

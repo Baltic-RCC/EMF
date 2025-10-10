@@ -144,11 +144,15 @@ def query_acnp_schedules(time_horizon: str,
 def calculate_ac_net_position(ac_schedules):
     import pandas as pd
 
-    acnp = pd.DataFrame(ac_schedules)
-    acnp = (
-        pd.concat([
-            (acnp.loc[acnp['TimeSeries.in_Domain.party'].notna()].set_index('TimeSeries.in_Domain.party')['value'].mul(-1)),
-            (acnp.loc[acnp['TimeSeries.out_Domain.party'].notna()].set_index('TimeSeries.out_Domain.party')['value'])
-        ]).groupby(level=0).sum())
+    if ac_schedules:
+        acnp = pd.DataFrame(ac_schedules)
+        acnp = (
+            pd.concat([
+                (acnp.loc[acnp['TimeSeries.in_Domain.party'].notna()].set_index('TimeSeries.in_Domain.party')['value'].mul(-1)),
+                (acnp.loc[acnp['TimeSeries.out_Domain.party'].notna()].set_index('TimeSeries.out_Domain.party')['value'])
+            ]).groupby(level=0).sum())
+        acnp = acnp.to_dict()
+    else:
+        acnp = None
 
-    return acnp.to_dict()
+    return acnp
