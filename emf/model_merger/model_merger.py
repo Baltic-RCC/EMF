@@ -241,13 +241,8 @@ class HandlerMergeModels:
 
             # Exclude models that are outside scheduled AC net position deadband of 200MW
             if acnp_dict:
-                additional_models = filter_models_by_acnp(additional_models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-                excluded_incorrect = [tso for tso in local_import_models
-                                      if tso not in [model['pmd:TSO'] for model in additional_models] if tso not in missing_local_import]
-                if excluded_incorrect:
-                    logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
-                    merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in excluded_incorrect])
-                    missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
+                additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+                missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
 
             # Perform local replacement if configured
             if model_replacement and missing_local_import:
@@ -288,13 +283,13 @@ class HandlerMergeModels:
                 missing_models = []
 
         # Exclude models that are outside scheduled AC net position deadband of 200MW
-        if included_models:
-            if acnp_dict:
-                models = filter_models_by_acnp(models, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-                excluded_incorrect = [model for model in included_models if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
-                if excluded_incorrect:
-                    logger.warning(f"Exluded TSO due to incorrect Schedules: {excluded_incorrect}")
-                    merged_model.excluded.extend([{'tso': tso, 'reason': 'incorrect-schedule'} for tso in missing_models])
+        if acnp_dict:
+            models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            if included_models:
+                missing_models = [tso for tso in included_models if tso not in [model['pmd:TSO'] for model in models]]
+            elif model_replacement:
+                excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
+                missing_models = missing_models + excluded_incorrect
 
         # Run replacement on missing models
         if model_replacement and missing_models:
@@ -578,13 +573,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-10-07T12:30:00+00:00",
-            "merge_type": "BA",
+            "timestamp_utc": "2025-10-20T20:30:00+00:00",
+            "merge_type": "EU",
             "merging_entity": "BALTICRCC",
-            "included": ["PSE", "AST"],
+            # "included": ["50Hertz", "D4", "D7", "TTG"],
+            "included": [],
             "excluded": [],
-            "local_import": ["LITGRID", "ELERING"],
-            "time_horizon": "2D",
+            "local_import": [],
+            "time_horizon": "ID",
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",

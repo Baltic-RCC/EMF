@@ -9,7 +9,7 @@ from pathlib import Path
 from emf.common.integrations.object_storage.models import query_data, get_content, fetch_unique_values
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
-from emf.model_merger.merge_functions import filter_models_by_acnp
+from emf.model_merger.merge_functions import filter_replacements_by_acnp
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def run_replacement(tso_list: list,
         replacement_df = create_replacement_table(scenario_date, time_horizon, model_df, config)
         # Exclude models from replacement that fall outside of set schedule deadbands
         if acnp_dict:
-            replacement_df = filter_models_by_acnp(replacement_df, acnp_dict, acnp_threshold, conform_load_factor)
+            replacement_df = filter_replacements_by_acnp(replacement_df, acnp_dict, acnp_threshold, conform_load_factor)
         if not replacement_df.empty:
             unique_tsos_list = replacement_df["pmd:TSO"].unique().tolist()
             for unique_tso in unique_tsos_list:
