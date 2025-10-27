@@ -451,8 +451,8 @@ def scale_balance(model: object,
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {_post_scale_acnp_series.to_dict()}")
 
         # Get post-scale total network balance
-        prescale_total_np = dangling_lines.boundary_p.sum()
-        logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
+        postscale_total_np = dangling_lines.boundary_p.sum()
+        logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(postscale_total_np, 2)}")
 
         # Get offset between target and post-scale AC net position
         ## Drop values of boundary_p and offset from first iteration
