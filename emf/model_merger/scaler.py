@@ -25,6 +25,10 @@ scheduling areas are below the discrepancy thresholds, as defined previously;
 NOTES:
     - power factor sign defines whether P and Q values has opposite sign. This needs to be ensured because new Q values
 are calculated from P values, then the power factors sign defines what sign should be for new Q value.
+    - current algorithm is using subnetworks, therefore at network import parameters it should be set to True.
+It is possible to use older solution but that causes problems with TTN IGM where some dangling lines does not have
+substation assigned. Current algorithm defines element area from subnetworks identifiables instead of substations
+dataframe.
 """
 
 import pypowsybl as pp
@@ -32,6 +36,7 @@ import logging
 import pandas as pd
 import numpy as np
 import json
+import copy
 from typing import Dict, List, Union
 from collections import defaultdict
 import config
@@ -50,7 +55,14 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 _country_col: str = 'CGMES.regionName'
 
 
-def validate_loadflow_status(results: List):
+def validate_loadflow_status(results: List, components: Dict):
+    # Validate all network components convergence status in order to exclude diverged non main islands
+    for result in [x for x in results if x.connected_component_num in components.keys()]:
+        k = result.connected_component_num
+        if result.status.name.lower() != 'converged':
+            logger.warning(f"Network component {k} diverged during scaling, excluding: {components.pop(k)}")
+
+    # Validate main island convergence
     if results[0].status.value == 0:
         return True
     else:
@@ -106,6 +118,23 @@ def validate_converged_components(dangling_lines: pd.DataFrame, converged_compon
                 logger.warning(f"Network component {k} considered as internal area island, excluding from scaling: {v}")
 
     return converged_components
+
+
+def get_network_elements_map_to_areas(network: pp.network):
+    _temp = []
+    # Network import parameters have to be set to use subnetworks in order to use this function!
+    sub_network_ids = network.get_sub_networks(all_attributes=True).index
+    if sub_network_ids.empty:
+        logger.error(f"Subnetworks does not exists in network model or disabled by import parameters")
+        raise Exception("Scaling terminated due to missing subnetworks")
+    for id in sub_network_ids:
+        subnetwork = network.get_sub_network(id)
+        country_id = subnetwork.get_substations(all_attributes=True)[_country_col].unique().tolist()[0]
+        identifiables = subnetwork.get_identifiables()
+        identifiables[_country_col] = country_id
+        _temp.append(identifiables)
+
+    return pd.concat(_temp)
 
 
 def get_countries_to_components(components: Dict):
@@ -166,6 +195,8 @@ def scale_balance(model: object,
     :param debug: debug flag
     :return: scaled pypowsybl network object
     """
+    logger.info(f"Network scaling initialized")
+
     # Get pypowsybl network
     network = model.network
 
@@ -182,11 +213,16 @@ def scale_balance(model: object,
     else:
         logger.setLevel(logging.INFO)
 
+    # Get entire network elements mapping to areas
+    _elements_to_areas_map = get_network_elements_map_to_areas(network=network)
+
     # Get buses
     buses = network.get_buses()
 
     # Get all dangling lines and define power factor
-    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    # dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    dangling_lines[_country_col] = dangling_lines.index.map(_elements_to_areas_map[_country_col])
     dangling_lines = _set_power_ratio_to_dangling_lines(dangling_lines)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
     dangling_lines['boundary_q'] = dangling_lines['boundary_q'] * -1  # invert boundary_q sign to match flow direction (just used for printing)
@@ -210,6 +246,7 @@ def scale_balance(model: object,
         logger.error(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
 
     # Get pre-scale HVDC setpoints
+    logger.info(f"Scaling HVDC network part")
     prescale_hvdc_sp = dangling_lines[dangling_lines.isHvdc == 'true'][['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q']]
     prescale_hvdc_sp = prescale_hvdc_sp.rename(columns={'boundary_p': 'value', 'boundary_q': 'value_q'})
     _hvdc_results.append(pd.concat([prescale_hvdc_sp.set_index('lineEnergyIdentificationCodeEIC').value,
@@ -273,7 +310,9 @@ def scale_balance(model: object,
             return model
 
     # Get dangling lines after HVDC scaling and loadflow
-    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    # dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    dangling_lines[_country_col] = dangling_lines.index.map(_elements_to_areas_map[_country_col])
     ## Merge buses to dangling lines in order to know dangling lines network component
     dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
     dangling_lines = _set_power_ratio_to_dangling_lines(dangling_lines)
@@ -281,7 +320,7 @@ def scale_balance(model: object,
 
     # Validate existence of internal islands and exclude them
     converged_components = validate_converged_components(dangling_lines=dangling_lines, converged_components=converged_components)
-    valid_components = {k: v for k, v in converged_components.items() if v['state'] == 'valid'}
+    valid_components = {k: copy.deepcopy(v) for k, v in converged_components.items() if v['state'] == 'valid'}
 
     # Get pre-scale total network balance by each component -> AC+DC net position
     prescale_network_np = {k: round(dangling_lines[dangling_lines.connected_component == k].boundary_p.sum()) for k, v in valid_components.items()}
@@ -311,6 +350,7 @@ def scale_balance(model: object,
     # Scaling is done through unpaired AC dangling lines
     # From target_acnp variable need to take only areas which are present in network model
     # TODO discuss whether to scale only converged islands or try on all. Currently scales converged higher than 5 buses
+    logger.info(f"Scaling each existing island external injections to meet total island ACNP target schedule")
     target_network_acnp = {}
     for component_key, v in valid_components.items():
         scheduled_component_acnp = float(target_acnp_df[target_acnp_df.connected_component == component_key]['value'].sum().round(1))
@@ -340,13 +380,15 @@ def scale_balance(model: object,
 
     # Check loadflow status
     # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
-    if not validate_loadflow_status(results=pf_results):
+    if not validate_loadflow_status(results=pf_results, components=valid_components):
         model.scaled = False
         logger.warning(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
         return model
 
     # Validate total network AC net position alignment
-    dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    # dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    dangling_lines[_country_col] = dangling_lines.index.map(_elements_to_areas_map[_country_col])
     dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
     dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
     postscale_network_acnp = {k: round(dangling_lines[unpaired_dangling_lines].query("connected_component == @k").boundary_p.sum()) for k, v in valid_components.items()}
@@ -381,9 +423,10 @@ def scale_balance(model: object,
     combined_scaling_target_df['offset_acnp'] = combined_scaling_target_df['boundary_p'] - combined_scaling_target_df['value']
     offset_acnp = _get_series_from_df(df=combined_scaling_target_df, area_col='registered_resource', value_col='offset_acnp')
     _scaling_results.append(pd.concat([offset_acnp, pd.Series({'KEY': 'offset-acnp', 'ITER': _iteration})]).to_dict())
-    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.round().to_dict()}")
+    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {offset_acnp.round(1).to_dict()}")
 
     # Perform scaling of AC part schedule of the network model with loop
+    logger.info(f"Scaling AC network part")
     while _iteration < int(MAX_ITERATION):
         _iteration += 1
 
@@ -416,7 +459,7 @@ def scale_balance(model: object,
             logger.debug(f"[ITER {_iteration}] Loadflow results: {result_dict}")
 
         # Check loadflow status
-        if not validate_loadflow_status(results=pf_results):
+        if not validate_loadflow_status(results=pf_results, components=valid_components):
             model.scaled = False
             logger.warning(f"Terminating network scaling due to divergence in main island after iteration: {_iteration}")
             return model
@@ -440,7 +483,9 @@ def scale_balance(model: object,
             logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {postscale_losses.to_dict()}")
 
         # Get post-scale AC net position
-        dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+        # dangling_lines = get_network_elements(network, pp.network.ElementType.DANGLING_LINE, all_attributes=True)
+        dangling_lines = network.get_dangling_lines(all_attributes=True)
+        dangling_lines[_country_col] = dangling_lines.index.map(_elements_to_areas_map[_country_col])
         dangling_lines = dangling_lines.merge(buses.connected_component, how='left', left_on='bus_id', right_index=True)
         dangling_lines['boundary_p'] = dangling_lines['boundary_p'] * -1  # invert boundary_p sign to match flow direction
         dangling_lines = dangling_lines[dangling_lines.connected_component.isin(valid_components.keys())]
@@ -451,8 +496,8 @@ def scale_balance(model: object,
         logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {_post_scale_acnp_series.to_dict()}")
 
         # Get post-scale total network balance
-        postscale_total_np = dangling_lines.boundary_p.sum()
-        logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(postscale_total_np, 2)}")
+        prescale_total_np = dangling_lines[dangling_lines['paired'] == False].boundary_p.sum()
+        logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
 
         # Get offset between target and post-scale AC net position
         ## Drop values of boundary_p and offset from first iteration
