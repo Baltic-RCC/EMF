@@ -168,7 +168,7 @@ __BA_DEFAULT_PROVIDER = {
     'generatorReactivePowerRemoteControl': 'True',
     'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '50',
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
+    'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05"
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
@@ -184,7 +184,7 @@ __BA_RELAXED_1_PROVIDER = {
     'generatorReactivePowerRemoteControl': 'False',
     'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '50',
-    'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
+    'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
