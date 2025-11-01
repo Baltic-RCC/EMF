@@ -164,7 +164,7 @@ __EU_RELAXED_PROVIDER = {
 ## Baltic merge parameters
 __BA_DEFAULT_PROVIDER = {
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
-    'slackBusSelectionMode': 'MOST_MESHED',
+    'slackBusSelectionMode': 'LARGEST_GENERATOR'
     'generatorReactivePowerRemoteControl': 'True',
     'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '50',
@@ -180,7 +180,7 @@ __BA_DEFAULT_PROVIDER = {
 }
 __BA_RELAXED_1_PROVIDER = {
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
-    'slackBusSelectionMode': 'MOST_MESHED',
+    'slackBusSelectionMode': 'LARGEST_GENERATOR',
     'generatorReactivePowerRemoteControl': 'False',
     'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '50',
