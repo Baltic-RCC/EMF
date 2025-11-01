@@ -164,7 +164,7 @@ __EU_RELAXED_PROVIDER = {
 ## Baltic merge parameters
 __BA_DEFAULT_PROVIDER = {
     'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
-    'slackBusSelectionMode': 'LARGEST_GENERATOR'
+    'slackBusSelectionMode': 'LARGEST_GENERATOR',
     'generatorReactivePowerRemoteControl': 'True',
     'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
     'maxNewtonRaphsonIterations': '50',
