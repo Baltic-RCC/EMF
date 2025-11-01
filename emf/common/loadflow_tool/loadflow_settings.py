@@ -69,6 +69,12 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'lineSearchStateVectorScalingStepFold': '1.33',
     'maxVoltageChangeStateVectorScalingMaxDv': '0.1',
     'maxVoltageChangeStateVectorScalingMaxDphi': '0.1745',
+    "shuntCompensatorVoltageControlOn" : "True",
+    "phaseShifterRegulationOn" : "True",
+    "distributedSlack" : "True",
+    "readSlackBus" : "True",
+    "writeSlackBus" : "False",
+    "transformerVoltageControlOn" : "True",  
 
 }
 
@@ -157,10 +163,11 @@ __EU_RELAXED_PROVIDER = {
 
 ## Baltic merge parameters
 __BA_DEFAULT_PROVIDER = {
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'slackBusSelectionMode': 'MOST_MESHED',
     'generatorReactivePowerRemoteControl': 'True',
-    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
-    'maxNewtonRaphsonIterations': '15',
+    'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
+    'maxNewtonRaphsonIterations': '50',
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" TODO - check this
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05"
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
@@ -169,12 +176,14 @@ __BA_DEFAULT_PROVIDER = {
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001"
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
 }
 __BA_RELAXED_1_PROVIDER = {
+    'referenceBusSelectionMode':'GENERATOR_REFERENCE_PRIORITY',
     'slackBusSelectionMode': 'MOST_MESHED',
     'generatorReactivePowerRemoteControl': 'False',
-    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
-    'maxNewtonRaphsonIterations': '15',
+    'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
+    'maxNewtonRaphsonIterations': '50',
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
@@ -183,12 +192,13 @@ __BA_RELAXED_1_PROVIDER = {
     'maxVoltageMismatch': '1.0E-4',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
+    'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
 }
 
 __BA_RELAXED_2_PROVIDER = {
     'slackBusSelectionMode': 'MOST_MESHED',
-    'maxOuterLoopIterations': '30',  # eumd:PowerFlowSettings.maxIterationNumber "30"
-    'maxNewtonRaphsonIterations': '15',
+    'maxOuterLoopIterations': '50',  # eumd:PowerFlowSettings.maxIterationNumber "30"
+    'maxNewtonRaphsonIterations': '50',
     # 'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
     'loadPowerFactorConstant': 'True',
     'lowImpedanceThreshold': '1.0E-5',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
