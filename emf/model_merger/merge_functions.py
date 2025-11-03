@@ -1,5 +1,6 @@
 import json
 import math
+import numpy as np
 from xml.sax.expatreader import version
 import pandas as pd
 import pypowsybl
@@ -456,6 +457,58 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
         filtered_models.append(model)
 
     return filtered_models
+
+
+def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold, conform_load_factor):
+
+    def is_within_acnp_deadband(model):
+        tso = model.get('pmd:TSO')
+        if tso not in acnp_dict:
+            return False
+        acnp = acnp_dict[tso]
+        return abs(model['ac_net_position'] - acnp) <= float(acnp_threshold)
+
+    def is_within_conformload_deadband(model):
+        tso = model.get('pmd:TSO')
+        if tso not in acnp_dict:
+            return False
+        acnp = acnp_dict[tso]
+        expected_load = model['sum_conform_load'] * float(conform_load_factor)
+        return expected_load > abs(model['ac_net_position'] - acnp)
+
+    # ACNP deadband filter
+    filtered_models = [model for model in models if is_within_acnp_deadband(model)]
+    excluded_tsos= [
+        {'tso': model['pmd:TSO'], 'reason': 'acnp-outside-schedule-deadband'}
+        for model in models if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in filtered_models]
+    ]
+    if excluded_tsos:
+        logger.warning(f"Exluded TSO due to incorrect schedules: {excluded_tsos}")
+        merged_model.excluded.extend(excluded_tsos)
+
+    # Conformload filter
+    final_models = [model for model in filtered_models if is_within_conformload_deadband(model)]
+    excluded_tsos= [
+        {'tso': model['pmd:TSO'], 'reason': 'conform-load-outside-schedule-difference'}
+        for model in filtered_models if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in final_models]
+    ]
+    if excluded_tsos:
+        logger.warning(f"Exluded TSO due to incorrect conform load: {excluded_tsos}")
+        merged_model.excluded.extend(excluded_tsos)
+
+    return final_models
+
+
+def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold, conform_load_factor):
+
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        ((models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs() <= float(acnp_threshold))]
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        (models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs())]
+
+    return models
 
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):

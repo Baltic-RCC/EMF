@@ -93,6 +93,7 @@ def query_acnp_schedules(time_horizon: str,
     try:
         area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
         area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
+        area_name_map = area_eic_codes.set_index('area.code')['party.name'].to_dict()
     except Exception as e:
         logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
         # Using default mapping table from config
@@ -124,14 +125,34 @@ def query_acnp_schedules(time_horizon: str,
     # Map eic codes to area names
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)
     schedules_df["out_domain"] = schedules_df["TimeSeries.out_Domain.mRID"].map(area_eic_map)
+    # Rename party names to IGM TSO names
+    schedules_df["TimeSeries.in_Domain.party"] = schedules_df["in_domain"].map(area_name_map)
+    schedules_df["TimeSeries.out_Domain.party"] = schedules_df["out_domain"].map(area_name_map)
 
     # Filter to the latest revision number
     schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
     schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
 
     # Get relevant structure and convert to dictionary
-    _cols = ["value", "in_domain", "out_domain"]
+    _cols = ["value", "in_domain", "out_domain", "TimeSeries.in_Domain.party", "TimeSeries.out_Domain.party"]
     schedules_df = schedules_df[_cols]
     schedules_dict = schedules_df.to_dict('records')
 
     return schedules_dict
+
+
+def calculate_ac_net_position(ac_schedules):
+    import pandas as pd
+
+    if ac_schedules:
+        acnp = pd.DataFrame(ac_schedules)
+        acnp = (
+            pd.concat([
+                (acnp.loc[acnp['TimeSeries.in_Domain.party'].notna()].set_index('TimeSeries.in_Domain.party')['value'].mul(-1)),
+                (acnp.loc[acnp['TimeSeries.out_Domain.party'].notna()].set_index('TimeSeries.out_Domain.party')['value'])
+            ]).groupby(level=0).sum())
+        acnp = acnp.to_dict()
+    else:
+        acnp = None
+
+    return acnp

@@ -13,7 +13,7 @@ from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
-from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules
+from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules, calculate_ac_net_position
 from emf.common.loadflow_tool import loadflow_settings, settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
@@ -22,6 +22,7 @@ from emf.common.helpers.loadflow import load_network_model
 from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
+from emf.model_merger.merge_functions import filter_models_by_acnp
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
 from emf.model_merger.temporary import handle_igm_ssh_vs_cgm_ssh_error
 from emf.common.logging.custom_logger import get_elk_logging_handler
@@ -195,6 +196,18 @@ class HandlerMergeModels:
         force_outage_fix = task_properties['force_outage_fix']
         lvl8_reporting = task_properties['lvl8_reporting']
 
+        # Get aligned schedules
+        # Set default time horizon and scenario timestamp if not provided
+        if not schedule_time_horizon or schedule_time_horizon == "AUTO":
+            schedule_time_horizon = time_horizon
+
+        if not schedule_start:
+            schedule_start = scenario_datetime
+
+        ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
+        dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
+        acnp_dict = calculate_ac_net_position(ac_schedules)
+
         # Collect valid models from ObjectStorage
         downloaded_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                            scenario_date=scenario_datetime,
@@ -226,6 +239,11 @@ class HandlerMergeModels:
                                     tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
+            # Exclude models that are outside scheduled AC net position deadband of 200MW
+            if acnp_dict:
+                additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+                missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
+
             # Perform local replacement if configured
             if model_replacement and missing_local_import:
                 try:
@@ -233,7 +251,10 @@ class HandlerMergeModels:
                     replacement_models_local = run_replacement(tso_list=missing_local_import,
                                                                time_horizon=time_horizon,
                                                                scenario_date=scenario_datetime,
-                                                               data_source='PDN')
+                                                               data_source='PDN',
+                                                               acnp_dict=acnp_dict,
+                                                               acnp_threshold=ACNP_THRESHOLD,
+                                                               conform_load_factor=CONFORM_LOAD_FACTOR)
 
                     logger.info(
                         f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
@@ -261,11 +282,25 @@ class HandlerMergeModels:
             else:
                 missing_models = []
 
+        # Exclude models that are outside scheduled AC net position deadband of 200MW
+        if acnp_dict:
+            models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            if included_models:
+                missing_models = [tso for tso in included_models if tso not in [model['pmd:TSO'] for model in models]]
+            elif model_replacement:
+                excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
+                missing_models = missing_models + excluded_incorrect
+
         # Run replacement on missing models
         if model_replacement and missing_models:
             try:
                 logger.info(f"Running replacement for missing models: {missing_models}")
-                replacement_models = run_replacement(missing_models, time_horizon, scenario_datetime)
+                replacement_models = run_replacement(missing_models,
+                                                     time_horizon,
+                                                     scenario_datetime,
+                                                     acnp_dict=acnp_dict,
+                                                     acnp_threshold=ACNP_THRESHOLD,
+                                                     conform_load_factor=CONFORM_LOAD_FACTOR)
                 if replacement_models:
                     logger.info(
                         f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
@@ -328,17 +363,6 @@ class HandlerMergeModels:
 
         # Perform scaling
         if model_scaling:
-
-            # Set default time horizon and scenario timestamp if not provided
-            if not schedule_time_horizon or schedule_time_horizon == "AUTO":
-                schedule_time_horizon = time_horizon
-
-            if not schedule_start:
-                schedule_start = scenario_datetime
-
-            # Get aligned schedules
-            ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
-            dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
 
             # Scale balance if all schedules were received
             if all([ac_schedules, dc_schedules]):
@@ -549,24 +573,25 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-07-31T12:30:00+00:00",
-            "merge_type": "BA",
+            "timestamp_utc": "2025-10-20T20:30:00+00:00",
+            "merge_type": "EU",
             "merging_entity": "BALTICRCC",
-            "included": ["LITGRID", "AST", "ELERING", "PSE"],
+            # "included": ["50Hertz", "D4", "D7", "TTG"],
+            "included": [],
             "excluded": [],
             "local_import": [],
-            "time_horizon": "1D",
-            "version": "001",
+            "time_horizon": "ID",
+            "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
             "fix_net_interchange2": "True",
             "replacement": "True",
             "scaling": "True",
             "upload_to_opdm": "False",
-            "upload_to_minio": "True",
+            "upload_to_minio": "False",
             "send_merge_report": "False",
             "force_outage_fix": "False",
-            "lvl8_reporting": "True"
+            "lvl8_reporting": "False"
         }
     }
 
