@@ -4,7 +4,7 @@ name: CI Build workers
 on:
   push:
     branches:
-      - dev
+      - mk-build-pipeline
     tags:
       - "v*"
   release:
