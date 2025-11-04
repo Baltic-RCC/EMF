@@ -36,8 +36,8 @@ jobs:
       - name: Set global variables
         run: |
           echo "WORKER_NAME=${{ matrix.worker }}"       >> $GITHUB_ENV
-#          echo "BRANCH_NAME=${GITHUB_REF_NAME}"         >> $GITHUB_ENV
-#          echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)"        >> $GITHUB_ENV
+          # echo "BRANCH_NAME=${GITHUB_REF_NAME}"         >> $GITHUB_ENV
+          # echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)"        >> $GITHUB_ENV
           echo "IMAGE_NAME=${{ vars.DOCKER_USERNAME }}/${{ matrix.worker }}" >> $GITHUB_ENV
           echo "LATEST_TAG=latest"                      >> $GITHUB_ENV
 
@@ -94,4 +94,3 @@ jobs:
           if [[ "$BRANCH_NAME" == *-dev ]]; then
             docker push "${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}"
           fi
-
