@@ -1,10 +1,8 @@
 
-name: CI Build workers
+name: CI - Build workers
 
 on:
   push:
-    branches:
-      - mk-build-pipeline
     tags:
       - "v*"
   release:
@@ -23,11 +21,11 @@ jobs:
       matrix:
         worker:
           - emfos-model-retriever
-#          - emfos-local-model-retriever
-#          - emfos-model-validator
-#          - emfos-model-merger
-#          - emfos-task-generator
-#          - emfos-model-quality
+          - emfos-local-model-retriever
+          - emfos-model-validator
+          - emfos-model-merger
+          - emfos-task-generator
+          - emfos-model-quality
 
     steps:
       - name: Checkout repository target ref
