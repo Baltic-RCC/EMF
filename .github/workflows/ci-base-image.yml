@@ -1,4 +1,4 @@
-name: Build and publish base image
+name: CI - Build base image
 
 on:
   workflow_dispatch:
