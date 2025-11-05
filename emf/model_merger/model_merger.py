@@ -279,6 +279,8 @@ class HandlerMergeModels:
                 valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
+                if missing_models:
+                    merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
             else:
                 missing_models = []
 
