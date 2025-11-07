@@ -239,7 +239,7 @@ class HandlerMergeModels:
                                     tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
-            # Exclude models that are outside scheduled AC net position deadband of 200MW
+            # Exclude models that are outside scheduled AC net position deadband
             if acnp_dict:
                 additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
                 missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
@@ -284,7 +284,7 @@ class HandlerMergeModels:
             else:
                 missing_models = []
 
-        # Exclude models that are outside scheduled AC net position deadband of 200MW
+        # Exclude models that are outside scheduled AC net position deadband
         if acnp_dict:
             models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
             if included_models:
