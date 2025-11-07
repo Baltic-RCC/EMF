@@ -89,6 +89,6 @@ jobs:
       - name: Conditionally push latest tag
         shell: bash
         run: |
-          if [[ "$BRANCH_NAME" == *-dev ]]; then
+          if [[ "$IMAGE_TAG" == *-dev ]]; then
             docker push "${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}"
           fi
