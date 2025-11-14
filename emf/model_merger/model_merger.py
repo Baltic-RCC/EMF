@@ -433,7 +433,7 @@ class HandlerMergeModels:
 
         # Upload to OPDM 
         if model_upload_to_opdm:
-            if merged_model.loadflow[0]['status'] == 'CONVERGED':  # Only upload if the model LF is solved
+            if merged_model.loadflow[0]['status'] == 'CONVERGED' and merged_model.scaled:  # Only upload if the model LF is solved and scaled = true
                 try:
                     self.opdm_service = opdm.OPDM()
 

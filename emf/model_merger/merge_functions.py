@@ -947,6 +947,12 @@ def lvl8_report_cgm(merge_report: dict):
             'validationLevel': "8",
             'severity': "ERROR",
             'Message': "Power flow could not be calculated for CGM with EU_RELAXED settings."
+        },
+        {
+            'ruleId': "CGMConvergenceRelaxed",
+            'validationLevel': "8",
+            'severity': "ERROR",
+            'Message': "Error on Scaling"
         }
     ]
     # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
@@ -961,6 +967,11 @@ def lvl8_report_cgm(merge_report: dict):
     else:
         violations = violations_list
         quality_indicator_cgm = "Invalid - inconsistent data"
+        
+    #if scaling is failed then set error from error list
+    if not merge_report['scaled']:
+        violations.append(violations_list[2])
+        quality_indicator_cgm="Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {
