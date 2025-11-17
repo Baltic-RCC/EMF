@@ -20,10 +20,10 @@ class HandlerModelsFromOPDM:
         while True:
             try:
                 self.opdm_service = opdm.OPDM()
-                print("Connected to OPDM successfully")
+                logger.info("Connected to OPDM successfully")
                 break
             except Exception as e:
-                print(f"Failed to connect to OPDM: {e}")
+                logger.error(f"Failed to connect to OPDM: {e}")
                 time.sleep(60)  # wait 60 seconds before retry
 
     def handle(self, message: bytes, properties: dict, **kwargs):

@@ -239,7 +239,7 @@ class HandlerMergeModels:
                                     tso not in [model['pmd:TSO'] for model in additional_models]]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
-            # Exclude models that are outside scheduled AC net position deadband of 200MW
+            # Exclude models that are outside scheduled AC net position deadband
             if acnp_dict:
                 additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
                 missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
@@ -279,10 +279,12 @@ class HandlerMergeModels:
                 valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
+                if missing_models:
+                    merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
             else:
                 missing_models = []
 
-        # Exclude models that are outside scheduled AC net position deadband of 200MW
+        # Exclude models that are outside scheduled AC net position deadband
         if acnp_dict:
             models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
             if included_models:
@@ -431,7 +433,7 @@ class HandlerMergeModels:
 
         # Upload to OPDM 
         if model_upload_to_opdm:
-            if merged_model.loadflow[0]['status'] == 'CONVERGED':  # Only upload if the model LF is solved
+            if merged_model.loadflow[0]['status'] == 'CONVERGED' and merged_model.scaled:  # Only upload if the model LF is solved and scaled = true
                 try:
                     self.opdm_service = opdm.OPDM()
 

@@ -463,37 +463,48 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
 
     def is_within_acnp_deadband(model):
         tso = model.get('pmd:TSO')
-        if tso not in acnp_dict:
-            return False
+        if not tso or tso not in acnp_dict:
+            logger.error(f"TSO '{tso}' not found in acnp dict, skipping filtering")
+            return True
         acnp = acnp_dict[tso]
-        return abs(model['ac_net_position'] - acnp) <= float(acnp_threshold)
+        return abs(float(model['ac_net_position']) - float(acnp)) <= float(acnp_threshold)
 
     def is_within_conformload_deadband(model):
         tso = model.get('pmd:TSO')
-        if tso not in acnp_dict:
-            return False
+        if not tso or tso not in acnp_dict:
+            logger.error(f"TSO '{tso}' not found in acnp dict, skipping filtering")
+            return True
         acnp = acnp_dict[tso]
         expected_load = model['sum_conform_load'] * float(conform_load_factor)
-        return expected_load > abs(model['ac_net_position'] - acnp)
+        return expected_load > abs(float(model['ac_net_position']) - float(acnp))
+
+    logger.info("Excluding models with incorrect ACNP")
+    excluded_tso_ids = set()
 
     # ACNP deadband filter
     filtered_models = [model for model in models if is_within_acnp_deadband(model)]
     excluded_tsos= [
         {'tso': model['pmd:TSO'], 'reason': 'acnp-outside-schedule-deadband'}
-        for model in models if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in filtered_models]
+        for model in models
+        if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in filtered_models]
+        and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
-        logger.warning(f"Exluded TSO due to incorrect schedules: {excluded_tsos}")
+        excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
+        logger.warning(f"Exluded TSO due to incorrect schedules: {excluded_tso_ids}")
         merged_model.excluded.extend(excluded_tsos)
 
     # Conformload filter
     final_models = [model for model in filtered_models if is_within_conformload_deadband(model)]
     excluded_tsos= [
         {'tso': model['pmd:TSO'], 'reason': 'conform-load-outside-schedule-difference'}
-        for model in filtered_models if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in final_models]
+        for model in filtered_models
+        if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in final_models]
+        and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
-        logger.warning(f"Exluded TSO due to incorrect conform load: {excluded_tsos}")
+        excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
+        logger.warning(f"Exluded TSO due to incorrect conform load: {excluded_tso_ids}")
         merged_model.excluded.extend(excluded_tsos)
 
     return final_models
@@ -936,6 +947,12 @@ def lvl8_report_cgm(merge_report: dict):
             'validationLevel': "8",
             'severity': "ERROR",
             'Message': "Power flow could not be calculated for CGM with EU_RELAXED settings."
+        },
+        {
+            'ruleId': "CGMConvergenceRelaxed",
+            'validationLevel': "8",
+            'severity': "ERROR",
+            'Message': "Error on Scaling"
         }
     ]
     # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
@@ -950,6 +967,11 @@ def lvl8_report_cgm(merge_report: dict):
     else:
         violations = violations_list
         quality_indicator_cgm = "Invalid - inconsistent data"
+        
+    #if scaling is failed then set error from error list
+    if not merge_report['scaled']:
+        violations.append(violations_list[2])
+        quality_indicator_cgm="Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {

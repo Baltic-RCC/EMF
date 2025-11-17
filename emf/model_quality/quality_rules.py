@@ -56,7 +56,7 @@ def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, i
         latest_duplicate = duplicated_outages.groupby('eic')['date_of_last_change'].idxmax()
         response = response.loc[response.index.isin(latest_duplicate) | ~response['eic'].duplicated(keep=False)]
 
-        response = response[response['outage_type'].isin(['OUT'])]
+        response = response[response['outage_type'].isin(['OUT', 'SSS'])]
 
         response = response.sort_values(by=['eic', 'start_date', 'end_date']).reset_index(drop=True)
         last_end_time = {}
@@ -185,9 +185,13 @@ def check_crossborder_inconsistencies(report, network):
 
 def check_outage_inconsistencies(report, network, handler, model_metadata):
     try:
-        outages = get_uap_outages_from_scenario_time(handler, time_horizon=model_metadata['pmd:timeHorizon'],
-                                                     model_timestamp=model_metadata['pmd:scenarioDate'])
+        outages = get_uap_outages_from_scenario_time(handler, time_horizon=model_metadata['@time_horizon'],
+                                                     model_timestamp=model_metadata['@scenario_timestamp'])
+        critical_elements = handler.elastic_service.get_docs_by_query(index='config-network', query={"match_all": {}},
+                                                                 size=10000, return_df=True)
+
         outages['mrid'] = outages['mrid'].str.lstrip('_')
+        critical_elements['mrid'] = critical_elements['mrid'].str.lstrip('_')
 
         connectivity_nodes = type_tableview_merge(network, "Terminal->ConnectivityNode")
         line_terminals = connectivity_nodes.merge(network.type_tableview("ACLineSegment").reset_index(),
@@ -195,18 +199,35 @@ def check_outage_inconsistencies(report, network, handler, model_metadata):
                                                   right_on="ID",
                                                   suffixes=("", "_Line"))
         line_terminals['ACDCTerminal.connected'] = line_terminals['ACDCTerminal.connected'].str.lower() == 'true'
-        outage_terminals = line_terminals[line_terminals['ID'].isin(outages['mrid'])]
+
+        relevant_line_terminals = line_terminals[line_terminals['ID'].isin(critical_elements['mrid'])]
+        # [['ID', 'IdentifiedObject.name', 'ACDCTerminal.connected']]
+
+        should_be_off = set(critical_elements[critical_elements['mrid'].isin(outages['mrid'])]['mrid'])
+        should_be_on = set(critical_elements['mrid']) - should_be_off
+
+        outage_terminals = relevant_line_terminals[relevant_line_terminals['ID'].isin(should_be_off)]
         outage_inconsistencies = outage_terminals.groupby('ID').filter(lambda x: x['ACDCTerminal.connected'].all())
 
-        outage_inconsistencies = (
-            outage_inconsistencies.groupby(['IdentifiedObject.name', 'ID'])['ACDCTerminal.connected'].agg(
+        connected_terminals = relevant_line_terminals[relevant_line_terminals['ID'].isin(should_be_on)]
+        connected_inconsistencies = connected_terminals.groupby('ID').filter(lambda x: not x['ACDCTerminal.connected'].all())
+
+        all_inconsistencies = pd.concat([outage_inconsistencies, connected_inconsistencies])
+
+        if all_inconsistencies.empty:
+            inconsistency_flag = True
+        else:
+            inconsistency_flag = False
+
+        all_inconsistencies = (
+            all_inconsistencies.groupby(['IdentifiedObject.name', 'ID'])['ACDCTerminal.connected'].agg(
                 ['first', 'last'])
             .rename(columns={'first': 'line_end_1_connected', 'last': 'line_end_2_connected'})).reset_index()
-        outage_inconsistencies = outage_inconsistencies.rename(
+        all_inconsistencies = all_inconsistencies.rename(
             columns={'ID': 'grid_id', 'IdentifiedObject.name': 'name'}).to_dict('records')
-        # TODO add a way to check if line is off when its not supposed to be
+
         report.update(
-            {"outage_inconsistencies": outage_inconsistencies, "outage_check": not bool(outage_inconsistencies)})
+            {"outage_inconsistencies": all_inconsistencies, "outage_check": inconsistency_flag})
     except:
         report.update({"outage_inconsistencies": None, "outage_check": None})
 
