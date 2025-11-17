@@ -1,6 +1,9 @@
 
 name: CI - Build workers
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
