@@ -965,7 +965,7 @@ def lvl8_report_cgm(merge_report: dict):
             violations.append(violations_list[0])
             quality_indicator_cgm = "Warning - non fatal inconsistencies"
     else:
-        violations = violations_list
+        violations.append(violations_list[1])
         quality_indicator_cgm = "Invalid - inconsistent data"
         
     #if scaling is failed then set error from error list
