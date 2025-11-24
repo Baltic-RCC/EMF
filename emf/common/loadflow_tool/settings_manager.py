@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class LoadflowSettingsManager:
-    """Class-based settings manager for pypowsybl load flow, similar to RaoSettingsManager.
+    """Class-based settings manager for pypowsybl load flow parameters.
 
-    - Defaults are imported from loadflow.py.
+    - Defaults are imported from loadflow_settings.py.
     - Optional override file path is read from env:
         * LOADFLOW_CONFIG_OVERRIDE_PATH
       The file may be JSON or YAML.
