@@ -119,8 +119,9 @@ class HandlerMergeModels:
             logger.info(f"Solving loadflow with settings: {lf_settings}")
             # report = pypowsybl.report.Reporter()
             manager = settings_manager.LoadflowSettingsManager(settings_keyword=lf_settings)
+            pp_loadflow_parameters = manager.build_pypowsybl_parameters()
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
-                                               parameters=manager.build_pypowsybl_parameters(),
+                                               parameters=pp_loadflow_parameters,
                                                # reporter=loadflow_report,
                                                )
             if result[0].status_text == 'Converged':
@@ -147,7 +148,7 @@ class HandlerMergeModels:
         merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
         merged_model.loadflow_settings = lf_settings
 
-        return merged_model
+        return merged_model, pp_loadflow_parameters
 
     def handle(self, task_object: dict, properties: dict, **kwargs):
 
@@ -359,7 +360,7 @@ class HandlerMergeModels:
 
         # TODO - run other LF if default fails
         # Run loadflow on merged model
-        merged_model = self.run_loadflow(merged_model=merged_model)
+        merged_model, pp_loadflow_parameters = self.run_loadflow(merged_model=merged_model)
         logger.info(
             f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
 
@@ -372,8 +373,7 @@ class HandlerMergeModels:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
                                                         dc_schedules=dc_schedules,
-                                                        lf_settings=getattr(loadflow_settings,
-                                                                            merged_model.loadflow_settings))
+                                                        lf_settings=pp_loadflow_parameters)
                 except Exception as e:
                     logger.error(e)
                     merged_model.scaled = False
@@ -454,7 +454,7 @@ class HandlerMergeModels:
                 except Exception as error:
                     logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
             else:
-                logger.info(f"Model not uploaded to OPDM due to convergance issue: {merged_model.loadflow[0]['status']}")
+                logger.info(f"Model not uploaded to OPDM due to convergence or failed scaling issues")
 
         # Create zipped model data
         merged_model_object = BytesIO()
