@@ -24,7 +24,7 @@ logger.info(f"Starting 'model-validator' worker with assigned trace uuid: {worke
 if CONSUMER_TYPE == "SINGLE_MESSAGE":
     # RabbitMQ single message consumer implementation aligned with KEDA usage
     consumer = rabbit.SingleMessageConsumer(
-        queue=INPUT_RABBIT_QUE,
+        queue=INPUT_RMQ_QUEUE,
         message_handlers=[HandlerModelsValidator()],
         forward=OUTPUT_RMQ_EXCHANGE,
     )

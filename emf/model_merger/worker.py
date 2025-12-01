@@ -28,14 +28,14 @@ logger.info(f"Starting 'model-merger' worker with assigned trace uuid: {worker_u
 if CONSUMER_TYPE == "SINGLE_MESSAGE":
     # RabbitMQ single message consumer implementation aligned with KEDA usage
     consumer = rabbit.SingleMessageConsumer(
-        queue=INPUT_RABBIT_QUE,
+        queue=INPUT_RABBIT_QUEUE,
         message_handlers=[HandlerMergeModels()],
         forward=OUTPUT_RMQ_EXCHANGE,
     )
     sys.exit(consumer.run())
 elif CONSUMER_TYPE == "LONG_LIVING":
     # RabbitMQ long-living consumer implementation
-    consumer = rabbit.RMQConsumer(queue=INPUT_RABBIT_QUE,
+    consumer = rabbit.RMQConsumer(queue=INPUT_RABBIT_QUEUE,
                                   message_handlers=[HandlerMergeModels()],
                                   forward=OUTPUT_RMQ_EXCHANGE,
                                   )
