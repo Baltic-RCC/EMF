@@ -41,7 +41,8 @@ class HandlerModelsFromOPDM:
                 opdm_object["data-source"] = "OPDM"
             else:
                 logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
-                raise Exception("Model filtered out, not possible with current setup, taking another one")
+                properties.header['success'] = False
+                return  None, properties
 
         return opdm_objects, properties
 
