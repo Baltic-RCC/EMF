@@ -40,9 +40,9 @@ class HandlerModelsFromOPDM:
                 self.opdm_service.download_object(opdm_object=opdm_object)
                 opdm_object["data-source"] = "OPDM"
             else:
-                logger.warning(f"{party} and {time_horizon} skipping") # if out of filter raise exception and move on
+                logger.warning(f"{party} and {time_horizon} message not processed due to configured filtering") # if out of filter raise exception and move on
                 properties.header['success'] = False
-                return  None, properties
+                return  opdm_objects, properties
 
         return opdm_objects, properties
 
