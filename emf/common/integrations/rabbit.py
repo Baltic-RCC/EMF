@@ -262,7 +262,7 @@ class SingleMessageConsumer:
                 try:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=None)
-                    if properties.header['success'] = False: # stop processing next handlers if message success was set to false
+                    if properties.header['success'] == False: # stop processing next handlers if message success was set to false
                         break
 
                 except Exception as error:
@@ -581,7 +581,7 @@ class RMQConsumer:
                 for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
-                    if properties.header['success'] = False: # stop processing next handlers if message success was set to false
+                    if properties.header['success'] == False: # stop processing next handlers if message success was set to false
                     break
 
             except Exception as error:
