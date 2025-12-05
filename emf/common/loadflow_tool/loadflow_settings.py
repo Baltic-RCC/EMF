@@ -108,8 +108,8 @@ __IGM_VALIDATION_PROVIDER = {
     'loadPowerFactorConstant': 'False',  # cim:PowerFlowSettings.loadVoltageDependency "false"
     'lowImpedanceThreshold': '0.00003',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
-    'maxActivePowerMismatch': '0.5',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
-    'maxReactivePowerMismatch': '0.5',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
+    'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
+    'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '0.0001',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10"
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
@@ -149,8 +149,8 @@ __EU_RELAXED_PROVIDER = {
     'loadPowerFactorConstant': 'True',  # cim:PowerFlowSettings.loadVoltageDependency "false" ; TODO - check this
     'lowImpedanceThreshold': '0.00003',  # cim:PowerFlowSettings.impedanceThreshold "1e-05" ;
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
-    'maxActivePowerMismatch': '0.1',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
-    'maxReactivePowerMismatch': '0.1',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
+    'maxActivePowerMismatch': '0.5',  # cim:PowerFlowSettings.activePowerTolerance "0.1"
+    'maxReactivePowerMismatch': '0.5',  # cim:PowerFlowSettings.reactivePowerTolerance "0.1"
     'maxVoltageMismatch': '0.0001',  # cim:PowerFlowSettings.voltageTolerance "0.0001" ;
     'maxAngleMismatch': '1.0E-5',  # cim:PowerFlowSettings.voltageAngleLimit "10" ; TODO - How to convert
     'slackBusPMaxMismatch': '0.09',  # To fulfill QOCDC SV_INJECTION_LIMIT = 0.1
