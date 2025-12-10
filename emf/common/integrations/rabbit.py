@@ -241,6 +241,7 @@ class SingleMessageConsumer:
     def _process_messages(self, basic_deliver, properties, body):
         ack = True
         err = None
+        properties.header['success'] == True
 
         # Convert if needed
         if self.message_converter:
@@ -562,7 +563,8 @@ class RMQConsumer:
 
     def _process_messages(self, basic_deliver, properties, body):
         ack = True
-
+        properties.header['success'] == True
+        
         # Convert if needed
         if self.message_converter:
             try:
