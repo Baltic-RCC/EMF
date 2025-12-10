@@ -241,7 +241,6 @@ class SingleMessageConsumer:
     def _process_messages(self, basic_deliver, properties, body):
         ack = True
         err = None
-        properties.header['success'] == True
 
         # Convert if needed
         if self.message_converter:
@@ -263,7 +262,7 @@ class SingleMessageConsumer:
                 try:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=None)
-                    if properties.header['success'] == False: # stop processing next handlers if message success was set to false
+                    if not properties.headers['success']: # stop processing next handlers if message success was set to false
                         break
 
                 except Exception as error:
@@ -397,6 +396,7 @@ class RMQConsumer:
         self._vhost = vhost
         self._queue = queue
         self._username = username
+        self.heartbeat = heartbeat
         self._executor = ThreadPoolExecutor()
         self._executor_stopped = False
 
@@ -563,8 +563,7 @@ class RMQConsumer:
 
     def _process_messages(self, basic_deliver, properties, body):
         ack = True
-        properties.header['success'] == True
-        
+
         # Convert if needed
         if self.message_converter:
             try:
@@ -583,7 +582,7 @@ class RMQConsumer:
                 for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
-                    if properties.header['success'] == False: # stop processing next handlers if message success was set to false
+                    if not properties.headers['success']: # stop processing next handlers if message success was set to false
                         break
             except Exception as error:
                 logger.error(f"Message handling failed: {error}", exc_info=True)
