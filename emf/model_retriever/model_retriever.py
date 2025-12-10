@@ -26,7 +26,7 @@ class HandlerModelsFromOPDM:
                 logger.error(f"Failed to connect to OPDM: {e}")
                 time.sleep(60)  # wait 60 seconds before retry
 
-    def handle(self, message: bytes, properties: dict, **kwargs):
+    def handle(self, message: bytes, properties: object, **kwargs):
         # Load from binary to json
         opdm_objects = json.loads(message)
 
@@ -41,8 +41,8 @@ class HandlerModelsFromOPDM:
                 opdm_object["data-source"] = "OPDM"
             else:
                 logger.warning(f"{party} and {time_horizon} message not processed due to configured filtering") # if out of filter raise exception and move on
-                properties.header['success'] = False
-                return  opdm_objects, properties
+                properties.headers['success'] = False
+                return opdm_objects, properties
 
         return opdm_objects, properties
 
@@ -52,7 +52,7 @@ class HandlerModelsFromBytesIO:
     def __init__(self):
         pass
 
-    def handle(self, message: bytes, properties: dict, **kwargs):
+    def handle(self, message: bytes, properties: object, **kwargs):
 
         message_content = BytesIO(message)
         message_content.name = 'unknown.zip'
@@ -74,7 +74,7 @@ class HandlerModelsToMinio:
     def __init__(self):
         self.minio_service = minio_api.ObjectStorage()
 
-    def handle(self, message: bytes, properties: dict, **kwargs):
+    def handle(self, message: bytes, properties: object, **kwargs):
 
         opdm_objects = message
 
@@ -121,7 +121,7 @@ class HandlerModelsToValidator:
     def __init__(self):
         pass
 
-    def handle(self, message: bytes, properties: dict, **kwargs):
+    def handle(self, message: bytes, properties: object, **kwargs):
 
         # Load from binary to json
         opdm_objects = json.loads(message)
