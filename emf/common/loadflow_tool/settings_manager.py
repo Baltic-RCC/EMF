@@ -5,7 +5,10 @@ from pathlib import Path
 from copy import deepcopy
 import pypowsybl
 import logging
+import config
+from emf.common.config_parser import parse_app_properties
 from enum import Enum as _PyEnum
+from elasticsearch import Elasticsearch
 from emf.common.loadflow_tool import loadflow_settings
 
 try:
@@ -14,6 +17,8 @@ except Exception:
     yaml = None
 
 logger = logging.getLogger(__name__)
+
+parse_app_properties(globals(), config.paths.integrations.elastic)
 
 
 class LoadflowSettingsManager:
@@ -39,10 +44,18 @@ class LoadflowSettingsManager:
     _KNOWN_PARAM_FIELDS = [f for f in _KNOWN_PARAM_FIELDS if f != "provider_parameters"]
 
     def __init__(self,
+                 elastic_server: str = ELK_SERVER,
+                 elastic_username: str | None = None,
+                 elastic_password: str | None = None,
+                 elastic_index: str = 'config-lf-parameters',
                  settings_keyword: str = 'EU_DEFAULT',
                  override_path: str | None = None,
                  ):
 
+        self.elastic_server = elastic_server
+        self.elastic_username = elastic_username
+        self.elastic_password = elastic_password
+        self.elastic_index = elastic_index
         self.settings_keyword = settings_keyword
 
         # Decide override path from arg or env
@@ -50,20 +63,33 @@ class LoadflowSettingsManager:
         self.override_path = Path(override_path or env_path) if (override_path or env_path) else None
         if self.override_path:
             logger.info(f"Loadflow settings override path: {self.override_path}")
-        else:
-            logger.info(f"Using settings from default definitions: {self.settings_keyword}")
 
-        # Build defaults snapshot (dict-based), then merge overrides if any
-        _default_settings = getattr(loadflow_settings, self.settings_keyword)
-        base = {
-            'LF_PROVIDER': deepcopy(_default_settings.provider_parameters),
-            'LF_PARAMETERS': self._extract_params_dict(_default_settings),
-        }
+        # Firstly try to get loadflow parameters from Elastic as primary source, otherwise - fallback to repository
+        try:
+            base = self._get_defaults_from_elastic()
+        except Exception as err:
+            logger.warning(f"Loadflow settings retrieving failed from Elastic: {err}")
+            logger.warning(f"Using default settings from repository with key: {self.settings_keyword}")
+            _default_settings = getattr(loadflow_settings, self.settings_keyword)
+            base = {
+                'LF_PROVIDER': deepcopy(_default_settings.provider_parameters),
+                'LF_PARAMETERS': self._extract_params_dict(_default_settings),
+            }
+
+        # Handle overrides if defined
         overrides = self._load_override_file(self.override_path) if self.override_path else {}
         self.config = self._deep_merge(base, overrides)
 
     # ----------------- I/O -----------------
-    def _load_override_file(self, path: Path | None) -> dict:
+    def _get_defaults_from_elastic(self) -> dict:
+        client = Elasticsearch(self.elastic_server)
+        logger.info(f"Retrieving base loadflow settings fromm Elasticsearch with key: {self.settings_keyword}")
+        response = client.get(index=self.elastic_index, id=self.settings_keyword)
+
+        return response.raw["_source"]
+
+    @staticmethod
+    def _load_override_file(path: Path | None) -> dict:
         if not path:
             return {}
         if not path.exists():
@@ -262,7 +288,7 @@ if __name__ == "__main__":
     print(mgr.config)
     pp_mgr = mgr.build_pypowsybl_parameters()
     # Test accessors
-    print('Sample read:', mgr.get('LF_PARAMETERS.write_slack_bus', None))
+    print('Sample read:', mgr.get('LF_PARAMETERS.connected_component_mode', None))
     # mgr.set('LF_PROVIDER.maxNewtonRaphsonIterations', '25')
     # print('After set:', mgr.get('LF_PROVIDER.maxNewtonRaphsonIterations'))
 
