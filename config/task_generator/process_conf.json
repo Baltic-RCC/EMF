@@ -556,7 +556,7 @@
        "valid_to": "",
        "gate_open": "P1DT5H",
        "gate_close": "P1DT4H",
-       "run_at": "30 10 18 * *",
+       "run_at": "00 23 17 * *",
        "time_frame": "M-1",
        "data_timestamps": "30 9 * * *",
        "data_resolution": "PT1H",
