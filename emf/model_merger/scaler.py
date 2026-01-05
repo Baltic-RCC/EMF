@@ -292,8 +292,8 @@ def scale_balance(model: object,
     conform_loads = loads[loads['variable_p0'] > 0]
 
     # Get network slack generators
-    slack_generators = get_slack_generators(network)  # TODO
-    logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
+    # slack_generators = get_slack_generators(network)  # TODO
+    # logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
 
     # Solving initial loadflow
     converged_components = {}
