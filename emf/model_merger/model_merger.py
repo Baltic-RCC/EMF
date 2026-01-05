@@ -470,10 +470,7 @@ class HandlerMergeModels:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
                         logging.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
-                        
-        saved_horizon = str(task_properties["time_horizon"]).strip().upper()
-        folder = f"{OUTPUT_MINIO_FOLDER}/{saved_horizon}"
-        merged_model_object.name = f"{folder}/{merged_model.name}.zip
+        merged_model_object.name = f"{OUTPUT_MINIO_FOLDER}/{merged_model.name}.zip"
 
         # Upload to Minio storage
         if model_upload_to_minio:
