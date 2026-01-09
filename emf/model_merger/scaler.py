@@ -200,6 +200,13 @@ def scale_balance(model: object,
     # Get pypowsybl network
     network = model.network
 
+    # TODO temporary fix with Kriegers Flak
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    krieger_flak = dangling_lines[dangling_lines.pairing_key.isin(['XBA_KF31', 'XBA_KF32'])]
+    for elem in krieger_flak.index:
+        network.disconnect(elem)
+    pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+
     # Define general variables to be used in scaling algorithm
     _CONSTANT_POWER_FACTOR = json.loads(CONSTANT_POWER_FACTOR.lower())
     _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
