@@ -11,7 +11,8 @@ RUN pip install --upgrade setuptools pip uv pipenv
 
 # Install needed modules
 COPY Pipfile .
-COPY Pipfile.lock .
+RUN pipenv lock
+#COPY Pipfile.lock .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
 RUN pipenv requirements > requirements.txt
