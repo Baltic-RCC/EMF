@@ -11,18 +11,19 @@ RUN pip install --upgrade setuptools pip uv pipenv
 
 # Install needed modules
 COPY Pipfile .
-RUN pipenv lock
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 #COPY Pipfile.lock .
 #RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 #RUN pipenv install --system --deploy
-RUN pipenv requirements > requirements.txt
-RUN uv pip sync requirements.txt --system
+#RUN pipenv requirements > requirements.txt
+#RUN uv pip sync requirements.txt --system
 #RUN uv cache clean
 
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"
 
-FROM balticrcc/emfos-base:pypow1.13 as emfos-model-retriever
+FROM balticrcc/emfos-base:pypow1.14 as emfos-model-retriever
 
 # Set working directory
 WORKDIR /src
@@ -37,7 +38,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/opdm_worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:pypow1.13 as emfos-local-model-retriever
+FROM balticrcc/emfos-base:pypow1.14 as emfos-local-model-retriever
 
 # Set working directory
 WORKDIR /src
@@ -51,7 +52,7 @@ COPY config/ ./config/
 ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/local_worker.py"]
 
-FROM balticrcc/emfos-base:pypow1.13 as emfos-model-validator
+FROM balticrcc/emfos-base:pypow1.14 as emfos-model-validator
 
 # Set working directory
 WORKDIR /src
@@ -66,7 +67,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_validator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:pypow1.13 as emfos-model-merger
+FROM balticrcc/emfos-base:pypow1.14 as emfos-model-merger
 
 # Set working directory
 WORKDIR /src
@@ -81,7 +82,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_merger/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:pypow1.13 as emfos-task-generator
+FROM balticrcc/emfos-base:pypow1.14 as emfos-task-generator
 
 # Set working directory
 WORKDIR /src
@@ -97,7 +98,7 @@ ENTRYPOINT ["python", "emf/task_generator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
 # Model Quality image
-FROM balticrcc/emfos-base:pypow1.13 as emfos-model-quality
+FROM balticrcc/emfos-base:pypow1.14 as emfos-model-quality
 
 WORKDIR /src
 

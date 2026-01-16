@@ -20,8 +20,8 @@ jobs:
           docker build . \
             --file docker/Dockerfile \
             --target emfos-base \
-            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:pypow1.13
-          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:pypow1.13
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:pypow1.14
+          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:pypow1.14
 
 
       - name: Display Success Message
