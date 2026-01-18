@@ -144,9 +144,15 @@ def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str =
     """
     input_data = models_as_triplets.merge(models_as_triplets.query("KEY == 'Type' & VALUE == @parameter_name")[['ID']], on='ID') \
         if parameter_name is not None else models_as_triplets
+
+    # Filter out negative conform loads
+    conform_keys = ['EnergyConsumer.p', 'EnergyConsumer.q',]
+    load_data = input_data.query("KEY in @conform_keys")
+    filtered_input_data = load_data[load_data["VALUE"].astype(float) >= 0]
+
     output = {
-        "EnergyConsumer.p": sum_on_KEY(input_data, 'EnergyConsumer.p'),
-        "EnergyConsumer.q": sum_on_KEY(input_data, 'EnergyConsumer.q'),
+        "EnergyConsumer.p": sum_on_KEY(filtered_input_data, 'EnergyConsumer.p'),
+        "EnergyConsumer.q": sum_on_KEY(filtered_input_data, 'EnergyConsumer.q'),
         # "RotatingMachine.p": sum_on_KEY(input_data, 'RotatingMachine.p'),
         # "RotatingMachine.q": sum_on_KEY(input_data, 'RotatingMachine.q')
     }
