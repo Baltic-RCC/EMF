@@ -358,7 +358,12 @@ class HandlerMergeModels:
         # Ensure boundary line connectivity consistency for paired boundary lines
         merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
 
-        # TODO - run other LF if default fails
+        # TODO temporary fix with Kriegers Flak issue
+        dangling_lines = merged_model.network.get_dangling_lines(all_attributes=True)
+        krieger_flak = dangling_lines[dangling_lines.pairing_key.isin(['XBA_KF31', 'XBA_KF32'])]
+        for elem in krieger_flak.index:
+            merged_model.network.disconnect(elem)
+
         # Run loadflow on merged model
         merged_model, pp_loadflow_parameters = self.run_loadflow(merged_model=merged_model)
         logger.info(
