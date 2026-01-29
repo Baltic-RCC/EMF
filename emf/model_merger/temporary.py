@@ -181,6 +181,18 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             remove_not_generators['participate'] = False
             remove_not_generators = remove_not_generators.set_index('id')
             network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
+
+        #find all shunts missing regulating control class and turn the regulation control off for those
+        all_shunts_with_control_on_reg_missing=network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)[
+                                            ((network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR, all_attributes=True)["voltage_regulation_on"] == True) &
+                                             (network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)["CGMES.RegulatingControl"] == ""))]
+
+        if not all_shunts_with_control_on_reg_missing.empty:
+            logger.warning(f"Shunts with regulation control missing but voltage_control on {len(all_shunts_with_control_on_reg_missing)}")
+            #TODO set voltage_control_on to false. Atm try turning off
+            network_pre_instance.update_shunt_compensators(id=all_shunts_with_control_on_reg_missing.index.values.tolist(), connected = [False]*len(all_shunts_with_control_on_reg_missing.index.values.tolist()))
+
+
     except Exception as ex:
         logger.warning(f"Unable to pre-process for igm-cgm-ssh error: {ex}")
 
