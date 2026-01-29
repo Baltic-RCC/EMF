@@ -183,9 +183,9 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
 
         #find all shunts missing regulating control class and turn the regulation control off for those
-        all_shunts_with_control_on_reg_missing=network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)[
-                                            ((network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR, all_attributes=True)["voltage_regulation_on"] == True) &
-                                             (network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)["CGMES.RegulatingControl"] == ""))]
+        all_shunts=network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)
+        all_shunts_with_control_on_reg_missing=all_shunts[((all_shunts["voltage_regulation_on"] == True) &
+                                                           (all_shunts["CGMES.RegulatingControl"] == ""))]
 
         if not all_shunts_with_control_on_reg_missing.empty:
             logger.warning(f"Shunts with regulation control missing but voltage_control on {len(all_shunts_with_control_on_reg_missing)}")
