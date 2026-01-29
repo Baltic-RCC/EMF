@@ -13,7 +13,7 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
 
     report = {}
 
-    if object_type == "CGM" and model_metadata['pmd:Area'] == 'BA':
+    if object_type == "CGM" and model_metadata['pmd:Area'] in CGM_TYPE:
 
         report = check_generator_quality(report, network)
         report = check_lt_pl_crossborder(report, network, tieflow_data=tieflow_data, border_limit=BORDER_LIMIT)
