@@ -127,7 +127,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
     try:
         all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
                                                            all_attributes=True).reset_index()
-        generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
+        generators_mask = (all_generators['CGMES.synchronousMachineType'].str.contains('generator'))
         not_generators = all_generators[~generators_mask]
         generators = all_generators[generators_mask]
         curve_points = (network_pre_instance
@@ -138,7 +138,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
         curve_generators = generators.merge(curve_limits, on='id')
         # low end can be zero
         curve_generators = curve_generators[(curve_generators['target_p'] > curve_generators['curve_p_max']) |
-                                            ((curve_generators['target_p'] > 0) &
+                                            ((curve_generators['target_p'] >= 0) &
                                              (curve_generators['target_p'] < curve_generators['curve_p_min']))]
         if not curve_generators.empty:
             logger.warning(f"Found {len(curve_generators.index)} generators for "
@@ -149,13 +149,13 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             if not upper_limit_violated.empty:
                 logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
                 upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
-                network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].set_index('id'))
+                network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
                 logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
                 lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
-                network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
+                network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             # Solution 2: discard generator from participating
             extensions = network_pre_instance.get_extensions('activePowerControl')
