@@ -348,7 +348,7 @@ class HandlerMergeModels:
                                                                 time_horizon=time_horizon)
 
         # Various corrections from igmsshvscgmssh error
-        if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
+        if json.loads(PREPROCESSING_REGULATION_CONTROL_AND_CURVES.lower()):
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
 
         # Ensure boundary point EquivalentInjection are set to zero for paired tie lines

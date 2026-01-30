@@ -127,6 +127,15 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
     try:
         all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
                                                            all_attributes=True).reset_index()
+        
+        all_generators_missing_reg_but_try_reg = all_generators[((all_generators["voltage_regulator_on"] == True) &
+                                                             (all_generators["CGMES.RegulatingControl"] == ""))]
+
+        if not all_generators_missing_reg_but_try_reg.empty:
+            logger.warning(f"Generators with regulation control missing but voltage_control on {len(all_generators_missing_reg_but_try_reg)}")
+            #setting generators to false that do not have regulation
+            network_pre_instance.update_generators(id=all_generators_missing_reg_but_try_reg.index.values.tolist(),voltage_regulator_on=[False] * len(all_generators_missing_reg_but_try_reg.index.values.tolist()))
+
         generators_mask = (all_generators['CGMES.synchronousMachineType'].str.contains('generator'))
         not_generators = all_generators[~generators_mask]
         generators = all_generators[generators_mask]
