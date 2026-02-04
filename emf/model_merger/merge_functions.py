@@ -232,6 +232,18 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
             "from_ID": "SvShuntCompensatorSections.ShuntCompensator",
             "from_attribute": "SvShuntCompensatorSections.sections",
             "to_attribute": "ShuntCompensator.sections",
+        },
+        {
+            "from_class": "SvPowerFlow",
+            "from_ID": "Terminal.ConductingEquipment",
+            "from_attribute": "SvPowerFlow.p",
+            "to_attribute": "EquivalentInjection.p"
+        },
+        {
+            "from_class": "SvPowerFlow",
+            "from_ID": "Terminal.ConductingEquipment",
+            "from_attribute": "SvPowerFlow.q",
+            "to_attribute": "EquivalentInjection.q"
         }
     ]
     # Load terminal from original data
