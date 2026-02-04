@@ -335,7 +335,7 @@ def scale_balance(model: object,
 
     # Identify fragmented IGMs - where some part of network model with boundary belongs other component
     areas_to_components = get_countries_to_components(components=valid_components)
-    fragments_participation = get_fragmented_areas_participation(unpaired_dangling_lines=dangling_lines[unpaired_dangling_lines],
+    fragments_participation = get_fragmented_areas_participation(unpaired_dangling_lines=dangling_lines[dangling_lines.isHvdc == ''],
                                                                  areas_to_components=areas_to_components)
 
     # Map fragmented models to target ACNP schedules and recalculate values by participation
