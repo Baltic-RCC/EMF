@@ -541,7 +541,7 @@ class HandlerMergeModels:
 
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
-        # properties.headers = extracted_meta
+        properties.headers = extracted_meta
 
         # Stop Trace
         self.elk_logging_handler.stop_trace()
