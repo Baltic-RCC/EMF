@@ -336,17 +336,16 @@ class HandlerMergeModels:
 
         # Update model outages
         tso_list = []
-        # TODO re-enable after fixing outage update function
-        # if force_outage_fix:  # force outage fix on all models if set
-        #     tso_list = merged_model.included
-        # elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
-        #                                   replaced_tso_list):  # by default do it on Baltic merge replaced models
-        #     tso_list = replaced_tso_list
-        # if tso_list:  # if not set force and not replaced BA then nothing to fix
-        #     merged_model = merge_functions.update_model_outages(merged_model=merged_model,
-        #                                                         tso_list=tso_list,
-        #                                                         scenario_datetime=scenario_datetime,
-        #                                                         time_horizon=time_horizon)
+        if force_outage_fix:  # force outage fix on all models if set
+            tso_list = merged_model.included
+        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+                                          replaced_tso_list):  # by default do it on Baltic merge replaced models
+            tso_list = replaced_tso_list
+        if tso_list:  # if not set force and not replaced BA then nothing to fix
+            merged_model = merge_functions.update_model_outages(merged_model=merged_model,
+                                                                tso_list=tso_list,
+                                                                scenario_datetime=scenario_datetime,
+                                                                time_horizon=time_horizon)
 
         # Various corrections from igmsshvscgmssh error
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
@@ -542,7 +541,7 @@ class HandlerMergeModels:
 
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
-        properties.headers = extracted_meta
+        # properties.headers = extracted_meta
 
         # Stop Trace
         self.elk_logging_handler.stop_trace()

@@ -561,16 +561,25 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
                                    {"match": {"Merge": merge_type}}]}}
     uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
-    uap_outages = uap_outages.merge(mrid_map[['eic', 'mrid']], how='left', on='eic', indicator=True).rename(columns={"mrid": 'grid_id'})
-    unmapped_outages = uap_outages[uap_outages['_merge'] == 'left_only']
 
+    # Filter out incorrect elements
+    uap_outages['mrid'] = uap_outages['mrid'].replace("None", pd.NA)
+    uap_outages = uap_outages[uap_outages["asset_type"] != "PROD"]
+
+    # Map missing mrid by eic
+    lookup = mrid_map.set_index(mrid_map[['eic', 'mrid']].columns[0])[mrid_map[['eic', 'mrid']].columns[1]]
+    uap_outages.loc[:, 'mrid'] = uap_outages['mrid'].fillna(uap_outages['eic'].map(lookup))
+
+    unmapped_outages = uap_outages[uap_outages['mrid'].isna()]
+    # Exception rule for old LitPol element
+    unmapped_outages = unmapped_outages[unmapped_outages['eic'] != "10T-LT-PL-000037"]
     if not unmapped_outages.empty:
         logger.warning(f"Unable to map following outage mRIDs: {unmapped_outages['name'].values}")
 
     # Filter outages according to model scenario date and replaced area
     filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
     filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
-    mapped_outages = filtered_outages[~filtered_outages['grid_id'].isna()]
+    mapped_outages = filtered_outages[~filtered_outages['mrid'].isna()]
 
     # Get disconnected elements in network model
     model_outages = pd.DataFrame(get_model_outages(network=merged_model.network))
@@ -592,7 +601,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # rename columns
     filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
-    mapped_outages = mapped_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
+    mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
 
     logger.info("Updating outages on merged model")
 
