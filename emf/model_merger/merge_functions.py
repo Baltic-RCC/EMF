@@ -602,6 +602,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     # rename columns
     filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
     mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
+    mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
 
     logger.info("Updating outages on merged model")
 
@@ -637,13 +638,13 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
                 outage_dict.update({'status': 'disconnected'})
                 outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                if uap_outages['mrid'].str.contains(("_" + outage['mrid'])).any():
                     logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
                     logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
                     merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
-            logger.error((e, outage['name']))
+            logger.error((e, outage['name'], outage['mrid']))
             merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
             continue
