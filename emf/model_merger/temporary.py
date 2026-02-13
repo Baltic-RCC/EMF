@@ -127,6 +127,16 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
     try:
         all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
                                                            all_attributes=True).reset_index()
+        
+        #remove generatiors missing regulation control from regulation control
+        all_generators_missing_reg_but_try_reg = all_generators[((all_generators["voltage_regulator_on"] == True) &
+                                                             (all_generators["CGMES.RegulatingControl"] == ""))]
+
+        if not all_generators_missing_reg_but_try_reg.empty:
+            logger.warning(f"Generators with regulation control missing but voltage_control on {len(all_generators_missing_reg_but_try_reg)}")
+            #setting generators to false that do not have regulation
+            network_pre_instance.update_generators(id=all_generators_missing_reg_but_try_reg["id"].values.tolist(),voltage_regulator_on=[False] * len(all_generators_missing_reg_but_try_reg["id"].values.tolist()))
+
         generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
         not_generators = all_generators[~generators_mask]
         generators = all_generators[generators_mask]
@@ -144,18 +154,18 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             logger.warning(f"Found {len(curve_generators.index)} generators for "
                            f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
 
-            # Solution 1: set max_p from curve max, it should contain p on target-p
+            # Solution 1: set max_p from curve max, it should contain p on target-p. those generators are also removed from regulation control
             upper_limit_violated = curve_generators[(curve_generators['max_p'] > curve_generators['curve_p_max'])]
             if not upper_limit_violated.empty:
                 logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
                 upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
-                network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].set_index('id'))
+                network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
                 logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
                 lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
-                network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].set_index('id'))
+                network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             # Solution 2: discard generator from participating
             extensions = network_pre_instance.get_extensions('activePowerControl')
@@ -190,7 +200,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
         if not all_shunts_with_control_on_reg_missing.empty:
             logger.warning(f"Shunts with regulation control missing but voltage_control on {len(all_shunts_with_control_on_reg_missing)}")
             #TODO set voltage_control_on to false. Atm try turning off
-            network_pre_instance.update_shunt_compensators(id=all_shunts_with_control_on_reg_missing.index.values.tolist(), connected = [False]*len(all_shunts_with_control_on_reg_missing.index.values.tolist()))
+            network_pre_instance.update_shunt_compensators(id=all_shunts_with_control_on_reg_missing.index.values.tolist(), voltage_regulation_on = [False]*len(all_shunts_with_control_on_reg_missing.index.values.tolist()))
 
 
     except Exception as ex:
