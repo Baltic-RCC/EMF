@@ -202,16 +202,14 @@ wheels = [
 
 [[package]]
 name = "elasticsearch"
-version = "9.0.1"
+version = "8.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "elastic-transport" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/58/0081e189ef83dd1f11cb600df842bffb8eaa05c097cb1672c5bd335b46c2/elasticsearch-9.0.1.tar.gz", hash = "sha256:76f9b519cfd15a860f615a94ba90dcb9543b721306bc5144ecc15f0b4d5d2781", size = 819519, upload-time = "2025-04-28T13:47:17.974Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/07/ef6f5a769033ae50beaf620de6216c0629935cbca159720bc43726efcd23/elasticsearch-8.11.0.tar.gz", hash = "sha256:9e08413beaff3a46bc10c6c57069a84704df6aaa93085c737df07f58a2811b78", size = 327648, upload-time = "2023-11-13T13:01:44.813Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/eb/03140387b1a378878a4228d0d796e80298ac54fc4fe6fe9e39087d142efe/elasticsearch-9.0.1-py3-none-any.whl", hash = "sha256:9fd110f9bb77310343709d9cccbd523a431a6e528d8441b01a26b97eef3238a3", size = 905510, upload-time = "2025-04-28T13:47:13.531Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/5f/b3d882187e561aacdf4e10d301eba8efd8965e97fb0ab4ce99f1cc647ee1/elasticsearch-8.11.0-py3-none-any.whl", hash = "sha256:26b72957ee617c9f0b23ac872e1c133cf9d7f5d439c615daaa11016265da36ab", size = 412598, upload-time = "2023-11-13T13:01:40.146Z" },
 ]
 
 [[package]]
@@ -242,7 +240,7 @@ requires-dist = [
     { name = "aniso8601" },
     { name = "croniter" },
     { name = "edx" },
-    { name = "elasticsearch" },
+    { name = "elasticsearch", specifier = "==8.11.0" },
     { name = "lxml" },
     { name = "minio" },
     { name = "ndjson" },
@@ -250,7 +248,7 @@ requires-dist = [
     { name = "opdm-api" },
     { name = "pandas" },
     { name = "pika" },
-    { name = "pypowsybl" },
+    { name = "pypowsybl", specifier = "==1.11.2" },
     { name = "pytz" },
     { name = "requests" },
     { name = "saxonche" },
