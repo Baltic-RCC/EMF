@@ -21,17 +21,16 @@ parse_app_properties(caller_globals=globals(), path=config.paths.integrations.el
 
 class Elastic:
 
-    def __init__(self, server: str = ELK_SERVER, api_key: str = ELK_TOKEN, debug: bool = False):
+    def __init__(self, server: str = ELK_SERVER, debug: bool = False):
         self.server = server
         self.debug = debug
-        self.client = Elasticsearch(self.server, api_key=api_key)
+        self.client = Elasticsearch(self.server)
 
     @staticmethod
     def send_to_elastic(index: str,
                         json_message: dict,
                         id: str = None,
                         server: str = ELK_SERVER,
-                        api_key: str = ELK_TOKEN,
                         iso_timestamp: str = None,
                         debug: bool = False):
         """
@@ -65,8 +64,7 @@ class Elastic:
         if json_message.get('args', None):  # TODO revise if this is proper solution
             json_message.pop('args')
         json_data = json.dumps(json_message, default=str, ensure_ascii=True, skipkeys=True)
-        headers = {"Authorization": f"ApiKey {api_key}", "Content-Type": "application/json"}
-        response = requests.post(url=url, data=json_data.encode(), headers=headers, verify=False)
+        response = requests.post(url=url, data=json_data.encode(), headers={"Content-Type": "application/json"})
         if json.loads(response.content).get('error'):
             logger.error(f"Send to Elasticsearch responded with error: {response.text}")
         if debug:
@@ -81,7 +79,6 @@ class Elastic:
                              id_metadata_list: List[str] | None = None,
                              hashing: bool = False,
                              server: str = ELK_SERVER,
-                             api_key: str = ELK_TOKEN,
                              batch_size: int = int(BATCH_SIZE),
                              iso_timestamp: str | None = None,
                              debug: bool = False):
@@ -130,12 +127,10 @@ class Elastic:
             # Executing POST to push messages into ELK
             if debug:
                 logger.debug(f"Sending batch ({batch}-{batch + batch_size})/{len(json_message_list)} to {url}")
-            headers = {"Authorization": f"ApiKey {api_key}", "Content-Type": "application/x-ndjson"}
             response = requests.post(url=url,
                                      data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
                                      timeout=None,
-                                     headers=headers,
-                                     verify=False)
+                                     headers={"Content-Type": "application/x-ndjson"})
             if json.loads(response.content).get('errors'):
                 logger.error(f"Send to Elasticsearch responded with errors: {response.text}")
             if debug:
@@ -264,8 +259,7 @@ if __name__ == '__main__':
 
     # Create client
     server = "access_url"
-    api_key = "acces_token"
-    service = Elastic(server=server, api_key=api_key)
+    service = Elastic(server=server)
 
     # Example get documents by query
     # query = {"match": {"scenario_date": "2023-03-21"}}
