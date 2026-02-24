@@ -621,16 +621,16 @@ wheels = [
 
 [[package]]
 name = "triplets"
-version = "0.0.10"
+version = "0.0.17"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aniso8601" },
     { name = "lxml" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/34/518c5c305bbd7bda58be7c9292c8ff9ff378894f15fb1666652f294ffe31/triplets-0.0.10.tar.gz", hash = "sha256:edf08b458a7afc2001e0db71e0efa6198363bdeba6f4b07ef46fe99a292687f7", size = 36572, upload-time = "2025-05-19T08:46:31.291Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/2e/6db8c9794586df559c7ce721616567c3b2ea43b5340e8260a6df72ce8802/triplets-0.0.17.tar.gz", hash = "sha256:329e791bce2f17fd655c7f06db1ea6a87cdc9a07d50d82effc3867427a8d1ef9", size = 1425470, upload-time = "2025-11-13T01:05:42.303Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/f2/328b54f0a2aec2311fa0d955a5b17e2acc2177a0e085b052b2098dde908e/triplets-0.0.10-py3-none-any.whl", hash = "sha256:2ab66c9036a20a741cccbf1170fa446947ded88665736cab8f7f1c2a8d0f6235", size = 21441, upload-time = "2025-05-19T08:46:28.127Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/88/6f943285186de3a885b2256806fd5626e70d501cf9b08a643de16ef653f3/triplets-0.0.17-py3-none-any.whl", hash = "sha256:075f64f6777abd906e51e1e6dddb9fe923bf18fcef374920de68932b8fb295d2", size = 1454850, upload-time = "2025-11-13T01:05:40.709Z" },
 ]
 
 [[package]]
