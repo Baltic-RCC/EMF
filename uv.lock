@@ -252,7 +252,7 @@ requires-dist = [
     { name = "pytz" },
     { name = "requests" },
     { name = "saxonche" },
-    { name = "triplets" },
+    { name = "triplets", specifier = "==0.0.11" },
 ]
 
 [[package]]
@@ -396,7 +396,7 @@ wheels = [
 
 [[package]]
 name = "opdm-api"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aniso8601" },
@@ -406,9 +406,9 @@ dependencies = [
     { name = "xmltodict" },
     { name = "zeep" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/15/6ef6cbdc7d4858386b2031a0c5f70b010ccd5fb15f8c97d583a2a906ed97/opdm-api-0.1.2.tar.gz", hash = "sha256:a1daa11a68a7dacb629febfcf3d81124c14949e30f87b0c3caabf470d08e311f", size = 26528, upload-time = "2025-04-30T11:55:57.949Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/2b/eef02b44c13013e66873094cf0da98731f34448c6628907d65669407cb9e/opdm-api-0.1.3.tar.gz", hash = "sha256:e5e1884d848190232ec62b7467e80451286a0c3c845faa87fbbf68837cc12c35", size = 26528, upload-time = "2025-05-21T11:09:26.081Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/de/b4288b4266568f970a913bb31fd9549ecb70c3fae08d9266bb5b0f7fa964/opdm_api-0.1.2-py3-none-any.whl", hash = "sha256:78bdca6f003f15f563e2c956dc324bdaef01b7f6ac317063b50d643586c61063", size = 11497, upload-time = "2025-04-30T11:55:56.675Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/95/15a9378972a1ac1a4ee2a7fee0fbb59ed443e72323c0cb7616ed539f52f2/opdm_api-0.1.3-py3-none-any.whl", hash = "sha256:91913afc4a74e5fdeea5ba4c3442382342e0031b6384dbb05568691ff9495ef2", size = 11497, upload-time = "2025-05-21T11:09:22.315Z" },
 ]
 
 [[package]]
@@ -621,16 +621,16 @@ wheels = [
 
 [[package]]
 name = "triplets"
-version = "0.0.17"
+version = "0.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aniso8601" },
     { name = "lxml" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/2e/6db8c9794586df559c7ce721616567c3b2ea43b5340e8260a6df72ce8802/triplets-0.0.17.tar.gz", hash = "sha256:329e791bce2f17fd655c7f06db1ea6a87cdc9a07d50d82effc3867427a8d1ef9", size = 1425470, upload-time = "2025-11-13T01:05:42.303Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/78/50ddf7fd534d1fc69d82c6ba83210cfdbd484d63b5e8d89f05cded546b06/triplets-0.0.11.tar.gz", hash = "sha256:eddfa949ae5a32e280595ecfaea576b63deb8427cda830f28080f76de16f6c70", size = 36553, upload-time = "2025-07-10T07:25:46.289Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/88/6f943285186de3a885b2256806fd5626e70d501cf9b08a643de16ef653f3/triplets-0.0.17-py3-none-any.whl", hash = "sha256:075f64f6777abd906e51e1e6dddb9fe923bf18fcef374920de68932b8fb295d2", size = 1454850, upload-time = "2025-11-13T01:05:40.709Z" },
+    { url = "https://files.pythonhosted.org/packages/17/0a/57cd9a950c09cb0b4a310eba53c8b2676c1e36d9cecc7dad1321f8817a35/triplets-0.0.11-py3-none-any.whl", hash = "sha256:6f728262a185508a316c243e2efa2fb0478e961a564cd261938811d0ff09d8bb", size = 21440, upload-time = "2025-07-10T07:25:44.946Z" },
 ]
 
 [[package]]
