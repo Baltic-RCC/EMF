@@ -189,27 +189,27 @@ wheels = [
 
 [[package]]
 name = "elastic-transport"
-version = "8.17.1"
+version = "8.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/54/d498a766ac8fa475f931da85a154666cc81a70f8eb4a780bc8e4e934e9ac/elastic_transport-8.17.1.tar.gz", hash = "sha256:5edef32ac864dca8e2f0a613ef63491ee8d6b8cfb52881fa7313ba9290cac6d2", size = 73425, upload-time = "2025-03-13T07:28:30.776Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/74/57972a992fe894ead3e27efa7e851c3cb5adb34c3bad5908bf7207531f27/elastic_transport-8.15.0.tar.gz", hash = "sha256:85d62558f9baafb0868c801233a59b235e61d7b4804c28c2fadaa866b6766233", size = 72368, upload-time = "2024-08-12T11:11:04.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/cd/b71d5bc74cde7fc6fd9b2ff9389890f45d9762cbbbf81dc5e51fd7588c4a/elastic_transport-8.17.1-py3-none-any.whl", hash = "sha256:192718f498f1d10c5e9aa8b9cf32aed405e469a7f0e9d6a8923431dbb2c59fb8", size = 64969, upload-time = "2025-03-13T07:28:29.031Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/4a/df755b094170351b8199074fe8d0dfe6d639ab78a2e8893b556620ae982a/elastic_transport-8.15.0-py3-none-any.whl", hash = "sha256:d7080d1dada2b4eee69e7574f9c17a76b42f2895eff428e562f94b0360e158c0", size = 64371, upload-time = "2024-08-12T11:11:02.022Z" },
 ]
 
 [[package]]
 name = "elasticsearch"
-version = "8.11.0"
+version = "8.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "elastic-transport" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/07/ef6f5a769033ae50beaf620de6216c0629935cbca159720bc43726efcd23/elasticsearch-8.11.0.tar.gz", hash = "sha256:9e08413beaff3a46bc10c6c57069a84704df6aaa93085c737df07f58a2811b78", size = 327648, upload-time = "2023-11-13T13:01:44.813Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/b0/735e07106fe67c20b95ac02feb3b843b5a36df95bdd79eac21b7d43fa34b/elasticsearch-8.15.0.tar.gz", hash = "sha256:d4702b4fa698ef154c6f1187988192343fb5505aee97fc4450a6d20df1683f35", size = 412860, upload-time = "2024-08-13T16:01:28.205Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/5f/b3d882187e561aacdf4e10d301eba8efd8965e97fb0ab4ce99f1cc647ee1/elasticsearch-8.11.0-py3-none-any.whl", hash = "sha256:26b72957ee617c9f0b23ac872e1c133cf9d7f5d439c615daaa11016265da36ab", size = 412598, upload-time = "2023-11-13T13:01:40.146Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/dc/87c47f9c42f8188d24f6c589ed0e8168a0fef7091e5ccffdbc950be7ab66/elasticsearch-8.15.0-py3-none-any.whl", hash = "sha256:7ec4d0771b8f6f76c6331e61b408261f9307264735ec7f2539f580824faaafe3", size = 523322, upload-time = "2024-08-13T16:01:23.765Z" },
 ]
 
 [[package]]
@@ -240,7 +240,7 @@ requires-dist = [
     { name = "aniso8601" },
     { name = "croniter" },
     { name = "edx" },
-    { name = "elasticsearch", specifier = "==8.11.0" },
+    { name = "elasticsearch", specifier = "==8.15.0" },
     { name = "lxml" },
     { name = "minio" },
     { name = "ndjson" },
