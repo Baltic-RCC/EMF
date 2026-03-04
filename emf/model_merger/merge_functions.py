@@ -316,15 +316,25 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
 def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     logger.info("Aligning paired boundary lines connection status")
     dangling_lines = network.get_dangling_lines(all_attributes=True)
+    # Add cim:Tieflow attribute to dangling lines
+    dangling_lines['isTieflow'] = dangling_lines.index.isin(network.get_areas_boundaries()["element"])
     paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
     if paired_dangling_lines.empty:
         logger.warning(f"No paired dangling lines found in network model")
         return network
 
     # Identify dangling line pairs where the 'connected' status is inconsistent within each pairing_key group
-    mask = paired_dangling_lines.groupby('pairing_key')['connected'].transform(lambda s: s.nunique() > 1)
-    mismatched_dangling_lines = paired_dangling_lines[mask]
-    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines['pairing_key'].unique().tolist()}")
+    group = paired_dangling_lines.groupby('pairing_key')
+    mask_connected = group['connected'].transform(lambda s: s.nunique() > 1)
+    mask_tieflow = group['isTieflow'].transform( lambda s: s.nunique() > 1)
+
+    mismatched_dangling_lines_con = paired_dangling_lines[mask_connected]
+    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines_con['pairing_key'].unique().tolist()}")
+
+    mismatched_dangling_lines_tie = paired_dangling_lines[mask_tieflow]
+    logger.info(f"Boundary lines with non-matching cim:Tieflow: {mismatched_dangling_lines_tie['pairing_key'].unique().tolist()}")
+
+    mismatched_dangling_lines = pd.concat([mismatched_dangling_lines_con, mismatched_dangling_lines_tie])
 
     # Set all mismatched lines to disconnected (False)
     _connected = pd.Series(data=False, index=mismatched_dangling_lines.index)
