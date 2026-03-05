@@ -698,7 +698,7 @@ def set_intraday_time_horizon(scenario_datetime, task_creation_time):
     return calculated_time_horizon
 
 
-def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False, threshold: float = None):
+def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models):
     """
     An attempt to calculate the net interchange 2 values and check them against those provided in ssh profiles
     :param cgm_sv_data: merged sv profile
@@ -755,25 +755,19 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
                              .rename_axis('ControlArea').reset_index())
         tie_flows_grouped = tie_flows_grouped.rename(columns={'SvPowerFlow.p': 'SvPowerFlow.p_post'})
     tie_flows_grouped = control_areas.merge(tie_flows_grouped, on='ControlArea')
-    if threshold and threshold > 0:
-        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
-                                             - tie_flows_grouped['SvPowerFlow.p_post']) > threshold)
-    else:
-        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
-                                             - tie_flows_grouped['SvPowerFlow.p_post']) >
-                                         tie_flows_grouped['ControlArea.pTolerance'])
-    net_interchange_errors = tie_flows_grouped[tie_flows_grouped.eval('Exceeded')]
+
+    net_interchange_errors = tie_flows_grouped.loc[
+        tie_flows_grouped['ControlArea.netInterchange'].ne(tie_flows_grouped['SvPowerFlow.p_post'])]
+
     if not net_interchange_errors.empty:
-        logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems over {threshold}")
         # Apply modification
-        if fix_errors:
-            logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
-            new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
-                                                                                  'ControlArea.pTolerance', 'Type']]
-            new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
-                                        .rename(columns={'ControlArea': 'ID',
-                                                         'SvPowerFlow.p_post': 'ControlArea.netInterchange'}), on='ID')
-            cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_ssh_data, new_areas)
+        logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
+        new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
+                                                                              'ControlArea.pTolerance', 'Type']]
+        new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
+                                    .rename(columns={'ControlArea': 'ID',
+                                                     'SvPowerFlow.p_post': 'ControlArea.netInterchange'}), on='ID')
+        cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_ssh_data, new_areas)
 
     return cgm_ssh_data
 
@@ -901,10 +895,6 @@ def run_post_merge_processing(input_models: list,
                                                              input_models = input_models,
                                                              sv_data=sv_data,
                                                              opdm_object_meta=opdm_object_meta)
-    fix_net_interchange_errors = False
-    if task_properties is not None:
-        fix_net_interchange_errors = task_properties.get('fix_net_interchange2', fix_net_interchange_errors)
-
     # Run temporary modifications on exported model
     # Temporary fixes are applied to SV and SSH profiles
     if enable_temp_fixes:
@@ -920,7 +910,6 @@ def run_post_merge_processing(input_models: list,
 
     # Run injections check and apply modification if defined in configuration
     injection_threshold = float(INJECTION_THRESHOLD)
-    net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
 
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
@@ -946,9 +935,7 @@ def run_post_merge_processing(input_models: list,
     try:
         ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
                                           cgm_ssh_data=ssh_data,
-                                          original_models=input_models_triplets,
-                                          fix_errors=fix_net_interchange_errors,
-                                          threshold=net_interchange_threshold)
+                                          original_models=input_models_triplets)
     except KeyError:
         logger.warning(f"No fields for net interchange correction")
 

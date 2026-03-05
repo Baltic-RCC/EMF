@@ -587,7 +587,6 @@ if __name__ == "__main__":
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
-            "fix_net_interchange2": "True",
             "replacement": "True",
             "scaling": "True",
             "upload_to_opdm": "False",
