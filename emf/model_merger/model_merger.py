@@ -190,11 +190,12 @@ class HandlerMergeModels:
         version = task_properties["version"]
         model_replacement = task_properties["replacement"]
         model_scaling = task_properties["scaling"]
+        outage_update = task_properties["outage_update"]
+        force_outage_fix = task_properties['force_outage_fix']
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
         post_temp_fixes = task_properties['post_temp_fixes']
-        force_outage_fix = task_properties['force_outage_fix']
         lvl8_reporting = task_properties['lvl8_reporting']
 
         # Get aligned schedules
@@ -338,7 +339,7 @@ class HandlerMergeModels:
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
             tso_list = merged_model.included
-        elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+        elif outage_update and merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
                                           replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
@@ -589,10 +590,11 @@ if __name__ == "__main__":
             "post_temp_fixes": "True",
             "replacement": "True",
             "scaling": "True",
+            "outage_update": "True",
+            "force_outage_fix": "False",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
             "send_merge_report": "False",
-            "force_outage_fix": "False",
             "lvl8_reporting": "False"
         }
     }

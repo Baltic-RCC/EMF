@@ -602,7 +602,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     dangling_lines = get_network_elements(network=merged_model.network,
                                           element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
     border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
-    relevant_border_lines = border_lines[border_lines['country'].isin(['LT', 'LV', 'EE'])]
+    relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
+    # Removing any BRELL lines
+    relevant_border_lines = relevant_border_lines[~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
     additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
@@ -614,7 +616,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
     mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
 
-    logger.info("Updating outages on merged model")
+    logger.info(f"Updating outages in merged model areas: {model_outage_areas}")
 
     # Reconnecting outages from network-config list
     outages_updated = {}
