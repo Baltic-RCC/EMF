@@ -15,6 +15,11 @@ COPY uv.lock .
 RUN uv export -o pylock.toml
 RUN uv pip sync pylock.toml --system  && uv cache clean
 
+# Copy license file and dependencies license reference
+RUN mkdir -p /licenses
+COPY LICENSE /licenses/
+COPY licenses/ /licenses/
+
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"
 
