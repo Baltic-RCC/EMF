@@ -179,6 +179,7 @@ class HandlerMergeModels:
         included_models = task_properties.get('included', [])
         excluded_models = task_properties.get('excluded', [])
         local_import_models = task_properties.get('local_import', [])
+        replace_tso = task_properties.get('replace_tso', [])
         time_horizon = task_properties["time_horizon"]
         scenario_datetime = task_properties["timestamp_utc"]
         schedule_start = task_properties.get("reference_schedule_start_utc")
@@ -245,29 +246,9 @@ class HandlerMergeModels:
             if acnp_dict:
                 additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
                 missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
-
-            # Perform local replacement if configured
-            if model_replacement and missing_local_import:
-                try:
-                    logger.info(f"Running replacement for local storage missing models: {missing_local_import}")
-                    replacement_models_local = run_replacement(tso_list=missing_local_import,
-                                                               time_horizon=time_horizon,
-                                                               scenario_date=scenario_datetime,
-                                                               data_source='PDN',
-                                                               acnp_dict=acnp_dict,
-                                                               acnp_threshold=ACNP_THRESHOLD,
-                                                               conform_load_factor=CONFORM_LOAD_FACTOR)
-
-                    logger.info(
-                        f"Local storage replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models_local]}")
-                    replaced_entities_local = [ModelEntity(data_source='PDN', quality_indicator='Substituted', **model).__dict__ for model in
-                                               replacement_models_local]
-                    merged_model.replaced_entity.extend(replaced_entities_local)
-                    additional_models.extend(replacement_models_local)
-                except Exception as error:
-                    logger.error(f"Failed to run replacement: {error} {error.with_traceback()}")
         else:
             additional_models = []
+            missing_local_import = []
 
         # Check missing models for replacement
         if included_models:
@@ -295,29 +276,22 @@ class HandlerMergeModels:
                 excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
                 missing_models = missing_models + excluded_incorrect
 
-        # Run replacement on missing models
-        if model_replacement and missing_models:
-            try:
-                logger.info(f"Running replacement for missing models: {missing_models}")
-                replacement_models = run_replacement(missing_models,
-                                                     time_horizon,
-                                                     scenario_datetime,
-                                                     acnp_dict=acnp_dict,
-                                                     acnp_threshold=ACNP_THRESHOLD,
-                                                     conform_load_factor=CONFORM_LOAD_FACTOR)
-                if replacement_models:
-                    logger.info(
-                        f"Replacement model(s) found: {[model['pmd:fileName'] for model in replacement_models]}")
-                    replaced_entities = [ModelEntity(data_source='OPDM', quality_indicator='Substituted', **model).__dict__ for model in
-                                         replacement_models]
-                    merged_model.replaced_entity.extend(replaced_entities)
-                    models.extend(replacement_models)
-                    merged_model.replaced = True
-                else:
-                    merged_model.replaced = False
-            except Exception as error:
-                logger.error(f"Failed to run replacement: {error}")
-                merged_model.replaced = False
+        # Execute consolidated model replacement logic
+        models, additional_models = run_replacement(
+            models=models,
+            additional_models=additional_models,
+            model_replacement=model_replacement,
+            local_import_models=local_import_models,
+            missing_local_import=missing_local_import,
+            missing_models=missing_models,
+            replace_tso=replace_tso,
+            time_horizon=time_horizon,
+            scenario_datetime=scenario_datetime,
+            merged_model=merged_model,
+            acnp_dict=acnp_dict,
+            acnp_threshold=ACNP_THRESHOLD,
+            conform_load_factor=CONFORM_LOAD_FACTOR
+        )
 
         # Store models together with boundary set and check whether there are enough models to merge
         input_models = models + additional_models + [latest_boundary]
@@ -340,7 +314,7 @@ class HandlerMergeModels:
         if force_outage_fix:  # force outage fix on all models if set
             tso_list = merged_model.included
         elif outage_update and merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
-                                          replaced_tso_list):  # by default do it on Baltic merge replaced models
+                                                            replaced_tso_list):  # by default do it on Baltic merge replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
             merged_model = merge_functions.update_model_outages(merged_model=merged_model,
@@ -431,24 +405,25 @@ class HandlerMergeModels:
         logger.debug(f"Post processing took: {(post_p_end - post_p_start).total_seconds()} seconds")
         logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
 
-        # Upload to OPDM 
+        # Upload to OPDM
         if model_upload_to_opdm:
-            if merged_model.loadflow[0]['status'] == 'CONVERGED' and merged_model.scaled:  # Only upload if the model LF is solved and scaled = true
+            if merged_model.loadflow[0][
+                'status'] == 'CONVERGED' and merged_model.scaled:  # Only upload if the model LF is solved and scaled = true
                 try:
                     self.opdm_service = opdm.OPDM()
 
                     if SEND_TYPE == 'SOAP':
                         for item in serialized_data:
                             logger.info(f"Uploading to OPDM: {item.name}")
-                            #time.sleep(1) tested before with 2 and 4. Currently removing as FS gonna be default. 
+                            # time.sleep(1) tested before with 2 and 4. Currently removing as FS gonna be default.
                             async_call(function=self.opdm_service.publication_request,
-                                    callback=log_opdm_response,
-                                    file_path_or_file_object=item)
+                                       callback=log_opdm_response,
+                                       file_path_or_file_object=item)
                     elif SEND_TYPE == 'FS':
                         for item in serialized_data:
                             logger.info(f"Uploading to OPDM: {item.name}")
                             self.opdm_service.put_file(file_id=item.name,
-                                          file_content=item)
+                                                       file_content=item)
 
                     merged_model.uploaded_to_opde = True
                 except Exception as error:
@@ -584,6 +559,7 @@ if __name__ == "__main__":
             "included": [],
             "excluded": [],
             "local_import": [],
+            "replace_tso": [],
             "time_horizon": "ID",
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",

@@ -51,6 +51,7 @@ process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
 process_config_json[0]['runs'][0]['properties']['included'] = [tso.strip() for tso in INCLUDED_TSO.split(',')] if INCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['excluded'] = [tso.strip() for tso in EXCLUDED_TSO.split(',')] if EXCLUDED_TSO else []
 process_config_json[0]['runs'][0]['properties']['local_import'] = [tso.strip() for tso in LOCAL_IMPORT.split(',')] if LOCAL_IMPORT else []
+process_config_json[0]['runs'][0]['properties']['replace_tso'] = [tso.strip() for tso in REPLACE_TSO.split(',')] if REPLACE_TSO else []
 process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] = FIX_NET_INTERCHANGE2
 process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
 process_config_json[0]['runs'][0]['properties']['replacement'] = RUN_REPLACEMENT
