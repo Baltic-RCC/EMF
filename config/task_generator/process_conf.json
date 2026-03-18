@@ -34,13 +34,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -70,13 +69,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -106,13 +104,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -142,13 +139,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "True",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -178,13 +174,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "True",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       }
@@ -232,13 +227,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -275,13 +269,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -318,13 +311,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -360,13 +352,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -403,13 +394,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -446,13 +436,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -489,13 +478,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },   
@@ -536,13 +524,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       },
@@ -580,13 +567,12 @@
         "replacement_local":"False",
         "pre_temp_fixes":"True",
         "post_temp_fixes":"True",
-        "fix_net_interchange2": "False",
+        "outage_update": "True",
         "force_outage_fix":"False",
         "scaling": "False",
         "upload_to_opdm": "False",
         "upload_to_minio": "True",
         "send_merge_report": "True",
-        "force_outage_fix": "False",
         "lvl8_reporting" : "True"
        }
       }

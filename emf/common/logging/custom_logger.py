@@ -24,6 +24,7 @@ def initialize_custom_logger(
         format: str = LOGGING_FORMAT,
         datefmt: str = LOGGING_DATEFMT,
         elk_server: str = elastic.ELK_SERVER,
+        api_key: str = elastic.ELK_TOKEN,
         index: str = LOGGING_INDEX,
         extra: None | dict = None,
         fields_filter: None | list = None,
@@ -36,7 +37,7 @@ def initialize_custom_logger(
     # root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
 
     # Configure Elk logging handler
-    elk_handler = ElkLoggingHandler(elk_server=elk_server, index=index, extra=extra, fields_filter=fields_filter)
+    elk_handler = ElkLoggingHandler(elk_server=elk_server, api_key=api_key, index=index, extra=extra, fields_filter=fields_filter)
 
     if elk_handler.connected:
         root_logger.addHandler(elk_handler)
@@ -74,6 +75,7 @@ class ElkLoggingHandler(logging.StreamHandler):
 
     def __init__(self,
                  elk_server: str = elastic.ELK_SERVER,
+                 api_key: str = elastic.ELK_TOKEN,
                  index: str = LOGGING_INDEX,
                  extra: dict | None = None,
                  fields_filter: list | None = None):
@@ -86,6 +88,7 @@ class ElkLoggingHandler(logging.StreamHandler):
         """
         super().__init__(sys.stdout)
         self.server = elk_server
+        self.api_key = api_key
         self.index = index
 
         if extra:
@@ -103,7 +106,8 @@ class ElkLoggingHandler(logging.StreamHandler):
 
     def elk_connection(self):
         try:
-            response = requests.get(self.server, timeout=5)
+            headers = {"Authorization": f"ApiKey {self.api_key}"}
+            response = requests.get(self.server, timeout=5, headers=headers, verify=False)
             if response.status_code == 200:
                 logger.info(f"Connection to {self.server} successful")
                 return True
@@ -151,8 +155,6 @@ class ElkLoggingHandler(logging.StreamHandler):
 
 
 
-
-
 if __name__ == '__main__':
     # Start root logger
     STREAM_LOG_FORMAT = "%(levelname) -10s %(asctime) -10s %(name) -35s %(funcName) -30s %(lineno) -5d: %(message)s"
@@ -165,6 +167,7 @@ if __name__ == '__main__':
     # Test ELK custom logger
     index = 'debug-emfos-logs'
     server = "access_url"
+    api_key = "access_token"
     elk_handler = ElkLoggingHandler(elk_server=server, index=index, extra={'time_horizon': '1D'})
     if elk_handler.connected:
         logger.addHandler(elk_handler)

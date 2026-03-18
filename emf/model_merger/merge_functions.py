@@ -232,6 +232,18 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
             "from_ID": "SvShuntCompensatorSections.ShuntCompensator",
             "from_attribute": "SvShuntCompensatorSections.sections",
             "to_attribute": "ShuntCompensator.sections",
+        },
+        {
+            "from_class": "SvPowerFlow",
+            "from_ID": "Terminal.ConductingEquipment",
+            "from_attribute": "SvPowerFlow.p",
+            "to_attribute": "EquivalentInjection.p"
+        },
+        {
+            "from_class": "SvPowerFlow",
+            "from_ID": "Terminal.ConductingEquipment",
+            "from_attribute": "SvPowerFlow.q",
+            "to_attribute": "EquivalentInjection.q"
         }
     ]
     # Load terminal from original data
@@ -304,15 +316,25 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
 def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     logger.info("Aligning paired boundary lines connection status")
     dangling_lines = network.get_dangling_lines(all_attributes=True)
+    # Add cim:Tieflow attribute to dangling lines
+    dangling_lines['isTieflow'] = dangling_lines.index.isin(network.get_areas_boundaries()["element"])
     paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
     if paired_dangling_lines.empty:
         logger.warning(f"No paired dangling lines found in network model")
         return network
 
     # Identify dangling line pairs where the 'connected' status is inconsistent within each pairing_key group
-    mask = paired_dangling_lines.groupby('pairing_key')['connected'].transform(lambda s: s.nunique() > 1)
-    mismatched_dangling_lines = paired_dangling_lines[mask]
-    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines['pairing_key'].unique().tolist()}")
+    group = paired_dangling_lines.groupby('pairing_key')
+    mask_connected = group['connected'].transform(lambda s: s.nunique() > 1)
+    mask_tieflow = group['isTieflow'].transform( lambda s: s.nunique() > 1)
+
+    mismatched_dangling_lines_con = paired_dangling_lines[mask_connected]
+    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines_con['pairing_key'].unique().tolist()}")
+
+    mismatched_dangling_lines_tie = paired_dangling_lines[mask_tieflow]
+    logger.info(f"Boundary lines with non-matching cim:Tieflow: {mismatched_dangling_lines_tie['pairing_key'].unique().tolist()}")
+
+    mismatched_dangling_lines = pd.concat([mismatched_dangling_lines_con, mismatched_dangling_lines_tie])
 
     # Set all mismatched lines to disconnected (False)
     _connected = pd.Series(data=False, index=mismatched_dangling_lines.index)
@@ -549,16 +571,25 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
                                    {"match": {"Merge": merge_type}}]}}
     uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
-    uap_outages = uap_outages.merge(mrid_map[['eic', 'mrid']], how='left', on='eic', indicator=True).rename(columns={"mrid": 'grid_id'})
-    unmapped_outages = uap_outages[uap_outages['_merge'] == 'left_only']
 
+    # Filter out incorrect elements
+    uap_outages['mrid'] = uap_outages['mrid'].replace("None", pd.NA)
+    uap_outages = uap_outages[uap_outages["asset_type"] != "PROD"]
+
+    # Map missing mrid by eic
+    lookup = mrid_map.set_index(mrid_map[['eic', 'mrid']].columns[0])[mrid_map[['eic', 'mrid']].columns[1]]
+    uap_outages.loc[:, 'mrid'] = uap_outages['mrid'].fillna(uap_outages['eic'].map(lookup))
+
+    unmapped_outages = uap_outages[uap_outages['mrid'].isna()]
+    # Exception rule for old LitPol element
+    unmapped_outages = unmapped_outages[unmapped_outages['eic'] != "10T-LT-PL-000037"]
     if not unmapped_outages.empty:
         logger.warning(f"Unable to map following outage mRIDs: {unmapped_outages['name'].values}")
 
     # Filter outages according to model scenario date and replaced area
     filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
     filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
-    mapped_outages = filtered_outages[~filtered_outages['grid_id'].isna()]
+    mapped_outages = filtered_outages[~filtered_outages['mrid'].isna()]
 
     # Get disconnected elements in network model
     model_outages = pd.DataFrame(get_model_outages(network=merged_model.network))
@@ -571,7 +602,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     dangling_lines = get_network_elements(network=merged_model.network,
                                           element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
     border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
-    relevant_border_lines = border_lines[border_lines['country'].isin(['LT', 'LV', 'EE'])]
+    relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
+    # Removing any BRELL lines
+    relevant_border_lines = relevant_border_lines[~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
     additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
@@ -580,9 +613,10 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # rename columns
     filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
-    mapped_outages = mapped_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
+    mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
+    mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
 
-    logger.info("Updating outages on merged model")
+    logger.info(f"Updating outages in merged model areas: {model_outage_areas}")
 
     # Reconnecting outages from network-config list
     outages_updated = {}
@@ -616,13 +650,13 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
                 outage_dict.update({'status': 'disconnected'})
                 outages_updated[outage_dict['mrid']] = outage_dict
             else:
-                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
+                if uap_outages['mrid'].str.contains(("_" + outage['mrid'])).any():
                     logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
                     logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
                     merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
-            logger.error((e, outage['name']))
+            logger.error((e, outage['name'], outage['mrid']))
             merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
             continue
@@ -666,7 +700,7 @@ def set_intraday_time_horizon(scenario_datetime, task_creation_time):
     return calculated_time_horizon
 
 
-def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False, threshold: float = None):
+def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models):
     """
     An attempt to calculate the net interchange 2 values and check them against those provided in ssh profiles
     :param cgm_sv_data: merged sv profile
@@ -723,25 +757,19 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models, fix_error
                              .rename_axis('ControlArea').reset_index())
         tie_flows_grouped = tie_flows_grouped.rename(columns={'SvPowerFlow.p': 'SvPowerFlow.p_post'})
     tie_flows_grouped = control_areas.merge(tie_flows_grouped, on='ControlArea')
-    if threshold and threshold > 0:
-        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
-                                             - tie_flows_grouped['SvPowerFlow.p_post']) > threshold)
-    else:
-        tie_flows_grouped['Exceeded'] = (abs(tie_flows_grouped['ControlArea.netInterchange']
-                                             - tie_flows_grouped['SvPowerFlow.p_post']) >
-                                         tie_flows_grouped['ControlArea.pTolerance'])
-    net_interchange_errors = tie_flows_grouped[tie_flows_grouped.eval('Exceeded')]
+
+    net_interchange_errors = tie_flows_grouped.loc[
+        tie_flows_grouped['ControlArea.netInterchange'].ne(tie_flows_grouped['SvPowerFlow.p_post'])]
+
     if not net_interchange_errors.empty:
-        logger.warning(f"Found {len(net_interchange_errors.index)} possible net interchange_2 problems over {threshold}")
         # Apply modification
-        if fix_errors:
-            logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
-            new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
-                                                                                  'ControlArea.pTolerance', 'Type']]
-            new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
-                                        .rename(columns={'ControlArea': 'ID',
-                                                         'SvPowerFlow.p_post': 'ControlArea.netInterchange'}), on='ID')
-            cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_ssh_data, new_areas)
+        logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
+        new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
+                                                                              'ControlArea.pTolerance', 'Type']]
+        new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
+                                    .rename(columns={'ControlArea': 'ID',
+                                                     'SvPowerFlow.p_post': 'ControlArea.netInterchange'}), on='ID')
+        cgm_ssh_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_ssh_data, new_areas)
 
     return cgm_ssh_data
 
@@ -869,10 +897,6 @@ def run_post_merge_processing(input_models: list,
                                                              input_models = input_models,
                                                              sv_data=sv_data,
                                                              opdm_object_meta=opdm_object_meta)
-    fix_net_interchange_errors = False
-    if task_properties is not None:
-        fix_net_interchange_errors = task_properties.get('fix_net_interchange2', fix_net_interchange_errors)
-
     # Run temporary modifications on exported model
     # Temporary fixes are applied to SV and SSH profiles
     if enable_temp_fixes:
@@ -888,7 +912,6 @@ def run_post_merge_processing(input_models: list,
 
     # Run injections check and apply modification if defined in configuration
     injection_threshold = float(INJECTION_THRESHOLD)
-    net_interchange_threshold = float(NET_INTERCHANGE_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
 
     ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
@@ -914,9 +937,7 @@ def run_post_merge_processing(input_models: list,
     try:
         ssh_data = check_net_interchanges(cgm_sv_data=sv_data,
                                           cgm_ssh_data=ssh_data,
-                                          original_models=input_models_triplets,
-                                          fix_errors=fix_net_interchange_errors,
-                                          threshold=net_interchange_threshold)
+                                          original_models=input_models_triplets)
     except KeyError:
         logger.warning(f"No fields for net interchange correction")
 

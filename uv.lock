@@ -189,29 +189,27 @@ wheels = [
 
 [[package]]
 name = "elastic-transport"
-version = "8.17.1"
+version = "8.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/54/d498a766ac8fa475f931da85a154666cc81a70f8eb4a780bc8e4e934e9ac/elastic_transport-8.17.1.tar.gz", hash = "sha256:5edef32ac864dca8e2f0a613ef63491ee8d6b8cfb52881fa7313ba9290cac6d2", size = 73425, upload-time = "2025-03-13T07:28:30.776Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/74/57972a992fe894ead3e27efa7e851c3cb5adb34c3bad5908bf7207531f27/elastic_transport-8.15.0.tar.gz", hash = "sha256:85d62558f9baafb0868c801233a59b235e61d7b4804c28c2fadaa866b6766233", size = 72368, upload-time = "2024-08-12T11:11:04.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/cd/b71d5bc74cde7fc6fd9b2ff9389890f45d9762cbbbf81dc5e51fd7588c4a/elastic_transport-8.17.1-py3-none-any.whl", hash = "sha256:192718f498f1d10c5e9aa8b9cf32aed405e469a7f0e9d6a8923431dbb2c59fb8", size = 64969, upload-time = "2025-03-13T07:28:29.031Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/4a/df755b094170351b8199074fe8d0dfe6d639ab78a2e8893b556620ae982a/elastic_transport-8.15.0-py3-none-any.whl", hash = "sha256:d7080d1dada2b4eee69e7574f9c17a76b42f2895eff428e562f94b0360e158c0", size = 64371, upload-time = "2024-08-12T11:11:02.022Z" },
 ]
 
 [[package]]
 name = "elasticsearch"
-version = "9.0.1"
+version = "8.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "elastic-transport" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/58/0081e189ef83dd1f11cb600df842bffb8eaa05c097cb1672c5bd335b46c2/elasticsearch-9.0.1.tar.gz", hash = "sha256:76f9b519cfd15a860f615a94ba90dcb9543b721306bc5144ecc15f0b4d5d2781", size = 819519, upload-time = "2025-04-28T13:47:17.974Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/b0/735e07106fe67c20b95ac02feb3b843b5a36df95bdd79eac21b7d43fa34b/elasticsearch-8.15.0.tar.gz", hash = "sha256:d4702b4fa698ef154c6f1187988192343fb5505aee97fc4450a6d20df1683f35", size = 412860, upload-time = "2024-08-13T16:01:28.205Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/eb/03140387b1a378878a4228d0d796e80298ac54fc4fe6fe9e39087d142efe/elasticsearch-9.0.1-py3-none-any.whl", hash = "sha256:9fd110f9bb77310343709d9cccbd523a431a6e528d8441b01a26b97eef3238a3", size = 905510, upload-time = "2025-04-28T13:47:13.531Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/dc/87c47f9c42f8188d24f6c589ed0e8168a0fef7091e5ccffdbc950be7ab66/elasticsearch-8.15.0-py3-none-any.whl", hash = "sha256:7ec4d0771b8f6f76c6331e61b408261f9307264735ec7f2539f580824faaafe3", size = 523322, upload-time = "2024-08-13T16:01:23.765Z" },
 ]
 
 [[package]]
@@ -242,7 +240,7 @@ requires-dist = [
     { name = "aniso8601" },
     { name = "croniter" },
     { name = "edx" },
-    { name = "elasticsearch" },
+    { name = "elasticsearch", specifier = "==8.15.0" },
     { name = "lxml" },
     { name = "minio" },
     { name = "ndjson" },
@@ -250,11 +248,11 @@ requires-dist = [
     { name = "opdm-api" },
     { name = "pandas" },
     { name = "pika" },
-    { name = "pypowsybl" },
+    { name = "pypowsybl", specifier = "==1.11.2" },
     { name = "pytz" },
     { name = "requests" },
     { name = "saxonche" },
-    { name = "triplets" },
+    { name = "triplets", specifier = "==0.0.11" },
 ]
 
 [[package]]
@@ -398,7 +396,7 @@ wheels = [
 
 [[package]]
 name = "opdm-api"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aniso8601" },
@@ -408,9 +406,9 @@ dependencies = [
     { name = "xmltodict" },
     { name = "zeep" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/15/6ef6cbdc7d4858386b2031a0c5f70b010ccd5fb15f8c97d583a2a906ed97/opdm-api-0.1.2.tar.gz", hash = "sha256:a1daa11a68a7dacb629febfcf3d81124c14949e30f87b0c3caabf470d08e311f", size = 26528, upload-time = "2025-04-30T11:55:57.949Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/2b/eef02b44c13013e66873094cf0da98731f34448c6628907d65669407cb9e/opdm-api-0.1.3.tar.gz", hash = "sha256:e5e1884d848190232ec62b7467e80451286a0c3c845faa87fbbf68837cc12c35", size = 26528, upload-time = "2025-05-21T11:09:26.081Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/de/b4288b4266568f970a913bb31fd9549ecb70c3fae08d9266bb5b0f7fa964/opdm_api-0.1.2-py3-none-any.whl", hash = "sha256:78bdca6f003f15f563e2c956dc324bdaef01b7f6ac317063b50d643586c61063", size = 11497, upload-time = "2025-04-30T11:55:56.675Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/95/15a9378972a1ac1a4ee2a7fee0fbb59ed443e72323c0cb7616ed539f52f2/opdm_api-0.1.3-py3-none-any.whl", hash = "sha256:91913afc4a74e5fdeea5ba4c3442382342e0031b6384dbb05568691ff9495ef2", size = 11497, upload-time = "2025-05-21T11:09:22.315Z" },
 ]
 
 [[package]]
@@ -623,16 +621,16 @@ wheels = [
 
 [[package]]
 name = "triplets"
-version = "0.0.10"
+version = "0.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aniso8601" },
     { name = "lxml" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/34/518c5c305bbd7bda58be7c9292c8ff9ff378894f15fb1666652f294ffe31/triplets-0.0.10.tar.gz", hash = "sha256:edf08b458a7afc2001e0db71e0efa6198363bdeba6f4b07ef46fe99a292687f7", size = 36572, upload-time = "2025-05-19T08:46:31.291Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/78/50ddf7fd534d1fc69d82c6ba83210cfdbd484d63b5e8d89f05cded546b06/triplets-0.0.11.tar.gz", hash = "sha256:eddfa949ae5a32e280595ecfaea576b63deb8427cda830f28080f76de16f6c70", size = 36553, upload-time = "2025-07-10T07:25:46.289Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/f2/328b54f0a2aec2311fa0d955a5b17e2acc2177a0e085b052b2098dde908e/triplets-0.0.10-py3-none-any.whl", hash = "sha256:2ab66c9036a20a741cccbf1170fa446947ded88665736cab8f7f1c2a8d0f6235", size = 21441, upload-time = "2025-05-19T08:46:28.127Z" },
+    { url = "https://files.pythonhosted.org/packages/17/0a/57cd9a950c09cb0b4a310eba53c8b2676c1e36d9cecc7dad1321f8817a35/triplets-0.0.11-py3-none-any.whl", hash = "sha256:6f728262a185508a316c243e2efa2fb0478e961a564cd261938811d0ff09d8bb", size = 21440, upload-time = "2025-07-10T07:25:44.946Z" },
 ]
 
 [[package]]

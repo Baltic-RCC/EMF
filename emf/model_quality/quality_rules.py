@@ -133,7 +133,7 @@ def check_lt_pl_crossborder(report, network, border_limit, tieflow_data=None):
         if tieflow_data is None or tieflow_data.empty:
             tieflow_data = get_tieflow_data(network)
         tie_flows = tieflow_data[tieflow_data['cross_border'] == 'LT-PL']
-        tie_flows = tie_flows[tie_flows['IdentifiedObject.name_TieFlow'] == 'LIETUVA']
+        tie_flows = tie_flows[tie_flows['IdentifiedObject.name_TieFlow'] == 'LT']
         tie_flow_1 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL11']
         tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
         tie_flow = float((tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2)

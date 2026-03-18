@@ -257,7 +257,9 @@ def scale_balance(model: object,
 
     # Mapping HVDC schedules to network
     _cols_to_keep = ['lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code', 'power_factor']
-    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true'][_cols_to_keep]
+    scalable_hvdc = dangling_lines[dangling_lines.isHvdc == 'true']
+    # Ignore HVDC elements in update of setpoint which are disconnected by network model
+    scalable_hvdc = scalable_hvdc[scalable_hvdc.connected][_cols_to_keep]
     scalable_hvdc.reset_index(inplace=True)
     scalable_hvdc = scalable_hvdc.merge(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource')
     mask = (scalable_hvdc[_country_col] == scalable_hvdc['in_domain']) | (scalable_hvdc[_country_col] == scalable_hvdc['out_domain'])
@@ -335,7 +337,7 @@ def scale_balance(model: object,
 
     # Identify fragmented IGMs - where some part of network model with boundary belongs other component
     areas_to_components = get_countries_to_components(components=valid_components)
-    fragments_participation = get_fragmented_areas_participation(unpaired_dangling_lines=dangling_lines[unpaired_dangling_lines],
+    fragments_participation = get_fragmented_areas_participation(unpaired_dangling_lines=dangling_lines[dangling_lines.isHvdc == ''],
                                                                  areas_to_components=areas_to_components)
 
     # Map fragmented models to target ACNP schedules and recalculate values by participation

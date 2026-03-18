@@ -7,16 +7,18 @@ WORKDIR /src
 
 # Install tools to set up python environment
 RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
-RUN pip install --upgrade setuptools pip uv pipenv
+RUN pip install --upgrade setuptools pip uv
 
-# Install needed modules
-COPY Pipfile .
-COPY Pipfile.lock .
-#RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
-#RUN pipenv install --system --deploy
-RUN pipenv requirements > requirements.txt
-RUN uv pip sync requirements.txt --system
-#RUN uv cache clean
+# Sync python modules as dependencies
+COPY pyproject.toml .
+COPY uv.lock .
+RUN uv export -o pylock.toml
+RUN uv pip sync pylock.toml --system  && uv cache clean
+
+# Copy license file and dependencies license reference
+RUN mkdir -p /licenses
+COPY LICENSE /licenses/
+COPY licenses/ /licenses/
 
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"

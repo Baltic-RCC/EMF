@@ -8,10 +8,10 @@
             "request_list": ["ID", "1D", "2D", "WK", "1D", "MO", "YR"]
         },
         "replacement_length": {
-            "request_list": ["6d", "6d", "6d", "2w", "6d", "1M", "4M"]
+            "request_list": ["2w", "2w", "2w", "2w", "6d", "1M", "4M"]
         },
         "month_ahead": {
-            "hours": ["07:30", "08:30", "09:30", "06:30", "05:30", "04:30"],
+            "hours": ["09:30", "08:30", "10:30", "11:30", "07:30", "12:30"],
             "business_type": ["1D","2D"]
         },
         "hours": [

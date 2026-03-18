@@ -190,11 +190,12 @@ class HandlerMergeModels:
         version = task_properties["version"]
         model_replacement = task_properties["replacement"]
         model_scaling = task_properties["scaling"]
+        outage_update = task_properties["outage_update"]
+        force_outage_fix = task_properties['force_outage_fix']
         model_upload_to_opdm = task_properties["upload_to_opdm"]
         model_upload_to_minio = task_properties["upload_to_minio"]
         model_merge_report_send_to_elk = task_properties["send_merge_report"]
         post_temp_fixes = task_properties['post_temp_fixes']
-        force_outage_fix = task_properties['force_outage_fix']
         lvl8_reporting = task_properties['lvl8_reporting']
 
         # Get aligned schedules
@@ -336,17 +337,16 @@ class HandlerMergeModels:
 
         # Update model outages
         tso_list = []
-        # TODO re-enable after fixing outage update function
-        # if force_outage_fix:  # force outage fix on all models if set
-        #     tso_list = merged_model.included
-        # elif merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
-        #                                   replaced_tso_list):  # by default do it on Baltic merge replaced models
-        #     tso_list = replaced_tso_list
-        # if tso_list:  # if not set force and not replaced BA then nothing to fix
-        #     merged_model = merge_functions.update_model_outages(merged_model=merged_model,
-        #                                                         tso_list=tso_list,
-        #                                                         scenario_datetime=scenario_datetime,
-        #                                                         time_horizon=time_horizon)
+        if force_outage_fix:  # force outage fix on all models if set
+            tso_list = merged_model.included
+        elif outage_update and merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+                                          replaced_tso_list):  # by default do it on Baltic merge replaced models
+            tso_list = replaced_tso_list
+        if tso_list:  # if not set force and not replaced BA then nothing to fix
+            merged_model = merge_functions.update_model_outages(merged_model=merged_model,
+                                                                tso_list=tso_list,
+                                                                scenario_datetime=scenario_datetime,
+                                                                time_horizon=time_horizon)
 
         # Various corrections from igmsshvscgmssh error
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
@@ -359,7 +359,6 @@ class HandlerMergeModels:
         # Ensure boundary line connectivity consistency for paired boundary lines
         merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
 
-        # TODO - run other LF if default fails
         # Run loadflow on merged model
         merged_model, pp_loadflow_parameters = self.run_loadflow(merged_model=merged_model)
         logger.info(
@@ -471,7 +470,9 @@ class HandlerMergeModels:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
                         logging.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
-        merged_model_object.name = f"{OUTPUT_MINIO_FOLDER}/{merged_model.name}.zip"
+        saved_horizon = str(task_properties["time_horizon"]).strip().upper()
+        folder = f"{OUTPUT_MINIO_FOLDER}/{saved_horizon}"
+        merged_model_object.name = f"{folder}/{merged_model.name}.zip"
 
         # Upload to Minio storage
         if model_upload_to_minio:
@@ -587,13 +588,13 @@ if __name__ == "__main__":
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
-            "fix_net_interchange2": "True",
             "replacement": "True",
             "scaling": "True",
+            "outage_update": "True",
+            "force_outage_fix": "False",
             "upload_to_opdm": "False",
             "upload_to_minio": "False",
             "send_merge_report": "False",
-            "force_outage_fix": "False",
             "lvl8_reporting": "False"
         }
     }

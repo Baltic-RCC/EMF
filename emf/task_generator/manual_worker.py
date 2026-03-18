@@ -55,11 +55,12 @@ process_config_json[0]['runs'][0]['properties']['fix_net_interchange2'] = FIX_NE
 process_config_json[0]['runs'][0]['properties']['version'] = TASK_VERSION
 process_config_json[0]['runs'][0]['properties']['replacement'] = RUN_REPLACEMENT
 process_config_json[0]['runs'][0]['properties']['scaling'] = RUN_SCALING
+process_config_json[0]['runs'][0]['properties']['outage_update'] = OUTAGE_UPDATE
+process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 process_config_json[0]['runs'][0]['properties']['upload_to_opdm'] = UPLOAD_TO_OPDM
 process_config_json[0]['runs'][0]['properties']['upload_to_minio'] = UPLOAD_TO_MINIO
 process_config_json[0]['runs'][0]['properties']['send_merge_report'] = SEND_MERGE_REPORT
 process_config_json[0]['runs'][0]['properties']['post_temp_fixes'] = POST_TEMP_FIXES
-process_config_json[0]['runs'][0]['properties']['force_outage_fix'] = FORCE_OUTAGE_FIX
 process_config_json[0]['runs'][0]['properties']['lvl8_reporting'] = LVL8_REPORTING
 
 # If single timestamp run is defined
