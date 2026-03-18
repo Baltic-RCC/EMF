@@ -88,6 +88,7 @@ class ElkLoggingHandler(logging.StreamHandler):
         """
         super().__init__(sys.stdout)
         self.server = elk_server
+        self.api_key = api_key
         self.index = index
 
         if extra:
@@ -105,7 +106,7 @@ class ElkLoggingHandler(logging.StreamHandler):
 
     def elk_connection(self):
         try:
-            headers = {"Authorization": f"ApiKey {api_key}"}
+            headers = {"Authorization": f"ApiKey {self.api_key}"}
             response = requests.get(self.server, timeout=5, headers=headers, verify=False)
             if response.status_code == 200:
                 logger.info(f"Connection to {self.server} successful")
@@ -151,8 +152,6 @@ class ElkLoggingHandler(logging.StreamHandler):
         for parameter_name in self._trace_parameter_names:
             if parameter_name in self.extra:
                 del self.extra[parameter_name]
-
-
 
 
 
