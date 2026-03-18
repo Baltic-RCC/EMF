@@ -524,14 +524,3 @@ def get_first_monday_of_last_month(timestamp):
     first_monday = first_day_of_month + timedelta(days=days_to_add)
 
     return first_monday
-
-
-if __name__ == "__main__":
-
-    missing_tso = ['PSE', 'LITGRID', 'AST']
-
-    test_time_horizon = "MO"
-    test_scenario_date = "2025-03-12T09:30:00Z"
-    # print('hello')
-    response_list = run_replacement(missing_tso, test_time_horizon, test_scenario_date)
-    print('')

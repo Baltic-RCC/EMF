@@ -7,31 +7,26 @@
     "time_horizons": {
         "ID": {
             "replacement_length": "2w",
-            "priority_order": 1,
             "request_list": ["ID", "1D", "2D", "WK", "1D", "MO", "YR"],
             "description": "Intraday time horizon"
         },
         "1D": {
             "replacement_length": "2w",
-            "priority_order": 2,
             "request_list": ["1D", "2D", "WK", "MO", "YR"],
             "description": "Day-ahead time horizon"
         },
         "2D": {
             "replacement_length": "2w",
-            "priority_order": 3,
             "request_list": ["2D", "WK", "MO", "YR"],
             "description": "Two-day ahead time horizon"
         },
         "WK": {
             "replacement_length": "2w",
-            "priority_order": 4,
             "request_list": ["WK", "MO", "YR"],
             "description": "Week-ahead time horizon"
         },
         "MO": {
             "replacement_length": "1M",
-            "priority_order": 5,
             "request_list": ["MO", "YR"],
             "description": "Month-ahead time horizon",
             "special_handling": {
@@ -41,7 +36,6 @@
         },
         "YR": {
             "replacement_length": "4M",
-            "priority_order": 6,
             "request_list": ["YR"],
             "description": "Year-ahead time horizon"
         }
