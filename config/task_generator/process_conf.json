@@ -28,6 +28,7 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included": [],
         "excluded": [],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "replacement": "False",
@@ -63,6 +64,7 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included": [],
         "excluded": [],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "replacement": "False",
@@ -98,6 +100,7 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included": [],
         "excluded": [],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "replacement": "False",
@@ -133,6 +136,7 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included": [],
         "excluded": [],
+        "replace_tso": [],
         "time_horizon": "1D",
         "version": "001",
         "replacement": "False",
@@ -168,6 +172,7 @@
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
         "included": [],
         "excluded": [],
+        "replace_tso": [],
         "time_horizon": "2D",
         "version": "001",
         "replacement": "False",
@@ -220,6 +225,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -262,6 +268,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -304,6 +311,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -345,6 +353,7 @@
         ],
         "excluded": [],
         "local_import": [],
+        "replace_tso": [],
         "time_horizon": "ID",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -387,6 +396,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "1D",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -429,6 +439,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "2D",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -471,6 +482,7 @@
         "local_import": [
          "LITGRID"
         ],
+        "replace_tso": [],
         "time_horizon": "YR",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -517,6 +529,7 @@
          "AST",
          "ELERING"
         ],
+        "replace_tso": [],
         "time_horizon": "WK",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
@@ -560,6 +573,7 @@
          "AST",
          "ELERING"
         ],
+        "replace_tso": [],
         "time_horizon": "MO",
         "version": "001",
         "mas": "http://www.baltic-rsc.eu/OperationalPlanning/RMM",
