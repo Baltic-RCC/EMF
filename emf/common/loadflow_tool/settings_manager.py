@@ -45,7 +45,7 @@ class LoadflowSettingsManager:
 
     def __init__(self,
                  elastic_server: str = ELK_SERVER,
-                 elastic_api_key: str | None = None,
+                 elastic_api_key: str = ELK_TOKEN,
                  elastic_index: str = 'config-lf-parameters',
                  settings_keyword: str = 'EU_DEFAULT',
                  override_path: str | None = None,
