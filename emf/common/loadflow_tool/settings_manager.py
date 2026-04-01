@@ -45,16 +45,14 @@ class LoadflowSettingsManager:
 
     def __init__(self,
                  elastic_server: str = ELK_SERVER,
-                 elastic_username: str | None = None,
-                 elastic_password: str | None = None,
+                 elastic_api_key: str | None = None,
                  elastic_index: str = 'config-lf-parameters',
                  settings_keyword: str = 'EU_DEFAULT',
                  override_path: str | None = None,
                  ):
 
         self.elastic_server = elastic_server
-        self.elastic_username = elastic_username
-        self.elastic_password = elastic_password
+        self.elastic_api_key = elastic_api_key
         self.elastic_index = elastic_index
         self.settings_keyword = settings_keyword
 
@@ -82,7 +80,7 @@ class LoadflowSettingsManager:
 
     # ----------------- I/O -----------------
     def _get_defaults_from_elastic(self) -> dict:
-        client = Elasticsearch(self.elastic_server)
+        client = Elasticsearch(self.elastic_server, api_key=self.elastic_api_key)
         logger.info(f"Retrieving base loadflow settings fromm Elasticsearch with key: {self.settings_keyword}")
         response = client.get(index=self.elastic_index, id=self.settings_keyword)
 
