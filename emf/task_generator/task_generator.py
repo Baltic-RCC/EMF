@@ -219,10 +219,10 @@ def set_task_version(task: dict):
                 updated_version = '001'
         else:
             # filter out non integer version values
-            num = pd.to_numeric(tasks_df["col"], errors="coerce")
+            num = pd.to_numeric(tasks_df["task_properties.version"], errors="coerce")
             tasks_df = tasks_df[num.notna() & (num % 1 == 0)]
 
-            latest_version = tasks_df['task_properties.version'].max()
+            latest_version = pd.to_numeric(tasks_df['task_properties.version']).max()
             logger.info(f"Latest available task version: {latest_version}")
             if auto_versioning_enabled:
                 updated_version = str(int(latest_version) + 1).zfill(3)
@@ -231,7 +231,7 @@ def set_task_version(task: dict):
                 updated_version = str(int(latest_version) + 1).zfill(3)
             else:
                 logger.info("Using version for task configuration")
-                updated_version = task['task_properties']['version']
+                updated_version = str(int(task['task_properties']['version']) + 1).zfill(3)
 
         if updated_version:
             task['task_properties']['version'] = updated_version
