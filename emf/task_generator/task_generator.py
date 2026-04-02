@@ -6,6 +6,7 @@ import croniter
 import json
 import logging
 import os
+import pandas as pd
 from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.helpers.tasks import update_task_status
 from emf.common.integrations.elastic import Elastic
@@ -217,6 +218,10 @@ def set_task_version(task: dict):
                 logger.info("Task versioning mode 'AUTO', defaulting to: '001'")
                 updated_version = '001'
         else:
+            # filter out non integer version values
+            num = pd.to_numeric(tasks_df["col"], errors="coerce")
+            tasks_df = tasks_df[num.notna() & (num % 1 == 0)]
+
             latest_version = tasks_df['task_properties.version'].max()
             logger.info(f"Latest available task version: {latest_version}")
             if auto_versioning_enabled:
