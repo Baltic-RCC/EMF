@@ -192,7 +192,7 @@ def set_task_version(task: dict):
 
     # Check versioning mode
     auto_versioning_enabled = False
-    if task['task_properties']['version'] == 'AUTO':
+    if task['task_properties']['version'].strip().lower() == 'auto':
         logger.debug("Task versioning set to AUTO mode")
         auto_versioning_enabled = True
 
@@ -231,6 +231,9 @@ def set_task_version(task: dict):
         if updated_version:
             task['task_properties']['version'] = updated_version
             logger.info(f"Version set to: {updated_version}")
+
+        if task['task_properties']['version'].strip().lower() == 'auto':
+            raise ValueError()
 
     except Exception as e:
         logger.warning("Elastic query for task versioning unsuccessful, version not updated")
