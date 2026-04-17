@@ -236,44 +236,24 @@ def _select_best_replacement_models(replacement_df: pd.DataFrame, target_time_ho
         if not step1_candidates.empty:
             best_model = apply_priority_selection(step1_candidates)
             logger.debug(f"STEP 1: Found same time horizon and same day replacement for {tso}")
-        
+
         # STEP 2: If not available, use an IGM from the same energy delivery day (other time horizon)
         if best_model is None or best_model.empty:
             step2_candidates = tso_models[
                 (tso_models["pmd:scenarioDate"].apply(lambda x: parser.parse(x).date() == target_date_only)) &
                 (tso_models["pmd:timeHorizon"] != target_time_horizon)
-            ]
+                ]
             if not step2_candidates.empty:
-                # Sort by time horizon priority based on config
-                if target_time_horizon in config["time_horizons"]:
-                    priority_list = config["time_horizons"][target_time_horizon]["request_list"]
-                    
-                    step2_candidates["horizon_priority"] = step2_candidates["pmd:timeHorizon"].apply(
-                        lambda horizon: priority_list.index(horizon) if horizon in priority_list else len(priority_list)
-                    )
-                    step2_candidates = step2_candidates.sort_values("horizon_priority")
-                    step2_candidates = step2_candidates.drop("horizon_priority", axis=1)
-                
                 best_model = apply_priority_selection(step2_candidates)
                 logger.debug(f"STEP 2: Found same day (different time horizon) replacement for {tso}")
-        
+
         # STEP 3: If not available, use an IGM from the same time horizon of older models of the same day type
         if best_model is None or best_model.empty:
-            target_weekday = target_date.weekday()
             step3_candidates = tso_models[
-                (tso_models["pmd:timeHorizon"] == target_time_horizon) &
-                (tso_models["pmd:scenarioDate"].apply(lambda x: 
-                    parser.parse(x).date().weekday() == target_weekday
-                ))
+                (tso_models["pmd:timeHorizon"] == target_time_horizon)
             ]
-            
             if not step3_candidates.empty:
-                # Sort by date (most recent first) and then by priority
-                step3_candidates = step3_candidates.sort_values(
-                    by=["pmd:scenarioDate", "priority_hour", "priority_day", "priority_business"], 
-                    ascending=[False, True, True, True]
-                )
-                best_model = step3_candidates.iloc[0:1]
+                best_model = apply_priority_selection(step3_candidates)
                 logger.debug(f"STEP 3: Found same time horizon, same day type replacement for {tso}")
         
         # STEP 4: If not available, use older files of a different day type (original logic)
