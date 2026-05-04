@@ -6,6 +6,7 @@ import croniter
 import json
 import logging
 import os
+import pandas as pd
 from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.helpers.tasks import update_task_status
 from emf.common.integrations.elastic import Elastic
@@ -190,51 +191,65 @@ def generate_tasks(task_window_duration: str,
 
 def set_task_version(task: dict):
 
-    # Check versioning mode
-    auto_versioning_enabled = False
-    if task['task_properties']['version'] == 'AUTO':
-        logger.debug("Task versioning set to AUTO mode")
+    task_version = task['task_properties']['version']
+
+    # Set versioning mode
+    if task_version.strip().lower() == 'auto':
+        logger.debug("Task versioning set to automatic")
         auto_versioning_enabled = True
+    else:
+        auto_versioning_enabled = False
 
-    query = {
-        "bool": {
-            "must": [
-                {"match": {"task_properties.timestamp_utc": task['task_properties']['timestamp_utc']}},
-                {"term": {"task_properties.time_horizon.keyword": task['task_properties']['time_horizon']}},
-                {"term": {"task_properties.merge_type.keyword": task['task_properties']['merge_type']}},
-            ]
-        }
-    }
-
-    service = Elastic()
     try:
-        updated_version = None
+        service = Elastic()
+
+        query = {
+            "bool": {
+                "must": [
+                    {"match": {"task_properties.timestamp_utc": task['task_properties']['timestamp_utc']}},
+                    {"term": {"task_properties.time_horizon.keyword": task['task_properties']['time_horizon']}},
+                    {"term": {"task_properties.merge_type.keyword": task['task_properties']['merge_type']}},
+                ]
+            }
+        }
         tasks_df = service.get_docs_by_query(index=TASK_ELK_INDEX, query=query)
 
-        if tasks_df.empty:
-            logger.info(f"No previous runs found for task, using version from configuration: {task['task_properties']['version']}")
-            if auto_versioning_enabled:
-                logger.info("Task versioning mode 'AUTO', defaulting to: '001'")
-                updated_version = '001'
-        else:
-            latest_version = tasks_df['task_properties.version'].max()
-            logger.info(f"Latest available task version: {latest_version}")
-            if auto_versioning_enabled:
-                updated_version = str(int(latest_version) + 1).zfill(3)
-            elif int(latest_version) >= int(task['task_properties']['version']):
-                logger.warning("Latest available version is equal or higher than defined in task, increasing from latest")
-                updated_version = str(int(latest_version) + 1).zfill(3)
-            else:
-                logger.info("Using version for task configuration")
-                updated_version = task['task_properties']['version']
+        # Filter out non integer values
+        num = pd.to_numeric(tasks_df["task_properties.version"], errors="coerce")
+        tasks_df = tasks_df[num.notna() & (num % 1 == 0)]
 
-        if updated_version:
-            task['task_properties']['version'] = updated_version
-            logger.info(f"Version set to: {updated_version}")
+        # If no previous tasks found, set version to 001
+        if tasks_df.empty:
+            logger.info(f"No previous runs found for this task")
+            if auto_versioning_enabled:
+                set_version = '001'
+            else:
+                set_version = str(int(task_version)).zfill(3)
+
+        else:
+            # Get latest task available version from ELK
+            latest_version = pd.to_numeric(tasks_df['task_properties.version']).max()
+            logger.info(f"Latest available task version: {latest_version}")
+
+            if auto_versioning_enabled:
+                set_version = str(int(latest_version) + 1).zfill(3)
+            elif int(latest_version) >= int(task_version):
+                logger.warning("Latest version is equal or lower than task config, incrementing from latest")
+                set_version = str(int(latest_version) + 1).zfill(3)
+            else:
+                logger.info("Using version from task config")
+                set_version = str(int(task_version)).zfill(3)
+                
+        task['task_properties']['version'] = set_version
+        logger.info(f"Version set to: '{set_version}'")
 
     except Exception as e:
-        logger.warning("Elastic query for task versioning unsuccessful, version not updated")
         logger.warning(f"Exception traceback: {e}")
+        if auto_versioning_enabled:
+            task['task_properties']['version'] = None
+            logger.error("Elastic query for task versioning unsuccessful, version not set")
+        else:
+            logger.warning("Elastic query for task versioning unsuccessful, using provided value")
 
 
 if __name__ == "__main__":

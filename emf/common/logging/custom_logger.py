@@ -1,4 +1,5 @@
 import sys
+import os
 import logging
 import requests
 from emf.common.integrations import elastic
@@ -107,7 +108,7 @@ class ElkLoggingHandler(logging.StreamHandler):
     def elk_connection(self):
         try:
             headers = {"Authorization": f"ApiKey {self.api_key}"}
-            response = requests.get(self.server, timeout=5, headers=headers, verify=False)
+            response = requests.get(self.server, timeout=5, headers=headers, verify=os.getenv("ELK_SSL_VERIFY", "false").lower() == "true")
             if response.status_code == 200:
                 logger.info(f"Connection to {self.server} successful")
                 return True
@@ -133,7 +134,10 @@ class ElkLoggingHandler(logging.StreamHandler):
             elk_record.update(self.extra)
 
         # Send to Elk
-        elastic.Elastic.send_to_elastic(index=self.index, json_message=elk_record, server=self.server)
+        elastic.Elastic.send_to_elastic(index=self.index,
+                                        json_message=elk_record,
+                                        server=self.server,
+                                        index_rollover=False)
 
     # TODO - Move tracing to seperate class, that on destroy will stop tracing?
     def start_trace(self, trace_parameters: dict):

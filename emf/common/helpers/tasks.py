@@ -26,6 +26,10 @@ def update_task_status(task: dict, status_text: str, publish: bool = True):
         "timestamp": utc_now
     })
 
+    # Fix boolean values
+    for key, value in task['task_properties'].items():
+        task['task_properties'][key] = value.strip().lower() == "true" if isinstance(value, str) and value.strip().lower() in {"true", "false"} else value
+
     # TODO - better handling if elk is not available, possibly set elk connection timeout really small or refactor the sending to happen via rabbit
     if publish:
         try:

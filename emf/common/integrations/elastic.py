@@ -5,14 +5,11 @@ import logging
 import pandas as pd
 import json
 import uuid
+import os
 from typing import List, Dict
 from elasticsearch import Elasticsearch
 import config
 from emf.common.config_parser import parse_app_properties
-
-import warnings
-from elasticsearch.exceptions import ElasticsearchWarning
-warnings.simplefilter('ignore', ElasticsearchWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +18,28 @@ parse_app_properties(caller_globals=globals(), path=config.paths.integrations.el
 
 class Elastic:
 
-    def __init__(self, server: str = ELK_SERVER, api_key: str = ELK_TOKEN, debug: bool = False):
+    def __init__(self,
+                 server: str = ELK_SERVER,
+                 api_key: str = ELK_TOKEN,
+                 ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
+                 debug: bool = False):
+
         self.server = server
+        self.api_key = api_key
+        self.ssl_verify = ssl_verify
         self.debug = debug
-        self.client = Elasticsearch(self.server, api_key=api_key)
+
+        # Override SSL CERT FILE from ENV variables if defined
+        ssl_cert_file = None
+        if self.ssl_verify:
+            ssl_cert_file = os.getenv("SSL_CERT_FILE", None)
+            if not ssl_cert_file:
+                raise Exception("SSL verification is enabled but SSL_CERT_FILE environment variable is not set.")
+            else:
+                logger.debug(f"Using SSL certificate file: {ssl_cert_file}")
+
+        # Create client
+        self.client = Elasticsearch(self.server, api_key=self.api_key, verify_certs=self.ssl_verify, ca_certs=ssl_cert_file)
 
     @staticmethod
     def send_to_elastic(index: str,
@@ -32,7 +47,9 @@ class Elastic:
                         id: str = None,
                         server: str = ELK_SERVER,
                         api_key: str = ELK_TOKEN,
+                        ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
                         iso_timestamp: str = None,
+                        index_rollover: bool = True,
                         debug: bool = False):
         """
         Method to send single message to ELK
@@ -41,6 +58,7 @@ class Elastic:
         :param id:
         :param server: url of ELK server
         :param iso_timestamp: message timestamp
+        :param index_rollover: if true, adds monthly indication to index name
         :param debug: flag for debug mode
         :return:
         """
@@ -53,8 +71,9 @@ class Elastic:
         json_message["@timestamp"] = iso_timestamp
 
         # Create server url with relevant index pattern
-        _index = f"{index}-{datetime.datetime.today():%Y%m}"
-        url = f"{server}/{_index}/_doc"
+        if index_rollover:
+            index = f"{index}-{datetime.datetime.today():%Y%m}"
+        url = f"{server}/{index}/_doc"
 
         if id:
             url = url + f"/{id}"
@@ -66,7 +85,7 @@ class Elastic:
             json_message.pop('args')
         json_data = json.dumps(json_message, default=str, ensure_ascii=True, skipkeys=True)
         headers = {"Authorization": f"ApiKey {api_key}", "Content-Type": "application/json"}
-        response = requests.post(url=url, data=json_data.encode(), headers=headers, verify=False)
+        response = requests.post(url=url, data=json_data.encode(), headers=headers, verify=ssl_verify)
         if json.loads(response.content).get('error'):
             logger.error(f"Send to Elasticsearch responded with error: {response.text}")
         if debug:
@@ -82,8 +101,10 @@ class Elastic:
                              hashing: bool = False,
                              server: str = ELK_SERVER,
                              api_key: str = ELK_TOKEN,
+                             ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
                              batch_size: int = int(BATCH_SIZE),
                              iso_timestamp: str | None = None,
+                             index_rollover: bool = True,
                              debug: bool = False):
         """
         Method to send bulk message to ELK
@@ -95,6 +116,7 @@ class Elastic:
         :param server: url of ELK server
         :param batch_size: maximum size of batch
         :param iso_timestamp: timestamp to be included in documents
+        :param index_rollover: if true, adds monthly indication to index name
         :param debug: flag for debug mode
         :return:
         """
@@ -116,7 +138,8 @@ class Elastic:
         json_message_list = [{**element, '@timestamp': iso_timestamp} for element in json_message_list]
 
         # Define server url with relevant index pattern (monthly indication is added)
-        index = f"{index}-{datetime.datetime.today():%Y%m}"
+        if index_rollover:
+            index = f"{index}-{datetime.datetime.today():%Y%m}"
         url = f"{server}/{index}/_bulk"
 
         if id_from_metadata:
@@ -135,7 +158,7 @@ class Elastic:
                                      data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
                                      timeout=None,
                                      headers=headers,
-                                     verify=False)
+                                     verify=ssl_verify)
             if json.loads(response.content).get('errors'):
                 logger.error(f"Send to Elasticsearch responded with errors: {response.text}")
             if debug:
@@ -226,7 +249,7 @@ class HandlerSendToElastic:
                  hashing: bool = False,
                  headers: Dict | None = None,
                  auth: object | None = None,
-                 verify: bool = False,
+                 ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
                  debug: bool = False):
 
         self.index = index
@@ -234,13 +257,14 @@ class HandlerSendToElastic:
         self.id_from_metadata = id_from_metadata
         self.id_metadata_list = id_metadata_list
         self.hashing = hashing
+        self.ssl_verify = ssl_verify
         self.debug = debug
 
         if not headers:
             headers = {'Content-Type': 'text/json'}
 
         self.session = requests.Session()
-        self.session.verify = verify
+        self.session.verify = self.ssl_verify
         self.session.headers.update(headers)
         self.session.auth = auth
 
