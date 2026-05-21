@@ -2,6 +2,11 @@ name: CI - Build base image
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for base image (e.g., v1.0.0, latest)'
+        required: true
+        default: 'latest'
 
 jobs:
   build-base:
@@ -20,8 +25,17 @@ jobs:
           docker build . \
             --file docker/Dockerfile \
             --target emfos-base \
-            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
-          docker push ${{ vars.DOCKER_USERNAME}}/emfos-base:latest
+            -t ${{ vars.DOCKER_USERNAME }}/emfos-base:${{ github.event.inputs.version }}
+          docker push ${{ vars.DOCKER_USERNAME }}/emfos-base:${{ github.event.inputs.version }}
+
+      - name: Conditionally push as latest
+        shell: bash
+        run: |
+          if [[ "${{ github.event.inputs.version }}" == v* ]]; then
+            docker tag ${{ vars.DOCKER_USERNAME }}/emfos-base:${{ github.event.inputs.version }} \
+                      ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+            docker push ${{ vars.DOCKER_USERNAME }}/emfos-base:latest
+          fi
 
       - name: Display Success Message
-        run: echo "emfos-base image has been built and pushed manually."
+        run: echo "emfos-base:${{ github.event.inputs.version }} image has been built and pushed manually."
