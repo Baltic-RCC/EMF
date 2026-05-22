@@ -7,6 +7,7 @@ import urllib3
 import sys
 import mimetypes
 import re
+import time
 import logging
 import config
 import functools
@@ -77,19 +78,84 @@ class ObjectStorage:
             "LDAPUsername": self.username,
             "LDAPPassword": self.password,
             "Version": version,
-            "DurationSeconds": TOKEN_EXPIRATION,
+            "DurationSeconds": '3600',
         }
 
-        # Sending request for temporary credentials and parsing it out from returned xml
-        response = requests.post(f"https://{self.server}", params=params, verify=False).content
-        credentials = {}
-        root = etree.fromstring(response)
-        et = root.find("{*}AssumeRoleWithLDAPIdentityResult/{*}Credentials")
-        for element in et:
-            _, _, tag = element.tag.rpartition("}")
-            credentials[tag] = element.text
+        last_error = None
 
-        return credentials
+        for attempt in range(1, 4):
+            response = None
+            try:
+                response = requests.post(f"https://{self.server}", params=params, verify=False, timeout=30)
+                logger.debug(f"MinIO auth response received, attempt {attempt}, HTTP status={response.status_code}")
+
+                # Parse received response content
+                root = etree.fromstring(response.content)
+
+                # Handle MinIO error response
+                err = root.find(".//{*}Error")
+                if err is not None:
+                    code = err.findtext("{*}Code")
+                    message = err.findtext("{*}Message")
+                    request_id = root.findtext(".//{*}RequestId")
+
+                    last_error = (
+                        f"STS error: Code={code}, "
+                        f"Message={message}, "
+                        f"RequestId={request_id}"
+                    )
+
+                    logger.warning(f"MinIO auth failed on attempt {attempt}: {last_error}")
+
+                    if attempt < 3:
+                        logger.info(f"Retrying credential request in 1 second...")
+                        time.sleep(int(SLEEP_DURATION))
+                        continue
+
+                    raise RuntimeError(last_error)
+
+                # Handle non-200 HTTP response without STS Error XML
+                if response.status_code != 200:
+                    last_error = (
+                        f"HTTP error: status={response.status_code}, "
+                        f"body={response.content!r}"
+                    )
+
+                    logger.warning(f"MinIO HTTP error on attempt {attempt}: {last_error}")
+
+                    if attempt < 3:
+                        logger.info(f"Retrying credential request in 1 second...")
+                        time.sleep(int(SLEEP_DURATION))
+                        continue
+
+                    raise RuntimeError(last_error)
+
+                # Extract credentials
+                credentials = {}
+                et = root.find("{*}AssumeRoleWithLDAPIdentityResult/{*}Credentials")
+                if et is None:
+                    raise RuntimeError(f"Credentials not found in response: {response.content!r}")
+
+                for element in et:
+                    tag = etree.QName(element).localname
+                    credentials[tag] = element.text
+
+                return credentials
+
+            except requests.RequestException as e:
+                last_error = f"Request failed: {e}"
+                raise RuntimeError(last_error) from e
+
+            except etree.XMLSyntaxError as e:
+                body = response.content if response is not None else b""
+                last_error = (
+                    f"Failed to parse XML response: {e}. "
+                    f"Response body: {body!r}"
+                )
+
+                raise RuntimeError(last_error) from e
+
+        raise RuntimeError(last_error or "Failed to get credentials")
 
     @staticmethod
     def dict_to_tags(tags: dict):

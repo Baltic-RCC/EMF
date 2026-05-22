@@ -1,3 +1,6 @@
+# Global argument for base image for workers, can be overridden when building with --build-arg
+ARG BASE_IMAGE=balticrcc/emfos-base:latest
+
 # Define base container image (platform has to be defined if using with ARM64 architecture)
 FROM python:3.11-slim as emfos-base
 #FROM --platform=linux/amd64 python:3.11-slim as emfos-base
@@ -23,7 +26,7 @@ COPY licenses/ /licenses/
 # Set to use interpreter from venv (if venv is used)
 #ENV PATH="/.venv/bin:$PATH"
 
-FROM balticrcc/emfos-base:latest as emfos-model-retriever
+FROM ${BASE_IMAGE} as emfos-model-retriever
 
 # Set working directory
 WORKDIR /src
@@ -38,7 +41,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/opdm_worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:latest as emfos-local-model-retriever
+FROM ${BASE_IMAGE} as emfos-local-model-retriever
 
 # Set working directory
 WORKDIR /src
@@ -52,7 +55,7 @@ COPY config/ ./config/
 ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_retriever/local_worker.py"]
 
-FROM balticrcc/emfos-base:latest as emfos-model-validator
+FROM ${BASE_IMAGE} as emfos-model-validator
 
 # Set working directory
 WORKDIR /src
@@ -67,7 +70,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_validator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:latest as emfos-model-merger
+FROM ${BASE_IMAGE} as emfos-model-merger
 
 # Set working directory
 WORKDIR /src
@@ -82,7 +85,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_merger/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-FROM balticrcc/emfos-base:latest as emfos-task-generator
+FROM ${BASE_IMAGE} as emfos-task-generator
 
 # Set working directory
 WORKDIR /src
@@ -97,14 +100,16 @@ ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/task_generator/worker.py"]
 #ENTRYPOINT ["/bin/bash"]
 
-# Model Quality image
-FROM balticrcc/emfos-base:latest as emfos-model-quality
+FROM ${BASE_IMAGE} as emfos-model-quality
 
+# Set working directory
 WORKDIR /src
 
+# Copy files to container
 COPY emf/model_quality/ ./emf/model_quality/
 COPY emf/common/ ./emf/common/
 COPY config/ ./config/
 
+# Start process
 ENV PYTHONPATH="${PYTHONPATH}:/src"
 ENTRYPOINT ["python", "emf/model_quality/worker.py"]
