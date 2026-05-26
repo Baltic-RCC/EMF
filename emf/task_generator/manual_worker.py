@@ -1,6 +1,9 @@
 import json
 import os
 import sys
+from emf.common.helpers.time import parse_duration, timezone
+from datetime import datetime
+import croniter
 import config
 import logging
 from emf.task_generator.task_generator import generate_tasks
@@ -45,6 +48,7 @@ if "RMM" in RUN_TYPE and not(INCLUDED_TSO):
     logger.error(f"RMM included TSOs can not be empty for the run type: {RUN_TYPE}")
     sys.exit("Issue with input, check the EMFOS logs for possible error")
 
+run_at = process_config_json[0]['runs'][0]['run_at']
 
 # Update process configuration from ENV variables if defined
 process_config_json[0]['runs'][0]['run_at'] = '* * * * *'
@@ -69,6 +73,12 @@ if TIMESTAMP:
     timeframe_config_json[0]['reference_time_end'] = TASK_REFERENCE_TIME
     timeframe_config_json[0]['period_start'] = 'PT0M'
     timeframe_config_json[0]['period_end'] = 'PT1H'
+else:
+    day_start = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).replace(hour=0, minute=0, second=0,
+                                                                                    microsecond=0) + parse_duration(
+        PROCESS_TIME_SHIFT)
+    next_run = croniter.croniter(run_at, day_start).get_next(datetime).replace(second=1)
+    TIMESTAMP = next_run.isoformat()
 
 # Generate tasks
 tasks = list(generate_tasks(TASK_WINDOW_DURATION, TASK_WINDOW_REFERENCE, process_config_json, timeframe_config_json,
