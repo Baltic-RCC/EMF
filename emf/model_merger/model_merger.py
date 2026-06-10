@@ -255,11 +255,49 @@ class HandlerMergeModels:
             missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
-        else:
-            if model_replacement:
-                # Get TSOs who models are available in storage for replacement period
+            # find RMM models:
+                #logic: if merging_area (merge_type) = "BA"
+            missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
+
+            missing_pdn_auto = []
+            tsos_for_model_replacement = []
+
+            if missing_models_rmm:
+                #auto pdn replacement :
+                pdn_auto = get_latest_models_and_download(time_horizon=time_horizon,
+                                                                   scenario_date=scenario_datetime,
+                                                                   valid=True,
+                                                                   data_source='PDN')
+                pdn_auto = merge_functions.filter_models(models=pdn_auto,
+                                                                  included_models=missing_models_rmm,
+                                                                  filter_on='pmd:TSO')
+
+                merged_model.merge_included_entity.extend(
+                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in pdn_auto])
+
+                # if no pdn too
+                missing_pdn_auto = [tso for tso in missing_models_rmm if
+                                    tso not in [model['pmd:TSO'] for model in pdn_auto]]
+
+                if missing_pdn_auto:
+                    print(f"OPDM and PDN missing for {missing_pdn_auto}")
+
+                replaced_with_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
+
+                additional_models = additional_models + pdn_auto
+
+                if replaced_with_pdn:
+                    print(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
+
+                merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm-and-pdn'} for tso in missing_pdn_auto])
+
+            missing_models_cgm = missing_models if merging_area == "EU" else []
+            tsos_for_model_replacement = missing_models_cgm + missing_pdn_auto
+
+            if model_replacement and tsos_for_model_replacement:
+                # Get TSOs which models are available in storage for replacement period
                 available_tsos = get_tsos_available_in_storage(time_horizon=time_horizon)
-                valid_model_tsos = [model['pmd:TSO'] for model in models]
+                valid_model_tsos = [model['pmd:TSO'] for model in models] + [model['pmd:TSO'] for model in (pdn_auto or [])]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
                 if missing_models:
@@ -275,6 +313,18 @@ class HandlerMergeModels:
             elif model_replacement:
                 excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
                 missing_models = missing_models + excluded_incorrect
+        
+        # Rewrite missing_models:
+        replaced_with_pdn_set = set()
+        if 'pdn_auto' in locals() and pdn_auto:
+            replaced_with_pdn_set = {m['pmd:TSO'] for m in pdn_auto}
+        elif 'replaced_with_pdn' in locals():
+            replaced_with_pdn_set = set(replaced_with_pdn)
+        if replaced_with_pdn_set:
+            missing_models = [tso for tso in missing_models if tso not in replaced_with_pdn_set]
+
+        #for testing
+        print("missing_models passed into run_replacement", missing_models)
 
         # Execute consolidated model replacement logic
         models, additional_models = run_replacement(
@@ -513,7 +563,7 @@ class HandlerMergeModels:
 
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
-        properties.headers = extracted_meta
+        properties["headers"] = extracted_meta
 
         # Stop Trace
         self.elk_logging_handler.stop_trace()
