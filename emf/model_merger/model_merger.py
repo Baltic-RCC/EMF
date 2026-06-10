@@ -255,6 +255,7 @@ class HandlerMergeModels:
             missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
+
             # find RMM models:
                 #logic: if merging_area (merge_type) = "BA"
             missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
