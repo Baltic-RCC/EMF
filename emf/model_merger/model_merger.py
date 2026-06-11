@@ -255,10 +255,8 @@ class HandlerMergeModels:
             missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
-
             # find RMM models:
             missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
-            missing_pdn_auto = []
 
             if missing_models_rmm:
                 # Get PDN models when OPDM models missing
@@ -301,13 +299,11 @@ class HandlerMergeModels:
                 if replaced_with_pdn_set:
                     missing_models = [tso for tso in missing_models if tso not in replaced_with_pdn_set]
 
-            missing_models_cgm = missing_models if merging_area == "EU" else []
-            tsos_for_model_replacement = missing_models_cgm + missing_pdn_auto
-
-            if model_replacement and tsos_for_model_replacement:
+        else:
+            if model_replacement:
                 # Get TSOs which models are available in storage for replacement period
                 available_tsos = get_tsos_available_in_storage(time_horizon=time_horizon)
-                valid_model_tsos = [model['pmd:TSO'] for model in models] + [model['pmd:TSO'] for model in (pdn_auto or [])]
+                valid_model_tsos = [model['pmd:TSO'] for model in models]
                 # Need to ensure that excluded models by task configuration would not be taken in replacement context
                 missing_models = [tso for tso in available_tsos if tso not in valid_model_tsos + excluded_models]
                 if missing_models:
@@ -561,7 +557,7 @@ class HandlerMergeModels:
 
         # Append message headers with OPDM root metadata
         extracted_meta = {key: value for key, value in opdm_object_meta.items() if isinstance(value, str)}
-        properties["headers"] = extracted_meta
+        properties.headers = extracted_meta
 
         # Stop Trace
         self.elk_logging_handler.stop_trace()
