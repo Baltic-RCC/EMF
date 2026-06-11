@@ -257,40 +257,49 @@ class HandlerMergeModels:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
 
             # find RMM models:
-                #logic: if merging_area (merge_type) = "BA"
             missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
-
             missing_pdn_auto = []
-            tsos_for_model_replacement = []
 
             if missing_models_rmm:
-                #auto pdn replacement :
-                pdn_auto = get_latest_models_and_download(time_horizon=time_horizon,
+                # Get PDN models when OPDM models missing
+                pdn_auto_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                                    scenario_date=scenario_datetime,
                                                                    valid=True,
                                                                    data_source='PDN')
-                pdn_auto = merge_functions.filter_models(models=pdn_auto,
+                pdn_auto_models = merge_functions.filter_models(models=pdn_auto_models,
                                                                   included_models=missing_models_rmm,
                                                                   filter_on='pmd:TSO')
 
                 merged_model.merge_included_entity.extend(
-                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in pdn_auto])
+                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in pdn_auto_models])
 
                 # if no pdn too
                 missing_pdn_auto = [tso for tso in missing_models_rmm if
-                                    tso not in [model['pmd:TSO'] for model in pdn_auto]]
+                                    tso not in [model['pmd:TSO'] for model in pdn_auto_models]]
 
                 if missing_pdn_auto:
-                    print(f"OPDM and PDN missing for {missing_pdn_auto}")
+                    logging.info(f"OPDM and PDN missing for {missing_pdn_auto}")
 
                 replaced_with_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
 
-                additional_models = additional_models + pdn_auto
+                additional_models = additional_models + pdn_auto_models
 
                 if replaced_with_pdn:
-                    print(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
+                    logging.info(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
 
-                merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm-and-pdn'} for tso in missing_pdn_auto])
+                # Update exclusion list reason
+                for item in merged_model.excluded:
+                    if item['tso'] in missing_pdn_auto:
+                        item.update({'tso': item['tso'], 'reason': 'missing-opdm-and-pdn'})
+
+                # Rewrite missing_models:
+                if pdn_auto_models:
+                    replaced_with_pdn_set = {m['pmd:TSO'] for m in pdn_auto_models}
+                else:
+                    replaced_with_pdn_set = set(replaced_with_pdn)
+
+                if replaced_with_pdn_set:
+                    missing_models = [tso for tso in missing_models if tso not in replaced_with_pdn_set]
 
             missing_models_cgm = missing_models if merging_area == "EU" else []
             tsos_for_model_replacement = missing_models_cgm + missing_pdn_auto
@@ -314,18 +323,6 @@ class HandlerMergeModels:
             elif model_replacement:
                 excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
                 missing_models = missing_models + excluded_incorrect
-        
-        # Rewrite missing_models:
-        replaced_with_pdn_set = set()
-        if 'pdn_auto' in locals() and pdn_auto:
-            replaced_with_pdn_set = {m['pmd:TSO'] for m in pdn_auto}
-        elif 'replaced_with_pdn' in locals():
-            replaced_with_pdn_set = set(replaced_with_pdn)
-        if replaced_with_pdn_set:
-            missing_models = [tso for tso in missing_models if tso not in replaced_with_pdn_set]
-
-        #for testing
-        print("missing_models passed into run_replacement", missing_models)
 
         # Execute consolidated model replacement logic
         models, additional_models = run_replacement(
@@ -603,15 +600,15 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2025-10-20T20:30:00+00:00",
+            "timestamp_utc": "2026-05-29T15:30:00+00:00",
             "merge_type": "EU",
             "merging_entity": "BALTICRCC",
-            # "included": ["50Hertz", "D4", "D7", "TTG"],
+            # "included": ["PSE", "LITGRID", "ELERING", "AST"],
             "included": [],
             "excluded": [],
             "local_import": [],
             "replace_tso": [],
-            "time_horizon": "ID",
+            "time_horizon": "1D",
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
