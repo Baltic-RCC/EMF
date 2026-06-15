@@ -75,8 +75,9 @@ if TIMESTAMP:
     timeframe_config_json[0]['period_end'] = 'PT1H'
 else:
     day_start = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).replace(hour=0, minute=0, second=0,
-                                                                                    microsecond=0) + parse_duration(
-        PROCESS_TIME_SHIFT)
+                                                                                       microsecond=0)
+    if RUN_TYPE in ('IntradayCGH/1', 'IntradayRTH/1'):
+        day_start = day_start + parse_duration('-P1D')
     next_run = croniter.croniter(run_at, day_start).get_next(datetime).replace(second=1)
     TIMESTAMP = next_run.isoformat()
 
