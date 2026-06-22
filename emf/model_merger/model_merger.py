@@ -508,22 +508,27 @@ class HandlerMergeModels:
                 # Optionally upload a second copy only when OUTPUT_MINIO_COPY_FOLDER is set (non-empty).
                 copy_folder_base = str(globals().get('OUTPUT_MINIO_COPY_FOLDER', '') or '').strip()
                 if copy_folder_base:
-                    copy_folder = f"{copy_folder_base}/{saved_horizon}"
-                    copy_name = f"{copy_folder}/{merged_model.name}.zip"
-
-                    # Create a fresh BytesIO from the ZIP bytes so we don't change the original object.name / pointer
-                    copy_object = BytesIO(merged_model_object.getvalue())
-                    copy_object.name = copy_name
-
+                    original_name = merged_model_object.name
                     try:
-                        logger.info(f"Uploading secondary copy of merged model to MINIO: {copy_object.name} (bucket: {OUTPUT_MINIO_BUCKET})")
+                        copy_folder = f"{copy_folder_base}/{saved_horizon}"
+                        copy_name = f"{copy_folder}/{merged_model.name}.zip"
+                        merged_model_object.name = copy_name
+                        merged_model_object.seek(0)
+
+                        logger.info(
+                            f"Uploading secondary copy of merged model to MINIO: {merged_model_object.name} "
+                            f"(bucket: {OUTPUT_MINIO_BUCKET})"
+                        )
                         self.minio_service.upload_object(
-                            file_path_or_file_object=copy_object,
+                            file_path_or_file_object=merged_model_object,
                             bucket_name=OUTPUT_MINIO_BUCKET,
                             metadata=minio_metadata,
                         )
                     except Exception as copy_error:
                         logger.error(f"Failed to upload secondary copy to Minio: {copy_error}", exc_info=True)
+                    finally:
+                        # Restore original name so content_reference remains pointing to original location
+                        merged_model_object.name = original_name
 
             except Exception as error:
                 logging.error(f"Unexpected error on uploading to Object Storage: {error}", exc_info=True)
