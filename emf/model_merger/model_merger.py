@@ -261,15 +261,16 @@ class HandlerMergeModels:
             if missing_models_rmm:
                 # Get PDN models when OPDM models missing
                 pdn_auto_models = get_latest_models_and_download(time_horizon=time_horizon,
-                                                                   scenario_date=scenario_datetime,
-                                                                   valid=True,
-                                                                   data_source='PDN')
+                                                                 scenario_date=scenario_datetime,
+                                                                 valid=True,
+                                                                 data_source='PDN')
                 pdn_auto_models = merge_functions.filter_models(models=pdn_auto_models,
-                                                                  included_models=missing_models_rmm,
-                                                                  filter_on='pmd:TSO')
+                                                                included_models=missing_models_rmm,
+                                                                filter_on='pmd:TSO')
 
                 merged_model.merge_included_entity.extend(
-                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in pdn_auto_models])
+                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
+                     pdn_auto_models])
 
                 # if no pdn too
                 missing_pdn_auto = [tso for tso in missing_models_rmm if
@@ -284,6 +285,11 @@ class HandlerMergeModels:
 
                 if replaced_with_pdn:
                     logging.info(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
+
+                # Remove any existing OPDM models that are being replaced with PDN models
+                if replaced_with_pdn:
+                    pdn_replacement_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
+                    models = [m for m in models if m.get('pmd:TSO') not in pdn_replacement_tsos]
 
                 # Update exclusion list reason
                 for item in merged_model.excluded:
