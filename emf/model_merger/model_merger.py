@@ -236,25 +236,33 @@ class HandlerMergeModels:
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
             merged_model.merge_included_entity.extend(
-                [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in additional_models])
+                [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
+                 additional_models])
 
-            missing_local_import = [tso for tso in local_import_models if
-                                    tso not in [model['pmd:TSO'] for model in additional_models]]
+            # Cache TSO set to avoid repeated extractions
+            additional_tsos = {model['pmd:TSO'] for model in additional_models}
+            missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
             # Exclude models that are outside scheduled AC net position deadband
             if acnp_dict:
-                additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-                missing_local_import = [tso for tso in local_import_models if tso not in [model['pmd:TSO'] for model in additional_models]]
+                additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
+                                                          CONFORM_LOAD_FACTOR)
+                # Recalculate TSO set after filtering
+                additional_tsos = {model['pmd:TSO'] for model in additional_models}
+                missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
         else:
             additional_models = []
             missing_local_import = []
 
         # Check missing models for replacement
         if included_models:
-            missing_models = [model for model in included_models if model not in [model['pmd:TSO'] for model in models]]
+            models_tsos = {model['pmd:TSO'] for model in models}
+            missing_models = [tso for tso in included_models if tso not in models_tsos]
+
             if missing_models:
                 merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
+
             # find RMM models:
             missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
 
@@ -272,9 +280,9 @@ class HandlerMergeModels:
                     [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
                      pdn_auto_models])
 
-                # if no pdn too
-                missing_pdn_auto = [tso for tso in missing_models_rmm if
-                                    tso not in [model['pmd:TSO'] for model in pdn_auto_models]]
+                # Cache PDN TSO set
+                pdn_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
+                missing_pdn_auto = [tso for tso in missing_models_rmm if tso not in pdn_tsos]
 
                 if missing_pdn_auto:
                     logging.info(f"OPDM and PDN missing for {missing_pdn_auto}")
@@ -288,22 +296,16 @@ class HandlerMergeModels:
 
                 # Remove any existing OPDM models that are being replaced with PDN models
                 if replaced_with_pdn:
-                    pdn_replacement_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
-                    models = [m for m in models if m.get('pmd:TSO') not in pdn_replacement_tsos]
+                    models = [m for m in models if m.get('pmd:TSO') not in pdn_tsos]
+                    logger.info(f"Removed OPDM models for TSO(s) {list(pdn_tsos)} (replaced with PDN models)")
 
                 # Update exclusion list reason
                 for item in merged_model.excluded:
                     if item['tso'] in missing_pdn_auto:
-                        item.update({'tso': item['tso'], 'reason': 'missing-opdm-and-pdn'})
+                        item['reason'] = 'missing-opdm-and-pdn'
 
-                # Rewrite missing_models:
-                if pdn_auto_models:
-                    replaced_with_pdn_set = {m['pmd:TSO'] for m in pdn_auto_models}
-                else:
-                    replaced_with_pdn_set = set(replaced_with_pdn)
-
-                if replaced_with_pdn_set:
-                    missing_models = [tso for tso in missing_models if tso not in replaced_with_pdn_set]
+                # Rewrite missing_models
+                missing_models = [tso for tso in missing_models if tso not in pdn_tsos]
 
         else:
             if model_replacement:
@@ -321,9 +323,12 @@ class HandlerMergeModels:
         if acnp_dict:
             models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
             if included_models:
-                missing_models = [tso for tso in included_models if tso not in [model['pmd:TSO'] for model in models]]
+                # Recalculate with fresh TSO set after ACNP filter
+                models_tsos = {model['pmd:TSO'] for model in models}
+                missing_models = [tso for tso in included_models if tso not in models_tsos]
             elif model_replacement:
-                excluded_incorrect = [model for model in valid_model_tsos if model not in [model['pmd:TSO'] for model in models] if model not in missing_models]
+                models_tsos = {model['pmd:TSO'] for model in models}
+                excluded_incorrect = [tso for tso in valid_model_tsos if tso not in models_tsos and tso not in missing_models]
                 missing_models = missing_models + excluded_incorrect
 
         # Execute consolidated model replacement logic
