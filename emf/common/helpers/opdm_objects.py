@@ -192,7 +192,13 @@ def create_opdm_objects(models: list, metadata: dict | None = None, key_profile:
 
             # Add DATA
             opdm_profile['DATA'] = profile_instance.getvalue()
-
+            
+            # Allowed IGM profiles
+            igm_profiles = {'SV', 'SSH', 'EQ', 'TP'}
+            # Skip BD files if IGM has them
+            if opdm_object['opde:Object-Type'] == "IGM" and opdm_profile.get('pmd:cgmesProfile') not in igm_profiles:
+                continue
+                
             # Add component to main object
             opdm_object['opde:Component'].append({'opdm:Profile': opdm_profile})
 
