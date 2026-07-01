@@ -13,7 +13,8 @@ from zipfile import ZipFile
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
-from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules, calculate_ac_net_position
+from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules, \
+    calculate_ac_net_position
 from emf.common.loadflow_tool import loadflow_settings, settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
@@ -49,7 +50,7 @@ def log_opdm_response(response):
 class MergedModel:
     network: pypowsybl.network = None
     time_horizon: str = None
-    time_horizon_id: str =field(default_factory=str)
+    time_horizon_id: str = field(default_factory=str)
     name = None
     loadflow_status: str | None = None
 
@@ -224,8 +225,6 @@ class HandlerMergeModels:
                                                excluded_models=excluded_models,
                                                filter_on='pmd:TSO')
 
-        merged_model.merge_included_entity = [ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__ for model in models]
-
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
             additional_models = get_latest_models_and_download(time_horizon=time_horizon,
@@ -235,22 +234,11 @@ class HandlerMergeModels:
             additional_models = merge_functions.filter_models(models=additional_models,
                                                               included_models=local_import_models,
                                                               filter_on='pmd:TSO')
-            merged_model.merge_included_entity.extend(
-                [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
-                 additional_models])
 
-            # Cache TSO set to avoid repeated extractions
             additional_tsos = {model['pmd:TSO'] for model in additional_models}
             missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
             merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-pdn'} for tso in missing_local_import])
 
-            # Exclude models that are outside scheduled AC net position deadband
-            if acnp_dict:
-                additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
-                                                          CONFORM_LOAD_FACTOR)
-                # Recalculate TSO set after filtering
-                additional_tsos = {model['pmd:TSO'] for model in additional_models}
-                missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
         else:
             additional_models = []
             missing_local_import = []
@@ -276,10 +264,6 @@ class HandlerMergeModels:
                                                                 included_models=missing_models_rmm,
                                                                 filter_on='pmd:TSO')
 
-                merged_model.merge_included_entity.extend(
-                    [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
-                     pdn_auto_models])
-
                 # Cache PDN TSO set
                 pdn_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
                 missing_pdn_auto = [tso for tso in missing_models_rmm if tso not in pdn_tsos]
@@ -288,16 +272,10 @@ class HandlerMergeModels:
                     logging.info(f"OPDM and PDN missing for {missing_pdn_auto}")
 
                 replaced_with_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
-
-                additional_models = additional_models + pdn_auto_models
-
                 if replaced_with_pdn:
                     logging.info(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
 
-                # Remove any existing OPDM models that are being replaced with PDN models
-                if replaced_with_pdn:
-                    models = [m for m in models if m.get('pmd:TSO') not in pdn_tsos]
-                    logger.info(f"Removed OPDM models for TSO(s) {list(pdn_tsos)} (replaced with PDN models)")
+                models = models + pdn_auto_models
 
                 # Update exclusion list reason
                 for item in merged_model.excluded:
@@ -321,14 +299,20 @@ class HandlerMergeModels:
 
         # Exclude models that are outside scheduled AC net position deadband
         if acnp_dict:
-            models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            logger.info("Excluding models with incorrect ACNP")
+            filterd_models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            filterd_additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
+                                                      CONFORM_LOAD_FACTOR)
             if included_models:
-                # Recalculate with fresh TSO set after ACNP filter
-                models_tsos = {model['pmd:TSO'] for model in models}
-                missing_models = [tso for tso in included_models if tso not in models_tsos]
+                # Update missing models
+                missing_models = [m for m in included_models if m not in [m['pmd:TSO'] for m in filterd_models]]
+                missing_local_import = [m for m in local_import_models if m not in [m['pmd:TSO'] for m in filterd_additional_models]]
+                models = filterd_models
+                additional_models = filterd_additional_models
             elif model_replacement:
                 models_tsos = {model['pmd:TSO'] for model in models}
-                excluded_incorrect = [tso for tso in valid_model_tsos if tso not in models_tsos and tso not in missing_models]
+                excluded_incorrect = [tso for tso in valid_model_tsos if
+                                      tso not in models_tsos and tso not in missing_models]
                 missing_models = missing_models + excluded_incorrect
 
         # Execute consolidated model replacement logic
@@ -347,6 +331,13 @@ class HandlerMergeModels:
             acnp_threshold=ACNP_THRESHOLD,
             conform_load_factor=CONFORM_LOAD_FACTOR
         )
+
+        merged_model.merge_included_entity = [
+            ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__ for model in models]
+
+        merged_model.merge_included_entity.extend(
+            [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
+             additional_models])
 
         # Store models together with boundary set and check whether there are enough models to merge
         input_models = models + additional_models + [latest_boundary]
@@ -632,13 +623,14 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-05-29T15:30:00+00:00",
-            "merge_type": "EU",
+            "timestamp_utc": "2026-07-01T15:30:00+00:00",
+            "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             # "included": ["PSE", "LITGRID", "ELERING", "AST"],
-            "included": [],
+            "included": ["PSE", "LITGRID", "AST"],
+            # "included": [],
             "excluded": [],
-            "local_import": [],
+            "local_import": ["ELERING"],
             "replace_tso": [],
             "time_horizon": "1D",
             "version": "000",

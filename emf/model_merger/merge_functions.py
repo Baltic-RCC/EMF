@@ -500,7 +500,6 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
         expected_load = model['sum_conform_load'] * float(conform_load_factor)
         return expected_load > abs(float(model['ac_net_position']) - float(acnp))
 
-    logger.info("Excluding models with incorrect ACNP")
     excluded_tso_ids = set()
 
     # ACNP deadband filter
