@@ -12,7 +12,7 @@ dependencies = [
     "lxml",
     "edx",
     "opdm-api",
-    "triplets==0.0.11",
+    "triplets",
     "ndjson",
     "elasticsearch==8.15.0",
     "minio",
@@ -21,6 +21,7 @@ dependencies = [
     "pika",
     "saxonche",
     "croniter",
+    "pyarrow>=24.0.0",
 ]
 
 [[tool.uv.index]]

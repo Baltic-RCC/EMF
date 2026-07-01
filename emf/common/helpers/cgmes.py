@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import config
 from lxml import etree
+from triplets.export_schema import schemas
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +16,14 @@ def export_to_cgmes_zip(triplets: list):
         "entsoe": "http://entsoe.eu/CIM/SchemaExtension/3/1#",
     }
 
-    rdf_map = json.load(config.paths.cgm_worker.CGMES_v2_4_15_2014_08_07)
+    merged = pd.concat(triplets, ignore_index=True)
 
-    return pd.concat(triplets, ignore_index=True).export_to_cimxml(rdf_map=rdf_map,
-                                                                   namespace_map=namespace_map,
-                                                                   export_undefined=False,
-                                                                   export_type="xml_per_instance_zip_per_xml",
-                                                                   debug=False,
-                                                                   export_to_memory=True)
+    return merged.export_to_cimxml(rdf_map=schemas.ENTSOE_CGMES_2_4_15_552_ED1,
+                                   namespace_map=namespace_map,
+                                   export_undefined=False,
+                                   export_type="xml_per_instance_zip_per_xml",
+                                   debug=False,
+                                   export_to_memory=True)
 
 
 def get_metadata_from_rdfxml(parsed_xml: etree._ElementTree):
