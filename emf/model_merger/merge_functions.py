@@ -619,6 +619,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # Reconnecting outages from network-config list
     outages_updated = {}
+    filtered_model_outages["eic"] = (filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
     for index, outage in filtered_model_outages.iterrows():
         try:
             if merged_model.network.connect(outage['mrid']):
@@ -640,6 +641,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
             continue
 
     # Applying outages from UAP
+    mapped_outages["eic"] = (mapped_outages["eic"].astype(object).where(mapped_outages["eic"].notna(), None))
     for index, outage in mapped_outages.iterrows():
         try:
             if merged_model.network.disconnect(outage['mrid']):
