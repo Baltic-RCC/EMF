@@ -17,8 +17,6 @@ def export_to_cgmes_zip(triplets: list):
     }
 
     merged = pd.concat(triplets, ignore_index=True)
-    # Ensure all VALUE column values are string
-    merged['VALUE'] = merged['VALUE'].astype(str)
 
     return merged.export_to_cimxml(rdf_map=schemas.ENTSOE_CGMES_2_4_15_552_ED1,
                                    namespace_map=namespace_map,
