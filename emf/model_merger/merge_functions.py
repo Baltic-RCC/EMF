@@ -668,6 +668,12 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     if merged_model.outages_unmapped:
         merged_model.outages = False
 
+    # Sanitise NaN values in merge report
+    merged_model.outages_updated = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
+                                    for d in merged_model.outages_updated]
+    merged_model.outages_unmapped = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
+                                     for d in merged_model.outages_unmapped]
+
     return merged_model
 
 
