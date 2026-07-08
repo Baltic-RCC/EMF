@@ -73,10 +73,12 @@ if TIMESTAMP:
     timeframe_config_json[0]['reference_time_end'] = TASK_REFERENCE_TIME
     timeframe_config_json[0]['period_start'] = 'PT0M'
     timeframe_config_json[0]['period_end'] = 'PT1H'
+elif RUN_TYPE in ('IntraDayCGM/EOD', 'IntraDayRMM/EOD'):
+    TIMESTAMP = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).isoformat()
 else:
     day_start = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).replace(hour=0, minute=0, second=0,
                                                                                        microsecond=0)
-    if RUN_TYPE in ('IntradayCGH/1', 'IntradayRTH/1'):
+    if RUN_TYPE in ('IntraDayCGM/1', 'IntraDayRMM/1'):
         day_start = day_start + parse_duration('-P1D')
     next_run = croniter.croniter(run_at, day_start).get_next(datetime).replace(second=1)
     TIMESTAMP = next_run.isoformat()
