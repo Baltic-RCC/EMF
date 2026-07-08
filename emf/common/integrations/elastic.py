@@ -22,12 +22,17 @@ class Elastic:
                  server: str = ELK_SERVER,
                  api_key: str = ELK_TOKEN,
                  ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
-                 debug: bool = False):
+                 debug: bool = False,
+                 request_timeout: int = int(REQUEST_TIMEOUT),
+                 max_retries: int = int(MAX_RETRIES)):
 
         self.server = server
         self.api_key = api_key
         self.ssl_verify = ssl_verify
         self.debug = debug
+
+        self.max_retries = max_retries
+        self.request_timeout = request_timeout
 
         # Override SSL CERT FILE from ENV variables if defined
         ssl_cert_file = None
@@ -39,7 +44,9 @@ class Elastic:
                 logger.debug(f"Using SSL certificate file: {ssl_cert_file}")
 
         # Create client
-        self.client = Elasticsearch(self.server, api_key=self.api_key, verify_certs=self.ssl_verify, ca_certs=ssl_cert_file)
+        self.client = Elasticsearch(self.server,
+                                    api_key=self.api_key, verify_certs=self.ssl_verify, ca_certs=ssl_cert_file,
+                                    request_timeout=request_timeout, max_retries=max_retries)
 
     @staticmethod
     def send_to_elastic(index: str,
@@ -120,6 +127,7 @@ class Elastic:
         :param debug: flag for debug mode
         :return:
         """
+
         def __generate_id(element):
             doc_id = id_separator.join([str(element.get(key, '')) for key in id_metadata_list])
             if hashing:
@@ -144,9 +152,11 @@ class Elastic:
 
         if id_from_metadata:
             id_separator = "_"
-            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index, "_id": __generate_id(element)}}, element)]
+            json_message_list = [value for element in json_message_list for value in
+                                 ({"index": {"_index": index, "_id": __generate_id(element)}}, element)]
         else:
-            json_message_list = [value for element in json_message_list for value in ({"index": {"_index": index}}, element)]
+            json_message_list = [value for element in json_message_list for value in
+                                 ({"index": {"_index": index}}, element)]
 
         response_list = []
         for batch in range(0, len(json_message_list), batch_size):
@@ -155,7 +165,7 @@ class Elastic:
                 logger.debug(f"Sending batch ({batch}-{batch + batch_size})/{len(json_message_list)} to {url}")
             headers = {"Authorization": f"ApiKey {api_key}", "Content-Type": "application/x-ndjson"}
             response = requests.post(url=url,
-                                     data=(ndjson.dumps(json_message_list[batch:batch + batch_size])+"\n").encode(),
+                                     data=(ndjson.dumps(json_message_list[batch:batch + batch_size]) + "\n").encode(),
                                      timeout=None,
                                      headers=headers,
                                      verify=ssl_verify)
@@ -251,7 +261,6 @@ class HandlerSendToElastic:
                  auth: object | None = None,
                  ssl_verify: bool = json.loads(ELK_SSL_VERIFY.lower()),
                  debug: bool = False):
-
         self.index = index
         self.server = server
         self.id_from_metadata = id_from_metadata
@@ -268,8 +277,7 @@ class HandlerSendToElastic:
         self.session.headers.update(headers)
         self.session.auth = auth
 
-    def handle(self, message: bytes, properties: dict,  **kwargs):
-
+    def handle(self, message: bytes, properties: dict, **kwargs):
         # Send to Elastic
         response = Elastic.send_to_elastic_bulk(index=self.index,
                                                 json_message_list=json.loads(message),
@@ -285,7 +293,6 @@ class HandlerSendToElastic:
 
 
 if __name__ == '__main__':
-
     # Create client
     server = "access_url"
     api_key = "acces_token"

@@ -3,6 +3,7 @@ from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from lxml import etree
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,23 @@ def get_xml_from_zip(zip_file_path: str):
         xml_tree_object = etree.parse(BytesIO(file_bytes))
 
     return xml_tree_object
+
+
+def sanitize_nan(obj):
+    """
+    Recursively sanitizes NaN values to None (null in JSON) in nested structures.
+    Args:
+        obj: Any object (dict, list, float, etc.)
+    Returns:
+        Sanitized object with NaN replaced by None
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_nan(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_nan(item) for item in obj]
+    elif isinstance(obj, float) and math.isnan(obj):
+        return None
+    return obj
 
 
 if __name__ == "__main__":

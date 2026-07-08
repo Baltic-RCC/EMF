@@ -17,6 +17,7 @@ from emf.model_merger import temporary
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
+from emf.common.helpers.utils import sanitize_nan
 
 
 logger = logging.getLogger(__name__)
@@ -387,7 +388,7 @@ def generate_merge_report(merged_model: object, task: dict):
     # Set trustability tag
     report.update(evaluate_trustability(report, task['task_properties']))
 
-    return report
+    return sanitize_nan(report)
 
 
 def evaluate_trustability(report, properties) -> dict:
@@ -500,7 +501,6 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
         expected_load = model['sum_conform_load'] * float(conform_load_factor)
         return expected_load > abs(float(model['ac_net_position']) - float(acnp))
 
-    logger.info("Excluding models with incorrect ACNP")
     excluded_tso_ids = set()
 
     # ACNP deadband filter
@@ -620,6 +620,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # Reconnecting outages from network-config list
     outages_updated = {}
+    filtered_model_outages["eic"] = (filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
     for index, outage in filtered_model_outages.iterrows():
         try:
             if merged_model.network.connect(outage['mrid']):
@@ -641,6 +642,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
             continue
 
     # Applying outages from UAP
+    mapped_outages["eic"] = (mapped_outages["eic"].astype(object).where(mapped_outages["eic"].notna(), None))
     for index, outage in mapped_outages.iterrows():
         try:
             if merged_model.network.disconnect(outage['mrid']):
@@ -666,6 +668,12 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     if merged_model.outages_unmapped:
         merged_model.outages = False
+
+    # Sanitise NaN values in merge report
+    merged_model.outages_updated = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
+                                    for d in merged_model.outages_updated]
+    merged_model.outages_unmapped = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
+                                     for d in merged_model.outages_unmapped]
 
     return merged_model
 
