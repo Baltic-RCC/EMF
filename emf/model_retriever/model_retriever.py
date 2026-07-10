@@ -130,6 +130,11 @@ class HandlerModelsToValidator:
             # Append message headers with OPDM root metadata
             extracted_meta = {key: value for key, value in opdm_object.items() if isinstance(value, str)}
             properties.headers.update(extracted_meta)
+            # Set priority based on IGM type
+            if extracted_meta['data-source'] == 'OPDM':
+                properties.__dict__['priority'] = \
+                    7 if extracted_meta['pmd:TSO'] in ('LITGRID', 'AST', 'ELERING','PSE') else (
+                    6 if extracted_meta['pmd:timeHorizon'] == '1D' else 5)
 
         # Publish to other queue/exchange
         rmq_channel = kwargs.get('channel', None)
