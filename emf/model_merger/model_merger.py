@@ -623,14 +623,12 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-07-01T15:30:00+00:00",
+            "timestamp_utc": "2026-07-13T15:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            # "included": ["PSE", "LITGRID", "ELERING", "AST"],
-            "included": ["PSE", "LITGRID", "AST"],
-            # "included": [],
+            "included": ["PSE", "LITGRID", "ELERING", "AST"],
             "excluded": [],
-            "local_import": ["ELERING"],
+            "local_import": [],
             "replace_tso": [],
             "time_horizon": "1D",
             "version": "000",
@@ -641,11 +639,15 @@ if __name__ == "__main__":
             "outage_update": "True",
             "force_outage_fix": "False",
             "upload_to_opdm": "False",
-            "upload_to_minio": "False",
-            "send_merge_report": "False",
+            "upload_to_minio": "True",
+            "send_merge_report": "True",
             "lvl8_reporting": "False"
         }
     }
+    class Properties(dict):
+        pass
+    properties = Properties()
+    properties.headers = {}
 
     worker = HandlerMergeModels()
     finished_task = worker.handle(sample_task, {})
