@@ -81,8 +81,8 @@ def get_network_elements(network: pypowsybl.network,
     elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
     elements = elements.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
 
-    # Need to ensure that column 'isHvdc' is present if DANGLING_LINE type is requested
-    if element_type is pypowsybl.network.ElementType.DANGLING_LINE:
+    # Need to ensure that column 'isHvdc' is present if BOUNDARY_LINE type is requested
+    if element_type is pypowsybl.network.ElementType.BOUNDARY_LINE:
         if 'isHvdc' not in elements.columns:
             elements['isHvdc'] = ''
 
@@ -121,8 +121,8 @@ def get_model_outages(network: pypowsybl.network):
     lines = lines.merge(_substations, left_on='substation_id', right_index=True, suffixes=(None, '_substation'))
     lines['element_type'] = 'LINE'
 
-    dlines = get_network_elements(network, pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
-    dlines['element_type'] = 'DANGLING_LINE'
+    dlines = get_network_elements(network, pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(names=['grid_id'])
+    dlines['element_type'] = 'BOUNDARY_LINE'
 
     gens = get_network_elements(network, pypowsybl.network.ElementType.GENERATOR).reset_index(names=['grid_id'])
     gens['element_type'] = 'GENERATOR'
