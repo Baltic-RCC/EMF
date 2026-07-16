@@ -533,15 +533,29 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
 
 
 def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold, conform_load_factor):
+    """
+    Drop replacement models whose AC net position deviates too much from the
+    scheduled ACNP for their TSO, or whose conform load cannot cover that
+    deviation.
 
-    models = models[
-        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
-        ((models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs() <= float(acnp_threshold))]
-    models = models[
-        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
-        (models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs())]
+    Inputs are sanitized so malformed data (missing columns, non-numeric or
+    missing values, an invalid acnp_dict/threshold/factor) never raises -
+    rows that cannot be evaluated are kept unfiltered instead of failing.
+    """
+    required_columns = {'pmd:TSO', 'ac_net_position', 'sum_conform_load'}
+    if models.empty or not isinstance(acnp_dict, dict) or not required_columns.issubset(models.columns):
+        return models
+    try:
+        threshold, load_factor = float(acnp_threshold), float(conform_load_factor)
+    except (TypeError, ValueError):
+        return models
 
-    return models
+    acnp = pd.to_numeric(models['pmd:TSO'].map(acnp_dict), errors='coerce')
+    deviation = (pd.to_numeric(models['ac_net_position'], errors='coerce') - acnp).abs()
+    load = pd.to_numeric(models['sum_conform_load'], errors='coerce')
+
+    keep = acnp.isna() | (deviation.notna() & (deviation <= threshold) & (load * load_factor > deviation))
+    return models[keep]
 
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
