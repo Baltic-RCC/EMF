@@ -73,7 +73,7 @@ if TIMESTAMP:
     timeframe_config_json[0]['reference_time_end'] = TASK_REFERENCE_TIME
     timeframe_config_json[0]['period_start'] = 'PT0M'
     timeframe_config_json[0]['period_end'] = 'PT1H'
-elif RUN_TYPE in ('IntraDayCGM/EOD', 'IntraDayRMM/EOD'):
+elif RUN_TYPE in ('IntraDayCGM/EOD', 'IntraDayRMM/EOD', 'WeekAheadRMM'):
     TIMESTAMP = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).isoformat()
 else:
     day_start = datetime.now(tz=timezone(process_config_json[0]['time_zone'])).replace(hour=0, minute=0, second=0,
