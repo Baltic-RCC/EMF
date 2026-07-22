@@ -58,8 +58,10 @@ class MergedModel:
     scaled: bool = None
     replaced: bool = None
     outages: bool = None
+    acnp_schedule_replaced: bool = None
     uploaded_to_opde: bool = False
     uploaded_to_minio: bool = False
+
 
     # Extended data
     loadflow: List = field(default_factory=list)
@@ -69,6 +71,8 @@ class MergedModel:
     replaced_entity: List = field(default_factory=list)
     replacement_reason: List = field(default_factory=list)
     outages_updated: List = field(default_factory=list)
+    acnp_schedule_replaced_entity: List = field(default_factory=list)
+    acnp_schedule_missing: List = field(default_factory=list)
     outages_unmapped: List = field(default_factory=list)
     merge_included_entity: List = field(default_factory=list)
 
@@ -208,7 +212,8 @@ class HandlerMergeModels:
         if not schedule_start:
             schedule_start = scenario_datetime
 
-        ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
+        ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start,
+                                            merged_model=merged_model)
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
         acnp_dict = calculate_ac_net_position(ac_schedules)
 

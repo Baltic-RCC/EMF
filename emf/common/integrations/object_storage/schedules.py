@@ -195,13 +195,15 @@ def replace_missing_acnp_schedules(schedules_df: pd.DataFrame,
                                    time_horizon: str,
                                    scenario_timestamp: str,
                                    area_eic_map: dict,
-                                   area_name_map: dict) -> pd.DataFrame:
+                                   area_name_map: dict,
+                                   merged_model: object = None) -> pd.DataFrame:
     """
     Fill in ACNP schedules missing for some TSOs following the ID/1D/2D replacement chains.
     Horizons with no defined chain are returned unchanged.
     """
     tso_list = list(set(area_name_map.values()))
     missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list)
+    replaced_entity = []
 
     for step in _acnp_replacement_steps(time_horizon):
         if not missing_in and not missing_out:
@@ -220,27 +222,44 @@ def replace_missing_acnp_schedules(schedules_df: pd.DataFrame,
         ]).drop_duplicates()
 
         if not replacements.empty:
+            replaced_tsos = sorted(
+                (set(replacements["TimeSeries.in_Domain.party"]) & set(missing_in)) |
+                (set(replacements["TimeSeries.out_Domain.party"]) & set(missing_out))
+            )
             logger.info(f"Replacing missing ACNP schedules for time horizon '{time_horizon}' with "
                        f"{step['status_field']}='{step['status_value']}' "
                        f"(time horizon '{step['time_horizon']}', day offset {step['day_offset']}) for TSO(s): "
-                       f"in={sorted(set(replacements['TimeSeries.in_Domain.party']) & set(missing_in))}, "
-                       f"out={sorted(set(replacements['TimeSeries.out_Domain.party']) & set(missing_out))}")
+                       f"{replaced_tsos}")
+            replaced_entity.extend([{"tso": tso, "time_horizon": step["time_horizon"],
+                                     "day_offset": step["day_offset"], "status_field": step["status_field"],
+                                     "status_value": step["status_value"]} for tso in replaced_tsos])
             schedules_df = pd.concat([schedules_df, replacements], ignore_index=True)
             missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list)
 
-    if missing_in or missing_out:
-        logger.warning(f"No replacement ACNP schedules found for in={missing_in}, out={missing_out}")
+    missing_tsos = sorted(set(missing_in) | set(missing_out))
+    if missing_tsos:
+        logger.warning(f"No replacement ACNP schedules found for: {missing_tsos}")
+
+    if merged_model is not None:
+        merged_model.acnp_schedule_replaced_entity.extend(replaced_entity)
+        if missing_tsos:
+            merged_model.acnp_schedule_missing.extend(missing_tsos)
+            merged_model.acnp_schedule_replaced = False
+        elif replaced_entity:
+            merged_model.acnp_schedule_replaced = True
 
     return schedules_df
 
 
 def query_acnp_schedules(time_horizon: str,
-                         scenario_timestamp: str | datetime) -> dict | None:
+                         scenario_timestamp: str | datetime,
+                         merged_model: object = None) -> dict | None:
     """
     Method to get ACNP schedules (business type - B64). For the ID, 1D and 2D horizons, schedules
     missing for some TSOs are replaced following the chains, see replace_missing_acnp_schedules.
     :param time_horizon: time horizon of schedules
     :param scenario_timestamp: scenario timestamp in utc. Example: '2023-08-08T23:30:00Z'
+    :param merged_model: optional MergedModel instance to log the replacement outcome onto
     :return: AC schedules in dict format
     """
     # Create Elastic client
@@ -268,7 +287,7 @@ def query_acnp_schedules(time_horizon: str,
             columns=["value", "in_domain", "out_domain", "TimeSeries.in_Domain.party", "TimeSeries.out_Domain.party"])
 
     schedules_df = replace_missing_acnp_schedules(schedules_df, service, time_horizon, scenario_timestamp,
-                                                  area_eic_map, area_name_map)
+                                                  area_eic_map, area_name_map, merged_model=merged_model)
 
     if schedules_df.empty:
         return None

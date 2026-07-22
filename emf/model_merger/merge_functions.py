@@ -396,7 +396,7 @@ def evaluate_trustability(report, properties) -> dict:
     reason = None
     if properties["merge_type"] == "BA":
         # Evaluate model trustability based on defined config and report keys
-        report_keys = ['scaled', 'replaced', 'outages']
+        report_keys = ['scaled', 'replaced', 'outages', 'acnp_schedule_replaced']
         property_keys = ['scaling', 'replacement']
 
         # Inline logic functions
@@ -419,6 +419,7 @@ def evaluate_trustability(report, properties) -> dict:
             "scaled": "scaling failed",
             "replaced": "replacement failed",
             "outages": "outage fixing failed",
+            "acnp_schedule_replaced": "acnp schedule replacement failed",
         }
 
         # Decide trust level
