@@ -1,0 +1,389 @@
+[
+  {
+    "area.eic": "10Y1001A1001A39I",
+    "area.code": "EE",
+    "area.name": "Estonia",
+    "party.name": "ELERING",
+    "party.eic": "10X1001A1001A39W",
+    "opdm.shortname": "ee",
+    "opdm.longname": "EE"
+  },
+  {
+    "area.eic": "10Y1001A1001A59C",
+    "area.code": "IE_NI",
+    "area.name": "Ireland/UK (Northern Ireland)",
+    "party.name": "EIRGRID",
+    "party.eic": "10X1001A1001A531",
+    "opdm.shortname": null,
+    "opdm.longname": null
+  },
+  {
+    "area.eic": "10Y1001A1001A990",
+    "area.code": "MD",
+    "area.name": "Moldova",
+    "party.name": "TRANSELECTRICA",
+    "party.eic": "10XRO-TEL------2",
+    "opdm.shortname": null,
+    "opdm.longname": null
+  },
+  {
+    "area.eic": "10Y1001C--000182",
+    "area.code": "UA",
+    "area.name": "Ukraine",
+    "party.name": "UA_WPS",
+    "party.eic": "10X1001C--00001X",
+    "opdm.shortname": null,
+    "opdm.longname": null
+  },
+  {
+    "area.eic": "10Y1001C--00100H",
+    "area.code": "XK",
+    "area.name": "Kosovo",
+    "party.name": "KOSOVA-TSMO",
+    "party.eic": "10XRKS-KOSTT-007",
+    "opdm.shortname": "kostt",
+    "opdm.longname": "KOSTT"
+  },
+  {
+    "area.eic": "10YAL-KESH-----5",
+    "area.code": "AL",
+    "area.name": "Albania",
+    "party.name": "OST",
+    "party.eic": "10XAL-KESH-----J",
+    "opdm.shortname": "al",
+    "opdm.longname": "AL"
+  },
+  {
+    "area.eic": "10YAT-APG------L",
+    "area.code": "AT",
+    "area.name": "Austria",
+    "party.name": "APG",
+    "party.eic": "10XAT-APG------Z",
+    "opdm.shortname": "apg",
+    "opdm.longname": "APG"
+  },
+  {
+    "area.eic": "10YBA-JPCC-----D",
+    "area.code": "BA",
+    "area.name": "Bosnia and Herzegovina",
+    "party.name": "NOSBIH",
+    "party.eic": "10XBA-JPCCZEKC-K",
+    "opdm.shortname": "ba",
+    "opdm.longname": "BA"
+  },
+  {
+    "area.eic": "10YBE----------2",
+    "area.code": "BE",
+    "area.name": "Belgium",
+    "party.name": "ELIA",
+    "party.eic": "10X1001A1001A094",
+    "opdm.shortname": "be",
+    "opdm.longname": "BE"
+  },
+  {
+    "area.eic": "10YCA-BULGARIA-R",
+    "area.code": "BG",
+    "area.name": "Bulgaria",
+    "party.name": "ESO",
+    "party.eic": "10XBG-ESO------A",
+    "opdm.shortname": "bg",
+    "opdm.longname": "BG"
+  },
+  {
+    "area.eic": "10YCH-SWISSGRIDZ",
+    "area.code": "CH",
+    "area.name": "Switzerland",
+    "party.name": "SWISSGRID",
+    "party.eic": "10XCH-SWISSGRIDC",
+    "opdm.shortname": "ch",
+    "opdm.longname": "CH"
+  },
+  {
+    "area.eic": "10YCS-CG-TSO---S",
+    "area.code": "ME",
+    "area.name": "Montenegro",
+    "party.name": "CGES",
+    "party.eic": "10XCS-CG-TSO---5",
+    "opdm.shortname": "cges",
+    "opdm.longname": "CGES"
+  },
+  {
+    "area.eic": "10YCS-SERBIATSOV",
+    "area.code": "RS",
+    "area.name": "Serbia",
+    "party.name": "EMS",
+    "party.eic": "10XCS-SERBIATSO8",
+    "opdm.shortname": "ems",
+    "opdm.longname": "EMS"
+  },
+  {
+    "area.eic": "10YCZ-CEPS-----N",
+    "area.code": "CZ",
+    "area.name": "Czech Republic",
+    "party.name": "CEPS",
+    "party.eic": "10XCZ-CEPS-GRIDE",
+    "opdm.shortname": "ceps",
+    "opdm.longname": "CEPS"
+  },
+  {
+    "area.eic": "10YDE-ENBW-----N",
+    "area.code": "DE-TRANSNETBW",
+    "area.name": "DE_Transnet",
+    "party.name": "D4",
+    "party.eic": "10XDE-ENBW--TNGX",
+    "opdm.shortname": "d4",
+    "opdm.longname": "D4"
+  },
+  {
+    "area.eic": "10YDE-EON------1",
+    "area.code": "DE-TENNET_DE",
+    "area.name": "DE_Tennet",
+    "party.name": "TTG",
+    "party.eic": "10XDE-EON-NETZ-C",
+    "opdm.shortname": "d2",
+    "opdm.longname": "D2"
+  },
+  {
+    "area.eic": "10YDE-RWENET---I",
+    "area.code": "DE-AMPRION-SCHED",
+    "area.name": "DE_Amprion",
+    "party.name": "D7",
+    "party.eic": "10XDE-RWENET---W",
+    "opdm.shortname": "amprion",
+    "opdm.longname": "Amprion"
+  },
+  {
+    "area.eic": "10YDE-VE-------2",
+    "area.code": "DE-50HERTZ",
+    "area.name": "DE_50Hertz",
+    "party.name": "50Hertz",
+    "party.eic": "10XDE-VE-TRANSMK",
+    "opdm.shortname": "50hertz",
+    "opdm.longname": "50Hertz"
+  },
+  {
+    "area.eic": "10YDK-1--------W",
+    "area.code": "DK1",
+    "area.name": "Denmark DK1",
+    "party.name": "DKW",
+    "party.eic": "10X1001A1001A248",
+    "opdm.shortname": "d1",
+    "opdm.longname": "D1"
+  },
+  {
+    "area.eic": "10YDK-2--------M",
+    "area.code": "DK2",
+    "area.name": "Denmark DK2",
+    "party.name": "DKE",
+    "party.eic": "10X1001A1001A248",
+    "opdm.shortname": "dk",
+    "opdm.longname": "DK"
+  },
+  {
+    "area.eic": "10YES-REE------0",
+    "area.code": "ES",
+    "area.name": "Spain",
+    "party.name": "REE",
+    "party.eic": "10XES-REE------E",
+    "opdm.shortname": "es",
+    "opdm.longname": "ES"
+  },
+  {
+    "area.eic": "10YFI-1--------U",
+    "area.code": "FI",
+    "area.name": "Finland",
+    "party.name": "FI",
+    "party.eic": "10X1001A1001A264",
+    "opdm.shortname": "fi",
+    "opdm.longname": "FI"
+  },
+  {
+    "area.eic": "10YFR-RTE------C",
+    "area.code": "FR",
+    "area.name": "France",
+    "party.name": "RTEFRANCE",
+    "party.eic": "10XFR-RTE------Q",
+    "opdm.shortname": "fr",
+    "opdm.longname": "FR"
+  },
+  {
+    "area.eic": "10YGB----------A",
+    "area.code": "GB",
+    "area.name": "United Kingdom",
+    "party.name": "NGET",
+    "party.eic": "10X1001A1001A515",
+    "opdm.shortname": "gb",
+    "opdm.longname": "GB"
+  },
+  {
+    "area.eic": "10YGR-HTSO-----Y",
+    "area.code": "GR",
+    "area.name": "Greece",
+    "party.name": "IPTO",
+    "party.eic": "10XGR-HTSO-----B",
+    "opdm.shortname": "gr",
+    "opdm.longname": "GR"
+  },
+  {
+    "area.eic": "10YHR-HEP------M",
+    "area.code": "HR",
+    "area.name": "Croatia",
+    "party.name": "HOPS",
+    "party.eic": "10XHR-HEP-OPS--A",
+    "opdm.shortname": "hops",
+    "opdm.longname": "HOPS"
+  },
+  {
+    "area.eic": "10YHU-MAVIR----U",
+    "area.code": "HU",
+    "area.name": "Hungary",
+    "party.name": "MAVIR",
+    "party.eic": "10X1001A1001A329",
+    "opdm.shortname": "hu",
+    "opdm.longname": "HU"
+  },
+  {
+    "area.eic": "10YIT-GRTN-----B",
+    "area.code": "IT",
+    "area.name": "Italy",
+    "party.name": "TERNA",
+    "party.eic": "10X1001A1001A345",
+    "opdm.shortname": "it",
+    "opdm.longname": "IT"
+  },
+  {
+    "area.eic": "10YLT-1001A0008Q",
+    "area.code": "LT",
+    "area.name": "Lithuania",
+    "party.name": "LITGRID",
+    "party.eic": "10X1001A1001A55Y",
+    "opdm.shortname": "litgrid",
+    "opdm.longname": "Litgrid"
+  },
+  {
+    "area.eic": "10YLU-CEGEDEL-NQ",
+    "area.code": "LU",
+    "area.name": "Luxembourg",
+    "party.name": "CREOS",
+    "party.eic": "21X000000001333E",
+    "opdm.shortname": "creos",
+    "opdm.longname": "Creos"
+  },
+  {
+    "area.eic": "10YLV-1001A00074",
+    "area.code": "LV",
+    "area.name": "Latvia",
+    "party.name": "AST",
+    "party.eic": "10X1001A1001B54W",
+    "opdm.shortname": "ast",
+    "opdm.longname": "AST"
+  },
+  {
+    "area.eic": "10YMA-ONE------O",
+    "area.code": "MO",
+    "area.name": "Morocco",
+    "party.name": "REE",
+    "party.eic": "10XES-REE------E",
+    "opdm.shortname": null,
+    "opdm.longname": null
+  },
+  {
+    "area.eic": "10YMK-MEPSO----8",
+    "area.code": "MK",
+    "area.name": "Macedonia",
+    "party.name": "MEPSO",
+    "party.eic": "10XMK-MEPSO----M",
+    "opdm.shortname": "mepso",
+    "opdm.longname": "MEPSO"
+  },
+  {
+    "area.eic": "10YNL----------L",
+    "area.code": "NL",
+    "area.name": "Netherlands",
+    "party.name": "TTN",
+    "party.eic": "10X1001A1001A361",
+    "opdm.shortname": "nl",
+    "opdm.longname": "NL"
+  },
+  {
+    "area.eic": "10YNO-0--------C",
+    "area.code": "NO",
+    "area.name": "Norway",
+    "party.name": "STATNETT",
+    "party.eic": "10X1001A1001A38Y",
+    "opdm.shortname": "no",
+    "opdm.longname": "NO"
+  },
+  {
+    "area.eic": "10YPL-AREA-----S",
+    "area.code": "PL",
+    "area.name": "Poland",
+    "party.name": "PSE",
+    "party.eic": "10XPL-TSO------P",
+    "opdm.shortname": "pl",
+    "opdm.longname": "PL"
+  },
+  {
+    "area.eic": "10YPT-REN------W",
+    "area.code": "PT",
+    "area.name": "Portugal",
+    "party.name": "REN",
+    "party.eic": "10XPT-REN------9",
+    "opdm.shortname": "pt",
+    "opdm.longname": "PT"
+  },
+  {
+    "area.eic": "10YRO-TEL------P",
+    "area.code": "RO",
+    "area.name": "Romania",
+    "party.name": "Transelectrica",
+    "party.eic": "10XRO-TEL------2",
+    "opdm.shortname": "ro",
+    "opdm.longname": "RO"
+  },
+  {
+    "area.eic": "10YSE-1--------K",
+    "area.code": "SE",
+    "area.name": "Sweden",
+    "party.name": "SVK",
+    "party.eic": "10X1001A1001A418",
+    "opdm.shortname": "se",
+    "opdm.longname": "SE"
+  },
+  {
+    "area.eic": "10YSI-ELES-----O",
+    "area.code": "SI",
+    "area.name": "Slovenia",
+    "party.name": "ELES",
+    "party.eic": "10XSI-ELES-----1",
+    "opdm.shortname": "eles",
+    "opdm.longname": "ELES"
+  },
+  {
+    "area.eic": "10YSK-SEPS-----K",
+    "area.code": "SK",
+    "area.name": "Slovak Republic",
+    "party.name": "SEPS",
+    "party.eic": "10XSK-SEPS-GRIDB",
+    "opdm.shortname": "seps",
+    "opdm.longname": "SEPS"
+  },
+  {
+    "area.eic": "10YTR-TEIAS----W",
+    "area.code": "TR",
+    "area.name": "Turkey",
+    "party.name": "TEIAS",
+    "party.eic": "10XTR-TEIAS----9",
+    "opdm.shortname": "teias",
+    "opdm.longname": "TEIAS"
+  },
+  {
+    "area.eic": "10YUA-WEPS-----0",
+    "area.code": "UA",
+    "area.name": "Ukraine",
+    "party.name": "UKRENERGO",
+    "party.eic": "10X1001C--00001X",
+    "opdm.shortname": "ua",
+    "opdm.longname": "UA"
+  }
+]
