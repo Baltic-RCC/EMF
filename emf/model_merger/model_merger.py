@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 executor = ThreadPoolExecutor(max_workers=20)
 
+# Retrieve the list of all TSOs ever
+config_areas_mapping = config.paths.cgm_worker.config_areas_mapping
+tsos_config_json = json.load(config_areas_mapping)
+possible_tsos = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
 
 def async_call(function, callback=None, *args, **kwargs):
     future = executor.submit(function, *args, **kwargs)
@@ -212,28 +216,30 @@ class HandlerMergeModels:
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
         acnp_dict = calculate_ac_net_position(ac_schedules)
 
-        # Collect valid models from ObjectStorage
-        downloaded_models = get_latest_models_and_download(time_horizon=time_horizon,
-                                                           scenario_date=scenario_datetime,
-                                                           valid=True,
-                                                           data_source='OPDM')
-        latest_boundary = get_latest_boundary()
 
-        # Filter out models that are not to be used in merge
-        models = merge_functions.filter_models(models=downloaded_models,
-                                               included_models=included_models,
-                                               excluded_models=excluded_models,
-                                               filter_on='pmd:TSO')
+        # Create list of only the TSOs that are needed for the merge, to query Elastic only for *their* metadata
+        desired_tsos = merge_functions.filter_tsos(tsos=possible_tsos,
+                                                   included_models=included_models,
+                                                   excluded_models=excluded_models)
+        logger.info(f"Compiled the desired tsos list as {desired_tsos}")
+        # but since that did not take into account local import desired TSOs, have to add those as well:
+        if local_import_models: desired_tsos = desired_tsos+local_import_models
+
+        # Collect valid models from ObjectStorage (this is just the metadata of the models, not the actual zips)
+        models = get_latest_models_and_download(time_horizon=time_horizon,
+                                                scenario_date=scenario_datetime,
+                                                valid=True,
+                                                tso=desired_tsos,
+                                                data_source='OPDM')
+        latest_boundary = get_latest_boundary()
 
         # Get additional models from ObjectStorage if local import is configured
         if local_import_models:
             additional_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                                scenario_date=scenario_datetime,
                                                                valid=True,
+                                                               tso=desired_tsos,
                                                                data_source='PDN')
-            additional_models = merge_functions.filter_models(models=additional_models,
-                                                              included_models=local_import_models,
-                                                              filter_on='pmd:TSO')
 
             additional_tsos = {model['pmd:TSO'] for model in additional_models}
             missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
@@ -259,10 +265,8 @@ class HandlerMergeModels:
                 pdn_auto_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                                  scenario_date=scenario_datetime,
                                                                  valid=True,
+                                                                 tso=desired_tsos,
                                                                  data_source='PDN')
-                pdn_auto_models = merge_functions.filter_models(models=pdn_auto_models,
-                                                                included_models=missing_models_rmm,
-                                                                filter_on='pmd:TSO')
 
                 # Cache PDN TSO set
                 pdn_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
@@ -623,12 +627,17 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-07-13T15:30:00+00:00",
+            "timestamp_utc": "2026-07-17T10:30:00+00:00",       # replacement testing
+            #"timestamp_utc": "2026-07-16T17:30:00+00:00",      # no replacements
+            #"merge_type": "EU",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
-            "included": ["PSE", "LITGRID", "ELERING", "AST"],
-            "excluded": [],
-            "local_import": [],
+            #"included": ["PSE", "LITGRID", "AST"],
+            "included": ["PSE"],
+            #"excluded": ["DKE", "DKW", "D7", "UKRENERGO", "TEIAS"],
+            # EXCLUDING ALL BUT ELIA, TTG, 50Hertz FOR TESTING
+            #"excluded": ["ELERING", "EIRGRID", "TRANSELECTRICA", "UA_WPS", "KOSOVA-TSMO", "OST", "APG", "NOSBIH", "ESO", "SWISSGRID", "CGES", "EMS", "CEPS", "D4", "REE", "FI", "RTEFRANCE", "NGET", "IPTO", "HOPS", "MAVIR", "TERNA", "LITGRID", "CREOS", "AST", "REE", "MEPSO", "TTN", "STATNETT", "PSE", "REN", "Transelectrica", "SVK", "ELES", "SEPS", "TEIAS", "UKRENERGO"],
+            "local_import": ["ELERING", "AST", "LITGRID"],
             "replace_tso": [],
             "time_horizon": "1D",
             "version": "000",
@@ -639,15 +648,11 @@ if __name__ == "__main__":
             "outage_update": "True",
             "force_outage_fix": "False",
             "upload_to_opdm": "False",
-            "upload_to_minio": "True",
-            "send_merge_report": "True",
+            "upload_to_minio": "False",
+            "send_merge_report": "False",
             "lvl8_reporting": "False"
         }
     }
-    class Properties(dict):
-        pass
-    properties = Properties()
-    properties.headers = {}
 
     worker = HandlerMergeModels()
     finished_task = worker.handle(sample_task, {})

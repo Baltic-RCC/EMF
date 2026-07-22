@@ -300,50 +300,50 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
     Set P and Q to 0 - so that no additional consumption or production is on tie line
     """
     logger.info("Configuring paired boundary points equivalent injections: p0/q0 = 0.0")
-    boundary_lines = network.get_boundary_lines(all_attributes=True)
-    paired_boundary_lines = boundary_lines[boundary_lines['paired'] == True]
-    if paired_boundary_lines.empty:
-        logger.warning(f"No paired boundary lines found in network model")
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
+    if paired_dangling_lines.empty:
+        logger.warning(f"No paired dangling lines found in network model")
         return network
 
-    # Set p0/q0 to 0 for all paired boundary lines
-    _updated_p0 = pd.Series(0, index=paired_boundary_lines.index)
-    _updated_q0 = pd.Series(0, index=paired_boundary_lines.index)
-    network.update_boundary_lines(id=paired_boundary_lines.index, p0=_updated_p0, q0=_updated_q0)
+    # Set p0/q0 to 0 for all paired dangling lines
+    _updated_p0 = pd.Series(0, index=paired_dangling_lines.index)
+    _updated_q0 = pd.Series(0, index=paired_dangling_lines.index)
+    network.update_dangling_lines(id=paired_dangling_lines.index, p0=_updated_p0, q0=_updated_q0)
 
     return network
 
 
 def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     logger.info("Aligning paired boundary lines connection status")
-    boundary_lines = network.get_boundary_lines(all_attributes=True)
-    # Add cim:Tieflow attribute to boundary lines
-    boundary_lines['isTieflow'] = boundary_lines.index.isin(network.get_areas_boundaries()["element"])
-    paired_boundary_lines = boundary_lines[boundary_lines['paired'] == True]
-    if paired_boundary_lines.empty:
-        logger.warning(f"No paired boundary lines found in network model")
+    dangling_lines = network.get_dangling_lines(all_attributes=True)
+    # Add cim:Tieflow attribute to dangling lines
+    dangling_lines['isTieflow'] = dangling_lines.index.isin(network.get_areas_boundaries()["element"])
+    paired_dangling_lines = dangling_lines[dangling_lines['paired'] == True]
+    if paired_dangling_lines.empty:
+        logger.warning(f"No paired dangling lines found in network model")
         return network
 
-    # Identify boundary lines pairs where the 'connected' status is inconsistent within each pairing_key group
-    group = paired_boundary_lines.groupby('pairing_key')
+    # Identify dangling line pairs where the 'connected' status is inconsistent within each pairing_key group
+    group = paired_dangling_lines.groupby('pairing_key')
     mask_connected = group['connected'].transform(lambda s: s.nunique() > 1)
     mask_tieflow = group['isTieflow'].transform( lambda s: s.nunique() > 1)
 
-    mismatched_boundary_lines_con = paired_boundary_lines[mask_connected]
-    logger.info(f"Boundary lines with non-matching connection status: {mismatched_boundary_lines_con['pairing_key'].unique().tolist()}")
+    mismatched_dangling_lines_con = paired_dangling_lines[mask_connected]
+    logger.info(f"Boundary lines with non-matching connection status: {mismatched_dangling_lines_con['pairing_key'].unique().tolist()}")
 
-    mismatched_boundary_lines_tie = paired_boundary_lines[mask_tieflow]
-    logger.info(f"Boundary lines with non-matching cim:Tieflow: {mismatched_boundary_lines_tie['pairing_key'].unique().tolist()}")
+    mismatched_dangling_lines_tie = paired_dangling_lines[mask_tieflow]
+    logger.info(f"Boundary lines with non-matching cim:Tieflow: {mismatched_dangling_lines_tie['pairing_key'].unique().tolist()}")
 
-    mismatched_boundary_lines = pd.concat([mismatched_boundary_lines_con, mismatched_boundary_lines_tie])
+    mismatched_dangling_lines = pd.concat([mismatched_dangling_lines_con, mismatched_dangling_lines_tie])
 
     # Set all mismatched lines to disconnected (False)
-    _connected = pd.Series(data=False, index=mismatched_boundary_lines.index)
-    network.update_boundary_lines(id=mismatched_boundary_lines.index, connected=_connected)
+    _connected = pd.Series(data=False, index=mismatched_dangling_lines.index)
+    network.update_dangling_lines(id=mismatched_dangling_lines.index, connected=_connected)
 
     # Log each change
-    for i, row in mismatched_boundary_lines.iterrows():
-        logger.info(f"Changed status of boundary line {row['name']}: {row['connected']} -> False")
+    for i, row in mismatched_dangling_lines.iterrows():
+        logger.info(f"Changed status of dangling line {row['name']}: {row['connected']} -> False")
 
     return network
 
@@ -440,7 +440,6 @@ def evaluate_trustability(report, properties) -> dict:
 
     return {"trustability": trustability, "untrustability_reason": reason}
 
-
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
     """
     Filters the list of models to include or to exclude specific tsos if they are given.
@@ -481,6 +480,41 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
 
     return filtered_models
 
+def filter_tsos(tsos: list, included_models: list | str = None, excluded_models: list | str = None):
+    """
+    Does the exact same thing as the 'filter_models' function above, just the input is a TSO list instead of
+    a list of already queried model dicts, therefore the filter_on input is not needed.
+    Note that while "filter_models" returns a list of model metadata dicts, this returns list of strings!
+    """
+    included_models = [included_models] if isinstance(included_models, str) else included_models
+    excluded_models = [excluded_models] if isinstance(excluded_models, str) else excluded_models
+
+    if included_models:
+        logger.info(f"Models to be included: {included_models} (pre-metadata-query)")
+    elif excluded_models:
+        logger.info(f"Models to be excluded: {excluded_models} (pre-metadata-query)")
+    else:
+        logger.info(f"Including all available models: {tsos} (pre-metadata-query)")
+        return tsos
+
+    filtered_tsos = []
+
+    for tso in tsos:
+
+        if included_models:
+            if tso not in included_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                continue
+
+        elif excluded_models:
+            if tso in excluded_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                continue
+
+        logger.info(f"Included {tso} (pre-metadata-query)")
+        filtered_tsos.append(tso)
+
+    return filtered_tsos
 
 def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold, conform_load_factor):
 
@@ -533,29 +567,15 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
 
 
 def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold, conform_load_factor):
-    """
-    Drop replacement models whose AC net position deviates too much from the
-    scheduled ACNP for their TSO, or whose conform load cannot cover that
-    deviation.
 
-    Inputs are sanitized so malformed data (missing columns, non-numeric or
-    missing values, an invalid acnp_dict/threshold/factor) never raises -
-    rows that cannot be evaluated are kept unfiltered instead of failing.
-    """
-    required_columns = {'pmd:TSO', 'ac_net_position', 'sum_conform_load'}
-    if models.empty or not isinstance(acnp_dict, dict) or not required_columns.issubset(models.columns):
-        return models
-    try:
-        threshold, load_factor = float(acnp_threshold), float(conform_load_factor)
-    except (TypeError, ValueError):
-        return models
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        ((models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs() <= float(acnp_threshold))]
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        (models['sum_conform_load'] * float(conform_load_factor) > (models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs())]
 
-    acnp = pd.to_numeric(models['pmd:TSO'].map(acnp_dict), errors='coerce')
-    deviation = (pd.to_numeric(models['ac_net_position'], errors='coerce') - acnp).abs()
-    load = pd.to_numeric(models['sum_conform_load'], errors='coerce')
-
-    keep = acnp.isna() | (deviation.notna() & (deviation <= threshold) & (load * load_factor > deviation))
-    return models[keep]
+    return models
 
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
@@ -612,17 +632,17 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
-    # Include cross-border lines for reconnection (both boundary lines)
-    boundary_lines = get_network_elements(network=merged_model.network,
-                                          element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(names=['grid_id'])
-    border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
+    # Include cross-border lines for reconnection (both dangling lines)
+    dangling_lines = get_network_elements(network=merged_model.network,
+                                          element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(names=['grid_id'])
+    border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
     relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
     # Removing any BRELL lines
     relevant_border_lines = relevant_border_lines[~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
-    additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
+    additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
-    filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(subset='grid_id')
+    filtered_model_outages = pd.concat([filtered_model_outages, additional_dangling_lines]).drop_duplicates(subset='grid_id')
     filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
 
     # rename columns
