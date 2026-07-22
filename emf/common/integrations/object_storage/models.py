@@ -10,13 +10,17 @@ logger = logging.getLogger(__name__)
 
 def compile_query(metadata: dict, filter: str | None):
 
+    """Creates the query in the correct syntax acceptable by Elastic"""
+
     match_and_term_list = []
     for key, value in metadata.items():
         if isinstance(value, list):
             match_and_term_list.append({"terms": {key: value}})
         else:
             match_and_term_list.append({"match": {key: value}})
-
+    # Looks like the filter was made to handle value ranges not to match by TSO
+    # (and the filter is expected to be the scenario date range specifically)
+    # So the initial desired TSO filter was added to the metadata dict, not the filter
     if filter:
         query = {"bool": {"must": match_and_term_list, "filter": {"range": {"pmd:scenarioDate": {"gte": filter}}}}}
     else:
@@ -205,11 +209,11 @@ def get_latest_boundary():
 def get_latest_models_and_download(time_horizon: str,
                                    scenario_date: str,
                                    valid: bool = True,
-                                   tso: str | None = None,
+                                   tso: list[str] | None = None,     # this used to be str but I don't see how that would work so changed to list
                                    object_type: str = 'IGM',
                                    data_source: str | None = None
                                    ):
-
+    """Gathers the conditions for filtering for the models metadata query, performs the query and returns the metadatas"""
     logger.info(f"Retrieving latest network models of type: {object_type} [source: {data_source}]")
 
     meta = {'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
@@ -218,7 +222,7 @@ def get_latest_models_and_download(time_horizon: str,
             "data-source": data_source}
 
     if tso:
-        meta['pmd:TSO'] = tso
+        meta['pmd:TSO.keyword'] = tso # but note that this is now a list not a str like the others
 
     if valid:
         meta["valid"] = valid
@@ -256,14 +260,24 @@ if __name__ == "__main__":
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
 
-    test_query = {"pmd:TSO": "TERNA",
-                  "pmd:timeHorizon": "2D",
-                  "pmd:scenarioDate": "2025-02-15T22:30:00Z",
-                  }
-    test_filter = "now-2w"
+    #test_query = {"pmd:TSO": "TERNA",
+    #              "pmd:timeHorizon": "2D",
+    #              "pmd:scenarioDate": "2026-07-16T22:30:00Z",
+    #              }
+    time_horizon="1D"
+    object_type="IGM"
+    scenario_date = "20260716T1530Z"
+    meta = {'pmd:validFrom': f"{parse_datetime(scenario_date):%Y%m%dT%H%MZ}",
+            'pmd:timeHorizon': time_horizon,
+            'opde:Object-Type': object_type,
+            "data-source": None,
+            "pmd:TSO": ["LITGRID", "AST", "PSE"]}
+
+    test_query = compile_query(meta, filter=None)
+    test_filter = None #"now-2w"
     test_response = query_data(test_query, query_filter=test_filter, return_payload=True)
 
     #models = get_latest_models_and_download("1D", '20240526T1530Z', valid=False)
-    models = get_latest_models_and_download("ID", '20240522T1530Z', valid=True)
-    bds = get_latest_boundary()
+    #models = get_latest_models_and_download("ID", '20260716T1530Z', valid=True)
+    #bds = get_latest_boundary()
     logger.info("Test script finished")
