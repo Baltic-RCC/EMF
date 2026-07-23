@@ -441,7 +441,6 @@ def evaluate_trustability(report, properties) -> dict:
 
     return {"trustability": trustability, "untrustability_reason": reason}
 
-
 def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
     """
     Filters the list of models to include or to exclude specific tsos if they are given.
@@ -482,6 +481,41 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
 
     return filtered_models
 
+def filter_tsos(tsos: list, included_models: list | str = None, excluded_models: list | str = None):
+    """
+    Does the exact same thing as the 'filter_models' function above, just the input is a TSO list instead of
+    a list of already queried model dicts, therefore the filter_on input is not needed.
+    Note that while "filter_models" returns a list of model metadata dicts, this returns list of strings!
+    """
+    included_models = [included_models] if isinstance(included_models, str) else included_models
+    excluded_models = [excluded_models] if isinstance(excluded_models, str) else excluded_models
+
+    if included_models:
+        logger.info(f"Models to be included: {included_models} (pre-metadata-query)")
+    elif excluded_models:
+        logger.info(f"Models to be excluded: {excluded_models} (pre-metadata-query)")
+    else:
+        logger.info(f"Including all available models: {tsos} (pre-metadata-query)")
+        return tsos
+
+    filtered_tsos = []
+
+    for tso in tsos:
+
+        if included_models:
+            if tso not in included_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                continue
+
+        elif excluded_models:
+            if tso in excluded_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                continue
+
+        logger.info(f"Included {tso} (pre-metadata-query)")
+        filtered_tsos.append(tso)
+
+    return filtered_tsos
 
 def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold, conform_load_factor):
 
