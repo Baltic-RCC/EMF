@@ -442,7 +442,8 @@ def evaluate_trustability(report, properties) -> dict:
     return {"trustability": trustability, "untrustability_reason": reason}
 
 
-def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None, filter_on: str = 'pmd:TSO'):
+def filter_models(tsos: list, included_models: list | str = None, excluded_models: list | str = None):
+
     """
     Filters the list of models to include or to exclude specific tsos if they are given.
     If included is defined, excluded is not used
@@ -456,31 +457,31 @@ def filter_models(models: list, included_models: list | str = None, excluded_mod
     excluded_models = [excluded_models] if isinstance(excluded_models, str) else excluded_models
 
     if included_models:
-        logger.info(f"Models to be included: {included_models}")
+        logger.info(f"Models to be included: {included_models} (pre-metadata-query)")
     elif excluded_models:
-        logger.info(f"Models to be excluded: {excluded_models}")
+        logger.info(f"Models to be excluded: {excluded_models} (pre-metadata-query)")
     else:
-        logger.info(f"Including all available models: {[model['pmd:TSO'] for model in models]}")
-        return models
+        logger.info(f"Including all available models: {tsos} (pre-metadata-query)")
+        return tsos
 
-    filtered_models = []
+    filtered_tsos = []
 
-    for model in models:
+    for tso in tsos:
 
         if included_models:
-            if model[filter_on] not in included_models:
-                logger.info(f"Excluded {model[filter_on]}")
+            if tso not in included_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
                 continue
 
         elif excluded_models:
-            if model[filter_on] in excluded_models:
-                logger.info(f"Excluded {model[filter_on]}")
+            if tso in excluded_models:
+                logger.info(f"Excluded {tso} (pre-metadata-query)")
                 continue
 
-        logger.info(f"Included {model[filter_on]}")
-        filtered_models.append(model)
+        logger.info(f"Included {tso} (pre-metadata-query)")
+        filtered_tsos.append(tso)
 
-    return filtered_models
+    return filtered_tsos
 
 
 def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold, conform_load_factor):
