@@ -34,10 +34,6 @@ logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
 executor = ThreadPoolExecutor(max_workers=20)
 
-# Retrieve the list of all TSOs ever
-config_areas_mapping = config.paths.cgm_worker.config_areas_mapping
-tsos_config_json = json.load(config_areas_mapping)
-possible_tsos = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
 
 def async_call(function, callback=None, *args, **kwargs):
     future = executor.submit(function, *args, **kwargs)
@@ -174,6 +170,11 @@ class HandlerMergeModels:
         # Convert task fields to bool where necessary
         task = convert_dict_str_to_bool(task)
 
+        # Retrieve the list of all TSOs from the configuration file
+        config_areas_mapping = config.paths.cgm_worker.config_areas_mapping
+        tsos_config_json = json.load(config_areas_mapping)
+        full_tso_list = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
+
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
         self.elk_logging_handler.start_trace(task)
@@ -221,14 +222,11 @@ class HandlerMergeModels:
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
         acnp_dict = calculate_ac_net_position(ac_schedules)
 
-
         # Create list of only the TSOs that are needed for the merge, to query Elastic only for *their* metadata
-        desired_tsos = merge_functions.filter_tsos(tsos=possible_tsos,
+        desired_tsos = merge_functions.filter_models(tsos=full_tso_list,
                                                    included_models=included_models,
                                                    excluded_models=excluded_models)
         logger.info(f"Compiled the desired tsos list as {desired_tsos}")
-        # but since that did not take into account local import desired TSOs, have to add those as well:
-        if local_import_models: desired_tsos = desired_tsos+local_import_models
 
         # Collect valid models from ObjectStorage (this is just the metadata of the models, not the actual zips)
         models = get_latest_models_and_download(time_horizon=time_horizon,
@@ -243,7 +241,7 @@ class HandlerMergeModels:
             additional_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                                scenario_date=scenario_datetime,
                                                                valid=True,
-                                                               tso=desired_tsos,
+                                                               tso=local_import_models,
                                                                data_source='PDN')
 
             additional_tsos = {model['pmd:TSO'] for model in additional_models}
@@ -270,7 +268,7 @@ class HandlerMergeModels:
                 pdn_auto_models = get_latest_models_and_download(time_horizon=time_horizon,
                                                                  scenario_date=scenario_datetime,
                                                                  valid=True,
-                                                                 tso=desired_tsos,
+                                                                 tso=missing_models_rmm,
                                                                  data_source='PDN')
 
                 # Cache PDN TSO set
@@ -659,4 +657,4 @@ if __name__ == "__main__":
     properties.headers = {}
 
     worker = HandlerMergeModels()
-    finished_task = worker.handle(sample_task, {})
+    finished_task = worker.handle(sample_task, properties)
