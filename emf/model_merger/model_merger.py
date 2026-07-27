@@ -597,6 +597,9 @@ class HandlerMergeModels:
         self.elk_logging_handler.stop_trace()
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
+        from emf.model_merger.model_statistics import export_statistics
+        export = export_statistics(merged_model, input_models, ac_schedules, dc_schedules, schedule_time_horizon, schedule_start, sv_data, ssh_data)
+        print("Statistics exported")
 
         return json.dumps(opdm_object_meta), properties
 
@@ -630,7 +633,7 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-07-13T15:30:00+00:00",
+            "timestamp_utc": "2026-07-27T15:30:00+00:00",
             "merge_type": "BA",
             "merging_entity": "BALTICRCC",
             "included": ["PSE", "LITGRID", "ELERING", "AST"],
@@ -642,12 +645,12 @@ if __name__ == "__main__":
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
             "replacement": "True",
-            "scaling": "True",
-            "outage_update": "True",
+            "scaling": "False",
+            "outage_update": "False",
             "force_outage_fix": "False",
             "upload_to_opdm": "False",
-            "upload_to_minio": "True",
-            "send_merge_report": "True",
+            "upload_to_minio": "False",
+            "send_merge_report": "False",
             "lvl8_reporting": "False"
         }
     }
