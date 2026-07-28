@@ -19,7 +19,6 @@ from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
 from emf.common.helpers.utils import sanitize_nan
 
-
 logger = logging.getLogger(__name__)
 
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.post_processing)
@@ -44,7 +43,6 @@ def export_merged_model(network: pypowsybl.network,
                         profiles: list[str] | None = None,
                         cgm_convention: bool = True,
                         ):
-
     # Define which profiles to export
     if profiles:
         profiles = ",".join(profiles)
@@ -135,7 +133,6 @@ def update_header_from_opdm_object(data: pd.DataFrame, opdm_object: dict):
 
 
 def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
-
     # Load SV profile data
     sv_data = pd.read_RDF([sv_data])
 
@@ -256,7 +253,8 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
         source_data = sv_data.type_tableview(update['from_class']).reset_index(drop=True)
 
         # Merge with terminal, if needed
-        if terminal_reference := [column_name if ".Terminal" in column_name else None for column_name in source_data.columns][0]:
+        if terminal_reference := \
+        [column_name if ".Terminal" in column_name else None for column_name in source_data.columns][0]:
             source_data = source_data.merge(terminals, left_on=terminal_reference, right_on='ID')
             logger.debug(f"Added Terminals to {update['from_class']}")
 
@@ -279,7 +277,8 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
     sv_data = sv_data.replace(updated_ssh_id_map)
 
     # Add SSH supersedes reference to old SSH
-    ssh_supersedes_data = pd.DataFrame([{"ID": item[1], "KEY": "Model.Supersedes", "VALUE": item[0]} for item in updated_ssh_id_map.items()])
+    ssh_supersedes_data = pd.DataFrame(
+        [{"ID": item[1], "KEY": "Model.Supersedes", "VALUE": item[0]} for item in updated_ssh_id_map.items()])
     ssh_supersedes_data['INSTANCE_ID'] = ssh_data.query("KEY == 'Type'").merge(ssh_supersedes_data.ID)['INSTANCE_ID']
     ssh_data = ssh_data.update_triplet_from_triplet(ssh_supersedes_data)
 
@@ -327,13 +326,15 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     # Identify boundary lines pairs where the 'connected' status is inconsistent within each pairing_key group
     group = paired_boundary_lines.groupby('pairing_key')
     mask_connected = group['connected'].transform(lambda s: s.nunique() > 1)
-    mask_tieflow = group['isTieflow'].transform( lambda s: s.nunique() > 1)
+    mask_tieflow = group['isTieflow'].transform(lambda s: s.nunique() > 1)
 
     mismatched_boundary_lines_con = paired_boundary_lines[mask_connected]
-    logger.info(f"Boundary lines with non-matching connection status: {mismatched_boundary_lines_con['pairing_key'].unique().tolist()}")
+    logger.info(
+        f"Boundary lines with non-matching connection status: {mismatched_boundary_lines_con['pairing_key'].unique().tolist()}")
 
     mismatched_boundary_lines_tie = paired_boundary_lines[mask_tieflow]
-    logger.info(f"Boundary lines with non-matching cim:Tieflow: {mismatched_boundary_lines_tie['pairing_key'].unique().tolist()}")
+    logger.info(
+        f"Boundary lines with non-matching cim:Tieflow: {mismatched_boundary_lines_tie['pairing_key'].unique().tolist()}")
 
     mismatched_boundary_lines = pd.concat([mismatched_boundary_lines_con, mismatched_boundary_lines_tie])
 
@@ -392,7 +393,6 @@ def generate_merge_report(merged_model: object, task: dict):
 
 
 def evaluate_trustability(report, properties) -> dict:
-
     reason = None
     if properties["merge_type"] == "BA":
         # Evaluate model trustability based on defined config and report keys
@@ -407,7 +407,7 @@ def evaluate_trustability(report, properties) -> dict:
         # Compose conditions
         config_all_true = all_(*(key_true(k) for k in property_keys))
         success_all_true = all_(*(key_true(k) for k in report_keys))
-        success_all_none = all_none(*report_keys, exclude='scaled') # Scaling is never in None state
+        success_all_none = all_none(*report_keys, exclude='scaled')  # Scaling is never in None state
 
         # Evaluate logic
         config_enabled = config_all_true(properties)
@@ -443,7 +443,6 @@ def evaluate_trustability(report, properties) -> dict:
 
 
 def filter_models(tsos: list, included_models: list | str = None, excluded_models: list | str = None):
-
     """
     Filters the list of models to include or to exclude specific tsos if they are given.
     If included is defined, excluded is not used
@@ -484,8 +483,7 @@ def filter_models(tsos: list, included_models: list | str = None, excluded_model
     return filtered_tsos
 
 
-def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold, conform_load_factor):
-
+def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold, conform_load_factor):
     def is_within_acnp_deadband(model):
         tso = model.get('pmd:TSO')
         if not tso or tso not in acnp_dict:
@@ -507,11 +505,11 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
 
     # ACNP deadband filter
     filtered_models = [model for model in models if is_within_acnp_deadband(model)]
-    excluded_tsos= [
+    excluded_tsos = [
         {'tso': model['pmd:TSO'], 'reason': 'acnp-outside-schedule-deadband'}
         for model in models
         if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in filtered_models]
-        and model['pmd:TSO'] not in excluded_tso_ids
+           and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
         excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
@@ -520,11 +518,11 @@ def filter_models_by_acnp(models: list, merged_model,  acnp_dict, acnp_threshold
 
     # Conformload filter
     final_models = [model for model in filtered_models if is_within_conformload_deadband(model)]
-    excluded_tsos= [
+    excluded_tsos = [
         {'tso': model['pmd:TSO'], 'reason': 'conform-load-outside-schedule-difference'}
         for model in filtered_models
         if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in final_models]
-        and model['pmd:TSO'] not in excluded_tso_ids
+           and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
         excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
@@ -561,7 +559,6 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
 
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
-
     area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
     outage_areas = [area_map.get(item, item) for item in tso_list]
 
@@ -581,7 +578,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     body = {"size": 1, "query": {"bool": {"must": [{"match": {"Merge": merge_type}}]}},
             "sort": [{"reportParsedDate": {"order": "desc"}}], "fields": ["reportParsedDate"]}
-    last_uap_version = elk_service.client.search(index='opc-outages-baltics*', body=body)['hits']['hits'][0]['fields']['reportParsedDate'][0]
+    last_uap_version = \
+    elk_service.client.search(index='opc-outages-baltics*', body=body)['hits']['hits'][0]['fields']['reportParsedDate'][
+        0]
 
     # Query for latest outage UAP
     uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
@@ -603,7 +602,8 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
         logger.warning(f"Unable to map following outage mRIDs: {unmapped_outages['name'].values}")
 
     # Filter outages according to model scenario date and replaced area
-    filtered_outages = uap_outages[(uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
+    filtered_outages = uap_outages[
+        (uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime)]
     filtered_outages = filtered_outages[filtered_outages['Area'].isin(outage_areas)]
     mapped_outages = filtered_outages[~filtered_outages['mrid'].isna()]
 
@@ -616,19 +616,23 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # Include cross-border lines for reconnection (both boundary lines)
     boundary_lines = get_network_elements(network=merged_model.network,
-                                          element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(names=['grid_id'])
+                                          element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(
+        names=['grid_id'])
     border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
     relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
     # Removing any BRELL lines
-    relevant_border_lines = relevant_border_lines[~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
+    relevant_border_lines = relevant_border_lines[
+        ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
     additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
-    filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(subset='grid_id')
+    filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(
+        subset='grid_id')
     filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
 
     # rename columns
-    filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(columns={'grid_id': 'mrid'})
+    filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(
+        columns={'grid_id': 'mrid'})
     mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
     mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
 
@@ -636,7 +640,8 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     # Reconnecting outages from network-config list
     outages_updated = {}
-    filtered_model_outages["eic"] = (filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
+    filtered_model_outages["eic"] = (
+        filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
     for index, outage in filtered_model_outages.iterrows():
         try:
             if merged_model.network.connect(outage['mrid']):
@@ -650,10 +655,12 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
                     logger.info(f"Element is already connected: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
                     logger.error(f"Failed to connect element: {outage['name']} [mrid: {outage['mrid']}]")
-                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+                    merged_model.outages_unmapped.extend(
+                        [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend(
+                [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
             continue
 
@@ -672,10 +679,12 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
                     logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
                 else:
                     logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
-                    merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+                    merged_model.outages_unmapped.extend(
+                        [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
             logger.error((e, outage['name'], outage['mrid']))
-            merged_model.outages_unmapped.extend([{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+            merged_model.outages_unmapped.extend(
+                [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
             continue
 
@@ -909,7 +918,6 @@ def run_post_merge_processing(input_models: list,
                               enable_temp_fixes: bool,
                               task_properties: dict = None,
                               ):
-
     # Load original input models to triplets
     input_models_triplets = load_opdm_objects_to_triplets(opdm_objects=input_models)
 
@@ -918,7 +926,7 @@ def run_post_merge_processing(input_models: list,
 
     # Create update SSH
     sv_data, ssh_data, opdm_object_meta = create_updated_ssh(models_as_triplets=input_models_triplets,
-                                                             input_models = input_models,
+                                                             input_models=input_models,
                                                              sv_data=sv_data,
                                                              opdm_object_meta=opdm_object_meta)
     # Run temporary modifications on exported model
@@ -929,10 +937,19 @@ def run_post_merge_processing(input_models: list,
         sv_data = temporary.add_missing_sv_tap_steps(sv_data, ssh_data)
         sv_data = temporary.remove_small_islands(sv_data, int(SMALL_ISLAND_SIZE))
         sv_data = temporary.remove_duplicate_sv_voltages(cgm_sv_data=sv_data, original_data=input_models_triplets)
-        sv_data = temporary.check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data, original_data=input_models_triplets)
+        sv_data = temporary.check_and_fix_dependencies(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
+                                                       original_data=input_models_triplets)
         # TODO following SSH profile fix should be removed once pypowsybl SSH export will be used
         ssh_data = temporary.set_paired_boundary_injections_to_zero(original_models=input_models_triplets,
                                                                     cgm_ssh_data=ssh_data)
+        # Catches cases where pypowsybl echoes stale flows onto disconnected/de-energized boundary elements
+        sv_data = temporary.check_for_disconnected_terminals(cgm_sv_data=sv_data,
+                                                             original_models=input_models_triplets,
+                                                             fix_errors=True)
+        ssh_data = temporary.check_energized_boundary_nodes(cgm_sv_data=sv_data,
+                                                            cgm_ssh_data=ssh_data,
+                                                            original_models=input_models_triplets,
+                                                            fix_errors=True)
 
     # Run injections check and apply modification if defined in configuration
     injection_threshold = float(INJECTION_THRESHOLD)
@@ -969,10 +986,10 @@ def run_post_merge_processing(input_models: list,
 
 
 def lvl8_report_cgm(merge_report: dict):
-
     # Create <QAReport> root
     qa_attribs = {
-        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime(
+            '%Y-%m-%dT%H:%M:%SZ'),
         'schemeVersion': "2.0",
         'serviceProvider': merge_report["merge_entity"],
         'xmlns': "http://entsoe.eu/checks"
@@ -1012,19 +1029,22 @@ def lvl8_report_cgm(merge_report: dict):
     else:
         violations.append(violations_list[1])
         quality_indicator_cgm = "Invalid - inconsistent data"
-        
-    #if scaling is failed then set error from error list
+
+    # if scaling is failed then set error from error list
     if not merge_report['scaled']:
         violations.append(violations_list[2])
-        quality_indicator_cgm="Invalid - inconsistent data"
+        quality_indicator_cgm = "Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {
-        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'created': datetime.datetime.strptime(merge_report["@timestamp"], '%Y-%m-%dT%H:%M:%S.%f').strftime(
+            '%Y-%m-%dT%H:%M:%SZ'),
         'resource': merge_report['network_meta']['fullModel_ID'],  # TODO get here correct content ID
-        'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'scenarioTime': datetime.datetime.fromisoformat(merge_report["@scenario_timestamp"]).strftime(
+            '%Y-%m-%dT%H:%M:%SZ'),
         'version': str(merge_report["@version"]),
-        'processType': merge_report["time_horizon_id"] if merge_report["@time_horizon"] == 'ID' else merge_report["@time_horizon"],
+        'processType': merge_report["time_horizon_id"] if merge_report["@time_horizon"] == 'ID' else merge_report[
+            "@time_horizon"],
         'qualityIndicator': quality_indicator_cgm
     }
     cgm = ET.SubElement(qa_root, "CGM", attrib=cgm_attribs)
