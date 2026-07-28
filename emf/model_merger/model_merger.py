@@ -339,12 +339,17 @@ class HandlerMergeModels:
             conform_load_factor=CONFORM_LOAD_FACTOR
         )
 
+        # Exclude TSOs already recorded in replaced_entity, so a substituted model isn't also
+        # reported a second time here as 'Valid' (it stays reported once, as 'Substituted')
+        replaced_tsos = {entity['tso'] for entity in merged_model.replaced_entity}
+
         merged_model.merge_included_entity = [
-            ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__ for model in models]
+            ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__
+            for model in models if model.get('pmd:TSO') not in replaced_tsos]
 
         merged_model.merge_included_entity.extend(
             [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
-             additional_models])
+             additional_models if model.get('pmd:TSO') not in replaced_tsos])
 
         # Store models together with boundary set and check whether there are enough models to merge
         input_models = models + additional_models + [latest_boundary]
