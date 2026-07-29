@@ -20,6 +20,7 @@ from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
 from emf.common.helpers.loadflow import load_network_model
+from emf.model_merger.model_report import generate_report_from_network
 from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
 from emf.model_merger import scaler
@@ -595,6 +596,8 @@ class HandlerMergeModels:
 
         # Stop Trace
         self.elk_logging_handler.stop_trace()
+
+        if json.loads(GENERATE_NETWORK_REPORT.lower()): generate_report_from_network(merged_model.network, model_author=merged_model.name)
 
         logger.info(f"Merge task finished for model: {merged_model.name}")
 
