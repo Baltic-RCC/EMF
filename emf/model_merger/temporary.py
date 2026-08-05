@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 def remove_small_islands(solved_data, island_size_limit):
     # TODO - EVALUATE LEGACY
-    small_island = pd.DataFrame(solved_data.query("KEY == 'TopologicalIsland.TopologicalNodes'").ID.value_counts()).reset_index().query("count <= @island_size_limit")
+    small_island = pd.DataFrame(
+        solved_data.query("KEY == 'TopologicalIsland.TopologicalNodes'").ID.value_counts()).reset_index().query(
+        "count <= @island_size_limit")
     solved_data = triplets.rdf_parser.remove_triplet_from_triplet(solved_data, small_island, columns=["ID"])
     logger.info(f"Removed {len(small_island)} island(s) with size <= {island_size_limit}")
     return solved_data
@@ -52,14 +54,16 @@ def add_missing_sv_tap_steps(sv_data: pd.DataFrame, ssh_data: pd.DataFrame):
     SV_INSTANCE_ID = sv_data.INSTANCE_ID.iloc[0]
     for tap_changer in missing_sv_tap_steps.itertuples():
         ID = str(uuid.uuid4())
-        logger.warning(f'Missing SvTapStep for {tap_changer.ID}, adding SvTapStep {ID} and taking tap value {tap_changer.VALUE} from SSH')
+        logger.warning(
+            f'Missing SvTapStep for {tap_changer.ID}, adding SvTapStep {ID} and taking tap value {tap_changer.VALUE} from SSH')
         tap_steps_to_be_added.extend([
             (ID, 'Type', 'SvTapStep', SV_INSTANCE_ID),
             (ID, 'SvTapStep.TapChanger', tap_changer.ID, SV_INSTANCE_ID),
             (ID, 'SvTapStep.position', tap_changer.VALUE, SV_INSTANCE_ID),
         ])
 
-    sv_data = pd.concat([sv_data, pd.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])], ignore_index=True)
+    sv_data = pd.concat([sv_data, pd.DataFrame(tap_steps_to_be_added, columns=['ID', 'KEY', 'VALUE', 'INSTANCE_ID'])],
+                        ignore_index=True)
 
     return sv_data
 
@@ -105,7 +109,8 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
         cgm_sv_data = triplets.rdf_parser.remove_triplet_from_triplet(cgm_sv_data, existing_dependencies)
         full_model_id = cgm_sv_data[(cgm_sv_data['KEY'] == 'Type') & (cgm_sv_data['VALUE'] == 'FullModel')]
         dependencies_to_update = dependency_difference.query('_merge != "left_only"')
-        logger.warning(f"Mismatch of dependencies. Inserting {len(dependencies_to_update.index)} dependencies to SV profile")
+        logger.warning(
+            f"Mismatch of dependencies. Inserting {len(dependencies_to_update.index)} dependencies to SV profile")
         new_dependencies = dependencies_to_update[['VALUE']].copy().reset_index(drop=True)
         new_dependencies.loc[:, 'KEY'] = 'Model.DependentOn'
         new_dependencies.loc[:, 'ID'] = full_model_id['ID'].iloc[0]
@@ -127,15 +132,18 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
     try:
         all_generators = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.GENERATOR,
                                                            all_attributes=True).reset_index()
-        
-        #remove generatiors missing regulation control from regulation control
+
+        # remove generatiors missing regulation control from regulation control
         all_generators_missing_reg_but_try_reg = all_generators[((all_generators["voltage_regulator_on"] == True) &
-                                                             (all_generators["CGMES.RegulatingControl"] == ""))]
+                                                                 (all_generators["CGMES.RegulatingControl"] == ""))]
 
         if not all_generators_missing_reg_but_try_reg.empty:
-            logger.warning(f"Generators with regulation control missing but voltage_control on {len(all_generators_missing_reg_but_try_reg)}")
-            #setting generators to false that do not have regulation
-            network_pre_instance.update_generators(id=all_generators_missing_reg_but_try_reg["id"].values.tolist(),voltage_regulator_on=[False] * len(all_generators_missing_reg_but_try_reg["id"].values.tolist()))
+            logger.warning(
+                f"Generators with regulation control missing but voltage_control on {len(all_generators_missing_reg_but_try_reg)}")
+            # setting generators to false that do not have regulation
+            network_pre_instance.update_generators(id=all_generators_missing_reg_but_try_reg["id"].values.tolist(),
+                                                   voltage_regulator_on=[False] * len(
+                                                       all_generators_missing_reg_but_try_reg["id"].values.tolist()))
 
         generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
         not_generators = all_generators[~generators_mask]
@@ -159,13 +167,15 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             if not upper_limit_violated.empty:
                 logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
                 upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
-                network_pre_instance.update_generators(upper_limit_violated[['id', 'max_p']].assign(voltage_regulator_on=False).set_index('id'))
+                network_pre_instance.update_generators(
+                    upper_limit_violated[['id', 'max_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
                 logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
                 lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
-                network_pre_instance.update_generators(lower_limit_violated[['id', 'min_p']].assign(voltage_regulator_on=False).set_index('id'))
+                network_pre_instance.update_generators(
+                    lower_limit_violated[['id', 'min_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             # Solution 2: discard generator from participating
             extensions = network_pre_instance.get_extensions('activePowerControl')
@@ -192,15 +202,19 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
             remove_not_generators = remove_not_generators.set_index('id')
             network_pre_instance.update_extensions('activePowerControl', remove_not_generators)
 
-        #find all shunts missing regulating control class and turn the regulation control off for those
-        all_shunts=network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,all_attributes=True)
-        all_shunts_with_control_on_reg_missing=all_shunts[((all_shunts["voltage_regulation_on"] == True) &
-                                                           (all_shunts["CGMES.RegulatingControl"] == ""))]
+        # find all shunts missing regulating control class and turn the regulation control off for those
+        all_shunts = network_pre_instance.get_elements(element_type=pypowsybl.network.ElementType.SHUNT_COMPENSATOR,
+                                                       all_attributes=True)
+        all_shunts_with_control_on_reg_missing = all_shunts[((all_shunts["voltage_regulation_on"] == True) &
+                                                             (all_shunts["CGMES.RegulatingControl"] == ""))]
 
         if not all_shunts_with_control_on_reg_missing.empty:
-            logger.warning(f"Shunts with regulation control missing but voltage_control on {len(all_shunts_with_control_on_reg_missing)}")
-            #TODO set voltage_control_on to false. Atm try turning off
-            network_pre_instance.update_shunt_compensators(id=all_shunts_with_control_on_reg_missing.index.values.tolist(), voltage_regulation_on = [False]*len(all_shunts_with_control_on_reg_missing.index.values.tolist()))
+            logger.warning(
+                f"Shunts with regulation control missing but voltage_control on {len(all_shunts_with_control_on_reg_missing)}")
+            # TODO set voltage_control_on to false. Atm try turning off
+            network_pre_instance.update_shunt_compensators(
+                id=all_shunts_with_control_on_reg_missing.index.values.tolist(),
+                voltage_regulation_on=[False] * len(all_shunts_with_control_on_reg_missing.index.values.tolist()))
 
 
     except Exception as ex:
@@ -312,7 +326,8 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
     In some models terminals are missing references to ConnectivityNodes
     """
 
-    topological_boundary_points = original_models.query("KEY == 'TopologicalNode.boundaryPoint' and VALUE == 'true'")[["ID"]]
+    topological_boundary_points = original_models.query("KEY == 'TopologicalNode.boundaryPoint' and VALUE == 'true'")[
+        ["ID"]]
     try:
         terminals = original_models.type_tableview("Terminal").reset_index()[['ID',
                                                                               'Terminal.ConductingEquipment',
@@ -323,10 +338,10 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
                                                                               'Terminal.ConductingEquipment',
                                                                               'Terminal.TopologicalNode']]
     injections = cgm_ssh_data.type_tableview('EquivalentInjection').reset_index()[['ID',
-                                                                           # 'EquivalentInjection.p',
-                                                                           # 'EquivalentInjection.q',
-                                                                           # 'EquivalentInjection.regulationStatus'
-                                                                           ]]
+                                                                                   # 'EquivalentInjection.p',
+                                                                                   # 'EquivalentInjection.q',
+                                                                                   # 'EquivalentInjection.regulationStatus'
+                                                                                   ]]
     topological_boundary_points = topological_boundary_points.merge(terminals,
                                                                     left_on="ID",
                                                                     right_on="Terminal.TopologicalNode",
@@ -336,7 +351,7 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
                                               right_on='Terminal.ConductingEquipment',
                                               suffixes=('_ConnectivityNode', ''))
     paired_injections = (topological_injections.groupby("Terminal.TopologicalNode")
-                                     .filter(lambda x: len(x) == 2))
+                         .filter(lambda x: len(x) == 2))
 
     # Set terminal status
     updated_terminal_status = paired_injections[["ID_Terminal"]].copy().rename(columns={"ID_Terminal": "ID"})
@@ -357,4 +372,126 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
     updated_q_value = paired_injections[["ID"]].copy()
     updated_q_value["KEY"] = "EquivalentInjection.q"
     updated_q_value["VALUE"] = 0
-    return cgm_ssh_data.update_triplet_from_triplet(pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+    return cgm_ssh_data.update_triplet_from_triplet(
+        pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+
+
+def check_energized_boundary_nodes(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False):
+    """
+    On one case (1D RTEFrance alone on 01.08.2024 12.30Z) pypowsybl calculates the loadflow and updates
+    the voltages on boundaries, however the powerflows are still copied over from the original files.
+    This, therefore, joins a lot of tables and, if voltage at some boundary node is zero and the
+    equivalent injection is not, sets the injection to zero.
+    """
+    original_models = get_opdm_data_from_models(model_data=original_models)
+    boundary_nodes = original_models.query('KEY == "TopologicalNode.boundaryPoint" & VALUE == "true"')[['ID']]
+    if boundary_nodes.empty:
+        return cgm_ssh_data
+    all_terminals = original_models.type_tableview('Terminal')
+    if all_terminals is None:
+        return cgm_ssh_data
+    terminals = (all_terminals.rename_axis('Terminal').reset_index()
+                 .merge(boundary_nodes.rename(columns={'ID': 'Terminal.TopologicalNode'}),
+                        on='Terminal.TopologicalNode'))[['Terminal', 'ACDCTerminal.connected',
+                                                         'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
+    new_voltages = (cgm_sv_data.type_tableview('SvVoltage').rename_axis('SvVoltage').reset_index()
+                    .merge(boundary_nodes.rename(columns={'ID': 'SvVoltage.TopologicalNode'}),
+                           on='SvVoltage.TopologicalNode')).sort_values(by=['SvVoltage'])
+    old_voltages = (original_models.type_tableview('SvVoltage').rename_axis('SvVoltage').reset_index()
+                    .merge(boundary_nodes.rename(columns={'ID': 'SvVoltage.TopologicalNode'}),
+                           on='SvVoltage.TopologicalNode')).sort_values(by=['SvVoltage.TopologicalNode'])
+    voltage_diff = ((old_voltages[['SvVoltage.TopologicalNode', 'SvVoltage.v', 'SvVoltage.angle']]
+                     .merge(new_voltages[['SvVoltage.TopologicalNode', 'SvVoltage.v', 'SvVoltage.angle']],
+                            on='SvVoltage.TopologicalNode', suffixes=('_old', '_new')))
+                    .sort_values(by=['SvVoltage.TopologicalNode']))
+    old_powerflows = ((original_models.type_tableview('SvPowerFlow').rename_axis('SvPowerFlow').reset_index()
+                       .merge(terminals.rename(columns={'Terminal': 'SvPowerFlow.Terminal'}),
+                              on='SvPowerFlow.Terminal'))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    new_powerflows = ((cgm_sv_data.type_tableview('SvPowerFlow').rename_axis('SvPowerFlow').reset_index()
+                       .merge(terminals.rename(columns={'Terminal': 'SvPowerFlow.Terminal'}),
+                              on='SvPowerFlow.Terminal'))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    powerflow_diff = ((old_powerflows[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+                       .merge(new_powerflows[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q', 'SvPowerFlow',
+                                              'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']],
+                              on='SvPowerFlow.Terminal', suffixes=('_old', '_new')))
+                      .sort_values(by=['Terminal.TopologicalNode']))
+    old_injections = ((original_models.type_tableview('EquivalentInjection')
+                       .rename_axis('EquivalentInjection').reset_index())
+                      .merge(terminals.rename(columns={'Terminal.ConductingEquipment': 'EquivalentInjection'}),
+                             on='EquivalentInjection')).sort_values(by=['Terminal.TopologicalNode'])
+    new_injections = ((cgm_ssh_data.type_tableview('EquivalentInjection')
+                       .rename_axis('EquivalentInjection').reset_index())
+                      .merge(terminals.rename(columns={'Terminal.ConductingEquipment': 'EquivalentInjection'}),
+                             on='EquivalentInjection')).sort_values(by=['Terminal.TopologicalNode'])
+    injection_diff = ((old_injections[['EquivalentInjection', 'EquivalentInjection.p', 'EquivalentInjection.q']]
+                       .merge(new_injections[['EquivalentInjection', 'EquivalentInjection.p', 'EquivalentInjection.q']],
+                              on='EquivalentInjection', suffixes=('_old', '_new')))
+                      .sort_values(by=['EquivalentInjection']))
+    all_together = (powerflow_diff.rename(columns={'SvPowerFlow.Terminal': 'Terminal',
+                                                   'Terminal.ConductingEquipment': 'EquivalentInjection',
+                                                   'Terminal.TopologicalNode': 'TopologicalNode'})
+                    .merge(injection_diff, on='EquivalentInjection', how='left'))
+    all_together = all_together.merge(voltage_diff.rename(columns={'SvVoltage.TopologicalNode': 'TopologicalNode'}),
+                                      on='TopologicalNode', how='left').sort_values(by=['TopologicalNode'])
+    if all_together.empty:
+        return cgm_ssh_data
+    # Voltage may be set to zero at some boundary nodes while powerflow and equivalent injection are not.
+    zero_voltages = all_together[(all_together["SvVoltage.v_new"] == 0) & (all_together["SvVoltage.angle_new"] == 0)]
+    if zero_voltages.empty:
+        return cgm_ssh_data
+    zero_voltages = zero_voltages.copy()
+    zero_voltages['Summed_flow'] = (zero_voltages[['EquivalentInjection.p_new', 'EquivalentInjection.q_new']]
+                                    .astype(float).abs().sum(axis=1, skipna=True))
+    not_zero_flows = zero_voltages[zero_voltages['Summed_flow'] != 0]
+    if not_zero_flows.empty:
+        return cgm_ssh_data
+    logger.warning(f"{len(not_zero_flows.index)} cases where boundary voltage is zero but injection is not")
+    if fix_errors:
+        logger.info(f"Setting injection at boundary to zero")
+        updated_injections = (not_zero_flows.copy(deep=True)[['EquivalentInjection']]
+                              .rename(columns={'EquivalentInjection': 'ID'}))
+        updated_p_value = updated_injections[["ID"]].copy()
+        updated_p_value["KEY"] = "EquivalentInjection.p"
+        updated_p_value["VALUE"] = 0
+        updated_q_value = updated_injections[["ID"]].copy()
+        updated_q_value["KEY"] = "EquivalentInjection.q"
+        updated_q_value["VALUE"] = 0
+        cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(
+            pd.concat([updated_p_value, updated_q_value], ignore_index=True), add=False)
+    return cgm_ssh_data
+
+
+def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: bool = False):
+    """
+    Checks if disconnected terminals have powerflow different from 0
+    :param cgm_sv_data: merged sv profile
+    :param original_models: original profiles
+    :param fix_errors: sets flows to zero
+    :return (updated) sv profile
+    """
+    all_terminals = original_models.type_tableview('Terminal')
+    power_flows_post = cgm_sv_data.type_tableview('SvPowerFlow')
+    if all_terminals is None or power_flows_post is None:
+        return cgm_sv_data
+    all_terminals = all_terminals.rename_axis('SvPowerFlow.Terminal').reset_index()
+    disconnected_terminals = all_terminals[all_terminals['ACDCTerminal.connected'] == 'false']
+    if disconnected_terminals.empty:
+        return cgm_sv_data
+    power_flows_post = power_flows_post.reset_index()
+    disconnected_powerflows = power_flows_post.merge(disconnected_terminals[['SvPowerFlow.Terminal']],
+                                                     on='SvPowerFlow.Terminal')
+    flows_on_powerflows = disconnected_powerflows[(abs(disconnected_powerflows['SvPowerFlow.p'].astype('float')) > 0) |
+                                                  (abs(disconnected_powerflows['SvPowerFlow.q'].astype('float')) > 0)]
+    if not flows_on_powerflows.empty:
+        logger.warning(f"Found {len(flows_on_powerflows.index)} disconnected terminals which have flows set")
+        if fix_errors:
+            logger.info(f"Setting flows on disconnected terminals to zero")
+            flows_on_powerflows.loc[:, 'SvPowerFlow.p'] = 0
+            flows_on_powerflows.loc[:, 'SvPowerFlow.q'] = 0
+            cgm_sv_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_sv_data,
+                                                                            flows_on_powerflows,
+                                                                            add=False,
+                                                                            update=True)
+    return cgm_sv_data
