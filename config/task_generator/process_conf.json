@@ -503,7 +503,7 @@
        "@context": "https://example.com/schemas/run.jsonld",
        "@id": "https://example.com/runs/YearAheadCGM",
        "@type": "Run",
-       "process_id": "https://example.com/processes/RMM_CREATION",
+       "process_id": "https://example.com/processes/CGM_CREATION",
        "valid_from": "",
        "valid_to": "",
        "gate_open": "P1DT5H",
@@ -514,7 +514,7 @@
        "data_resolution": "PT1H",
        "tags": [],
        "properties": {
-        "merge_type": "BA",
+        "merge_type": "EU",
         "merging_entity": "BALTICRCC",
         "included": [],
         "excluded": [],
