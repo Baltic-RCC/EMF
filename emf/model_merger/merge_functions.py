@@ -328,13 +328,13 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     mask_connected = group['connected'].transform(lambda s: s.nunique() > 1)
     mask_tieflow = group['isTieflow'].transform(lambda s: s.nunique() > 1)
 
-    mismatched_boundary_lines_con = paired_boundary_lines[mask_connected]
+    mismatched_dangling_lines_con = paired_dangling_lines[mask_connected]
     logger.info(
-        f"Boundary lines with non-matching connection status: {mismatched_boundary_lines_con['pairing_key'].unique().tolist()}")
+        f"Boundary lines with non-matching connection status: {mismatched_dangling_lines_con['pairing_key'].unique().tolist()}")
 
-    mismatched_boundary_lines_tie = paired_boundary_lines[mask_tieflow]
+    mismatched_dangling_lines_tie = paired_dangling_lines[mask_tieflow]
     logger.info(
-        f"Boundary lines with non-matching cim:Tieflow: {mismatched_boundary_lines_tie['pairing_key'].unique().tolist()}")
+        f"Boundary lines with non-matching cim:Tieflow: {mismatched_dangling_lines_tie['pairing_key'].unique().tolist()}")
 
     mismatched_boundary_lines = pd.concat([mismatched_boundary_lines_con, mismatched_boundary_lines_tie])
 
@@ -442,7 +442,8 @@ def evaluate_trustability(report, properties) -> dict:
     return {"trustability": trustability, "untrustability_reason": reason}
 
 
-def filter_models(tsos: list, included_models: list | str = None, excluded_models: list | str = None):
+def filter_models(models: list, included_models: list | str = None, excluded_models: list | str = None,
+                  filter_on: str = 'pmd:TSO'):
     """
     Filters the list of models to include or to exclude specific tsos if they are given.
     If included is defined, excluded is not used
@@ -533,22 +534,14 @@ def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold,
 
 
 def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold, conform_load_factor):
-    """
-    Drop replacement models whose AC net position deviates too much from the
-    scheduled ACNP for their TSO, or whose conform load cannot cover that
-    deviation.
-
-    Inputs are sanitized so malformed data (missing columns, non-numeric or
-    missing values, an invalid acnp_dict/threshold/factor) never raises -
-    rows that cannot be evaluated are kept unfiltered instead of failing.
-    """
-    required_columns = {'pmd:TSO', 'ac_net_position', 'sum_conform_load'}
-    if models.empty or not isinstance(acnp_dict, dict) or not required_columns.issubset(models.columns):
-        return models
-    try:
-        threshold, load_factor = float(acnp_threshold), float(conform_load_factor)
-    except (TypeError, ValueError):
-        return models
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        ((models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs() <= float(
+            acnp_threshold))]
+    models = models[
+        (models['pmd:TSO'].apply(lambda x: x not in acnp_dict)) |
+        (models['sum_conform_load'] * float(conform_load_factor) > (
+                    models['ac_net_position'] - models['pmd:TSO'].apply(lambda x: acnp_dict.get(x, np.nan))).abs())]
 
     acnp = pd.to_numeric(models['pmd:TSO'].map(acnp_dict), errors='coerce')
     deviation = (pd.to_numeric(models['ac_net_position'], errors='coerce') - acnp).abs()
@@ -556,7 +549,6 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
 
     keep = acnp.isna() | (deviation.notna() & (deviation <= threshold) & (load * load_factor > deviation))
     return models[keep]
-
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
     area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
@@ -614,19 +606,19 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
-    # Include cross-border lines for reconnection (both boundary lines)
-    boundary_lines = get_network_elements(network=merged_model.network,
-                                          element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(
+    # Include cross-border lines for reconnection (both dangling lines)
+    dangling_lines = get_network_elements(network=merged_model.network,
+                                          element_type=pypowsybl.network.ElementType.DANGLING_LINE).reset_index(
         names=['grid_id'])
-    border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
+    border_lines = dangling_lines[dangling_lines['pairing_key'].isin(model_outages['pairing_key'])]
     relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
     # Removing any BRELL lines
     relevant_border_lines = relevant_border_lines[
         ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
-    additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
+    additional_dangling_lines = dangling_lines[dangling_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
 
     # Merged dataframe of network elements to be reconnected
-    filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(
+    filtered_model_outages = pd.concat([filtered_model_outages, additional_dangling_lines]).drop_duplicates(
         subset='grid_id')
     filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
 
