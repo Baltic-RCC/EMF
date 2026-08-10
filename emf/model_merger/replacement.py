@@ -360,47 +360,7 @@ def find_replacement_models(tso_list: list[str],
         return []
 
     try:
-        # Build and execute query
-        query, query_filter = _build_replacement_query(tso_list, data_source, config, time_horizon)
-        model_df = pd.DataFrame(query_data(query, query_filter))
-
-        if model_df.empty:
-            logger.warning(f"No replacement models found in Elastic for TSO(s): {tso_list}")
-            return []
-
-        # Process replacement candidates
         scenario_date_utc = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-        replacement_df = create_replacement_table(scenario_date_utc, time_horizon, model_df, config)
-
-        # Apply ACNP filtering if provided
-        if acnp_dict:
-            replacement_df = filter_replacements_by_acnp(replacement_df, acnp_dict, acnp_threshold, conform_load_factor)
-
-        # Exclude models that already exist
-        if existing_models:
-            replacement_df = _exclude_existing_models(replacement_df, existing_models)
-
-        if replacement_df.empty:
-            logger.error("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
-            return []
-
-        # Select best models and load content
-        selected_models = _select_best_replacement_models(replacement_df,
-                                                          target_time_horizon=time_horizon,
-                                                          target_date=scenario_date_utc,
-                                                          config=config)
-        _log_replacement_results(selected_models, tso_list)
-
-        if selected_models.empty:
-            return []
-
-        # Load content for each model
-        replacement_models = selected_models.to_dict(orient='records')
-        for i, model in enumerate(replacement_models):
-            replacement_models[i] = get_content(model)
-
-        return replacement_models
-
     except Exception as e:
         logger.error(f"Error finding replacement models for TSOs {tso_list}: {e}")
         return []
