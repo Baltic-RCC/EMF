@@ -145,7 +145,8 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
                                                    voltage_regulator_on=[False] * len(
                                                        all_generators_missing_reg_but_try_reg["id"].values.tolist()))
 
-        generators_mask = (all_generators['CGMES.synchronousMachineOperatingMode'].str.contains('generator'))
+        generators_mask = (all_generators['CGMES.synchronousMachineType'].str.contains('generator')) & (
+                    all_generators['condenser'] == False) & (all_generators['target_p'] >= 0)
         not_generators = all_generators[~generators_mask]
         generators = all_generators[generators_mask]
         curve_points = (network_pre_instance
