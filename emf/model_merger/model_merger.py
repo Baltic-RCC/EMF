@@ -29,6 +29,7 @@ from emf.model_merger.temporary import handle_igm_ssh_vs_cgm_ssh_error
 from emf.common.logging.custom_logger import get_elk_logging_handler
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
+from emf.common.logging.custom_logger import set_logging_context_token
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -174,6 +175,12 @@ class HandlerMergeModels:
         config_areas_mapping = config.paths.cgm_worker.config_areas_mapping
         tsos_config_json = json.load(config_areas_mapping)
         full_tso_list = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
+
+        # I believe here is earliest in the model_merger handler where logging context can be set
+        model_properties = task.get('task_properties', {})
+        set_logging_context_token(model_properties['timestamp_utc'], model_properties['time_horizon'],
+                                  model_properties['version'])
+        logger.info("logging test from model_merger")
 
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
@@ -635,14 +642,20 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-07-13T15:30:00+00:00",
-            "merge_type": "BA",
+            "timestamp_utc": "2026-08-10T07:30:00+00:00",
+            "merge_type": "EU",
             "merging_entity": "BALTICRCC",
-            "included": ["PSE", "LITGRID", "ELERING", "AST"],
-            "excluded": [],
+            "included": [],
+#            "included": ["TTG", "ELIA"],
+            # EXCLUDING ALL BUT PSE and LITGRID FOR TESTING
+            "excluded": ["ELERING", "EIRGRID", "TRANSELECTRICA", "UA_WPS", "KOSOVA-TSMO", "OST", "APG", "NOSBIH", "ESO", "SWISSGRID",
+                         "DKW", "DKE", "D7", "CGES", "EMS", "CEPS", "D4", "REE", "FI", "RTEFRANCE", "50Hertz",
+                         "NGET", "IPTO", "HOPS", "MAVIR", "TERNA", "CREOS", "AST", "REE", "MEPSO", "TTN", "STATNETT",
+                         "REN", "Transelectrica", "SVK", "ELES", "SEPS", "TEIAS", "UKRENERGO","PSE", "LITGRID"],
+            #"excluded": [],
             "local_import": [],
             "replace_tso": [],
-            "time_horizon": "1D",
+            "time_horizon": "ID",
             "version": "000",
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
@@ -651,9 +664,9 @@ if __name__ == "__main__":
             "outage_update": "True",
             "force_outage_fix": "False",
             "upload_to_opdm": "False",
-            "upload_to_minio": "True",
+            "upload_to_minio": "False",
             "send_merge_report": "True",
-            "lvl8_reporting": "False"
+            "lvl8_reporting": "True"
         }
     }
     class Properties(dict):

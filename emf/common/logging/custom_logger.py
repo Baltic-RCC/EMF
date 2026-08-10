@@ -19,6 +19,30 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
+from contextvars import ContextVar
+log_context = ContextVar("log_context", default={})
+old_factory = logging.getLogRecordFactory()
+
+def record_factory(*args, **kwargs):
+    record = old_factory(*args, **kwargs)
+    ctx = log_context.get()
+    if ctx:
+        for k, v in ctx.items():
+            record.__dict__[k] = v
+
+    return record
+logging.setLogRecordFactory(record_factory)
+
+def set_logging_context_token(model_timestamp, time_horizon, version):
+    """Sets the metadata of logs that will be present for all logs originating from the
+    module where this is used
+    CAN ADD INFORMATION IF WANTED"""
+    token = log_context.set({
+        "@model_timestamp": model_timestamp,  # the actual model timestamp
+        "@time_horizon": time_horizon,  # aka ID, WK etc
+        "@version": version  # merged model version
+    })
+    return token
 
 def initialize_custom_logger(
         level: str = LOGGING_LEVEL,
