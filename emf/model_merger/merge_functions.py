@@ -950,6 +950,17 @@ def run_post_merge_processing(input_models: list,
                                                             cgm_ssh_data=ssh_data,
                                                             original_models=input_models_triplets,
                                                             fix_errors=True)
+        # Latest SSH error fixes
+        ssh_data = temporary.check_non_regulating_rotating_machine_q(cgm_ssh_data=ssh_data,
+                                                                      original_models=input_models_triplets,
+                                                                      fix_errors=True)
+        ssh_data = temporary.check_rotating_machine_q_outside_p_limits(cgm_ssh_data=ssh_data,
+                                                                       original_models=input_models_triplets,
+                                                                       fix_errors=True)
+        ssh_data, sv_data = temporary.check_non_ltc_tap_changer_step(cgm_ssh_data=ssh_data,
+                                                                     cgm_sv_data=sv_data,
+                                                                     original_models=input_models_triplets,
+                                                                     fix_errors=True)
 
     # Run injections check and apply modification if defined in configuration
     injection_threshold = float(INJECTION_THRESHOLD)

@@ -496,3 +496,142 @@ def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: b
                                                                             add=False,
                                                                             update=True)
     return cgm_sv_data
+
+
+def check_non_regulating_rotating_machine_q(cgm_ssh_data, original_models, fix_errors: bool = False):
+    """
+    QoCDC section 5.10 (Table 5): cim:RotatingMachine.q may only differ from the IGM SSH value if the
+    machine's own regulating control is enabled (RegulatingCondEq.controlEnabled and the referenced
+    RegulatingControl.enabled both true). Restores the IGM SSH value for machines without an eligible
+    control, rather than leaving whatever the loadflow solved.
+    :param cgm_ssh_data: merged ssh profile
+    :param original_models: original profiles, used for eligibility flags and the original SSH value
+    :param fix_errors: restores the ineligible values
+    :return (updated) ssh profile
+    """
+    original_q = original_models.query("KEY == 'RotatingMachine.q'")[['ID', 'VALUE']]
+    if original_q.empty:
+        return cgm_ssh_data
+
+    enabled_controls = original_models.query("KEY == 'RegulatingControl.enabled' and VALUE == 'true'")[['ID']]
+    machine_control_enabled = original_models.query(
+        "KEY == 'RegulatingCondEq.controlEnabled' and VALUE == 'true'")[['ID']]
+    machine_regulating_control = original_models.query("KEY == 'RegulatingCondEq.RegulatingControl'")[
+        ['ID', 'VALUE']]
+    eligible_machines = machine_regulating_control.merge(machine_control_enabled, on='ID').merge(
+        enabled_controls.rename(columns={'ID': 'VALUE'}), on='VALUE')
+
+    ineligible_q = original_q[~original_q['ID'].isin(eligible_machines['ID'])].copy()
+    if not ineligible_q.empty:
+        logger.warning(f"Found {len(ineligible_q.index)} RotatingMachine(s) without an eligible regulating "
+                       f"control - restoring their SSH q to the original IGM values")
+        if fix_errors:
+            ineligible_q.loc[:, 'KEY'] = 'RotatingMachine.q'
+            cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(ineligible_q[['ID', 'KEY', 'VALUE']],
+                                                                    add=False)
+    return cgm_ssh_data
+
+
+def check_rotating_machine_q_outside_p_limits(cgm_ssh_data, original_models, fix_errors: bool = False):
+    """
+    QoCDC section 5.10 (Table 5): cim:RotatingMachine.q may only differ from the IGM SSH value if
+    Pmin <= Pgen <= Pmax, where Pgen = -RotatingMachine.p from the IGM SSH. Pmin/Pmax come from the
+    machine's ReactiveCapabilityCurve when it has one (curve takes precedence per Table 5), otherwise
+    from its GeneratingUnit.minOperatingP/maxOperatingP. Restores the IGM SSH value for machines whose
+    Pgen falls outside that range, regardless of their regulating-control state.
+    Machines with neither a curve nor GeneratingUnit limits are left alone.
+    :param cgm_ssh_data: merged ssh profile
+    :param original_models: original profiles, used for P/limit data and the original SSH value
+    :param fix_errors: restores the ineligible values
+    :return (updated) ssh profile
+    """
+    original_q = original_models.query("KEY == 'RotatingMachine.q'")[['ID', 'VALUE']]
+    original_p = original_models.query("KEY == 'RotatingMachine.p'")[['ID', 'VALUE']].rename(columns={'VALUE': 'p'})
+    if original_q.empty or original_p.empty:
+        return cgm_ssh_data
+    pgen = original_p.copy()
+    pgen['pgen'] = -pd.to_numeric(pgen['p'], errors='coerce')
+
+    # Curve-derived limits (precedence): the curve's own P range across its CurveData points
+    machine_curve = original_models.query("KEY == 'SynchronousMachine.InitialReactiveCapabilityCurve'")[
+        ['ID', 'VALUE']].rename(columns={'VALUE': 'Curve'})
+    curve_points = original_models.query("KEY == 'CurveData.xvalue'")[['ID', 'VALUE']].rename(
+        columns={'VALUE': 'xvalue'})
+    curve_owner = original_models.query("KEY == 'CurveData.Curve'")[['ID', 'VALUE']].rename(
+        columns={'VALUE': 'Curve'})
+    curve_limits = curve_points.merge(curve_owner, on='ID')
+    curve_limits['xvalue'] = pd.to_numeric(curve_limits['xvalue'], errors='coerce')
+    curve_limits = curve_limits.groupby('Curve')['xvalue'].agg(
+        curve_p_min='min', curve_p_max='max').reset_index()
+    machine_curve_limits = machine_curve.merge(curve_limits, on='Curve')
+
+    # Fallback when no curve is present: GeneratingUnit.minOperatingP/maxOperatingP
+    machine_unit = original_models.query("KEY == 'RotatingMachine.GeneratingUnit'")[['ID', 'VALUE']].rename(
+        columns={'VALUE': 'GeneratingUnit'})
+    unit_min = original_models.query("KEY == 'GeneratingUnit.minOperatingP'")[['ID', 'VALUE']].rename(
+        columns={'ID': 'GeneratingUnit', 'VALUE': 'unit_p_min'})
+    unit_max = original_models.query("KEY == 'GeneratingUnit.maxOperatingP'")[['ID', 'VALUE']].rename(
+        columns={'ID': 'GeneratingUnit', 'VALUE': 'unit_p_max'})
+    unit_min['unit_p_min'] = pd.to_numeric(unit_min['unit_p_min'], errors='coerce')
+    unit_max['unit_p_max'] = pd.to_numeric(unit_max['unit_p_max'], errors='coerce')
+    machine_unit_limits = machine_unit.merge(unit_min, on='GeneratingUnit').merge(unit_max, on='GeneratingUnit')
+
+    limits = pgen.merge(machine_curve_limits[['ID', 'curve_p_min', 'curve_p_max']], on='ID', how='left')
+    limits = limits.merge(machine_unit_limits[['ID', 'unit_p_min', 'unit_p_max']], on='ID', how='left')
+    limits['p_min'] = limits['curve_p_min'].combine_first(limits['unit_p_min'])
+    limits['p_max'] = limits['curve_p_max'].combine_first(limits['unit_p_max'])
+    limits = limits.dropna(subset=['pgen', 'p_min', 'p_max'])
+
+    outside_limits = limits[(limits['pgen'] < limits['p_min']) | (limits['pgen'] > limits['p_max'])]
+    ineligible_q = original_q[original_q['ID'].isin(outside_limits['ID'])].copy()
+    if not ineligible_q.empty:
+        logger.warning(f"Found {len(ineligible_q.index)} RotatingMachine(s) with Pgen outside [Pmin, Pmax] - "
+                       f"restoring their SSH q to the original IGM values")
+        if fix_errors:
+            ineligible_q.loc[:, 'KEY'] = 'RotatingMachine.q'
+            cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(ineligible_q[['ID', 'KEY', 'VALUE']],
+                                                                    add=False)
+    return cgm_ssh_data
+
+
+def check_non_ltc_tap_changer_step(cgm_ssh_data, cgm_sv_data, original_models, fix_errors: bool = False):
+    """
+    QoCDC section 5.10 (Table 5): cim:TapChanger.step may only differ from the IGM SSH value if the tap
+    changer is an LTC with its control enabled (ltcFlag, TapChanger.controlEnabled, and the referenced
+    RegulatingControl.enabled all true). For ineligible tap changers, restores the IGM step to BOTH
+    TapChanger.step (SSH) and SvTapStep.position (SV) together.
+    :param cgm_ssh_data: merged ssh profile
+    :param cgm_sv_data: merged sv profile
+    :param original_models: original profiles, used for eligibility flags and the original SSH value
+    :param fix_errors: restores the ineligible values
+    :return (updated ssh profile, updated sv profile)
+    """
+    original_step = original_models.query("KEY == 'TapChanger.step'")[['ID', 'VALUE']]
+    if original_step.empty:
+        return cgm_ssh_data, cgm_sv_data
+
+    enabled_controls = original_models.query("KEY == 'RegulatingControl.enabled' and VALUE == 'true'")[['ID']]
+    tap_ltc = original_models.query("KEY == 'TapChanger.ltcFlag' and VALUE == 'true'")[['ID']]
+    tap_control_enabled = original_models.query("KEY == 'TapChanger.controlEnabled' and VALUE == 'true'")[['ID']]
+    tap_regulating_control = original_models.query("KEY == 'TapChanger.TapChangerControl'")[['ID', 'VALUE']]
+    eligible_taps = tap_regulating_control.merge(tap_ltc, on='ID').merge(tap_control_enabled, on='ID').merge(
+        enabled_controls.rename(columns={'ID': 'VALUE'}), on='VALUE')
+
+    ineligible_step = original_step[~original_step['ID'].isin(eligible_taps['ID'])].copy()
+    if not ineligible_step.empty:
+        logger.warning(f"Found {len(ineligible_step.index)} TapChanger(s) without an eligible LTC control - "
+                       f"restoring their SSH step and SV position to the IGM values")
+        if fix_errors:
+            ssh_update = ineligible_step.copy()
+            ssh_update.loc[:, 'KEY'] = 'TapChanger.step'
+            cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(ssh_update[['ID', 'KEY', 'VALUE']], add=False)
+
+            sv_tap_steps = cgm_sv_data.query("KEY == 'SvTapStep.TapChanger'")[['ID', 'VALUE']].rename(
+                columns={'ID': 'SvTapStep_ID', 'VALUE': 'ID'})
+            sv_update = ineligible_step.merge(sv_tap_steps, on='ID')[['SvTapStep_ID', 'VALUE']].rename(
+                columns={'SvTapStep_ID': 'ID'})
+            if not sv_update.empty:
+                sv_update.loc[:, 'KEY'] = 'SvTapStep.position'
+                cgm_sv_data = cgm_sv_data.update_triplet_from_triplet(sv_update[['ID', 'KEY', 'VALUE']],
+                                                                      add=False)
+    return cgm_ssh_data, cgm_sv_data
