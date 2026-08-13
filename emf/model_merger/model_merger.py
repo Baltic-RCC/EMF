@@ -176,11 +176,12 @@ class HandlerMergeModels:
         tsos_config_json = json.load(config_areas_mapping)
         full_tso_list = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
 
-        # I believe here is earliest in the model_merger handler where logging context can be set
+        # the task_properties only gives time horizon, scenario timestamp and version, others come directly from task
         model_properties = task.get('task_properties', {})
-        set_logging_context_token(model_properties['timestamp_utc'], model_properties['time_horizon'],
-                                  model_properties['version'])
-        logger.info("logging test from model_merger")
+        set_logging_context_token(job_id=task.get('@id'), process_id=task.get('process_id'),
+                                  run_id=task.get('run_id'), scenario_timestamp=model_properties['timestamp_utc'],
+                                  task_id=task.get('@task_id'), time_horizon=model_properties['time_horizon'],
+                                  version=model_properties['version'])
 
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace

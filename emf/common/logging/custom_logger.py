@@ -5,6 +5,7 @@ import requests
 from emf.common.integrations import elastic
 import config
 from emf.common.config_parser import parse_app_properties
+#from emf.common.logging.custom_logger import log_context
 
 # Root logger
 root_logger = logging.getLogger()
@@ -12,6 +13,7 @@ root_logger = logging.getLogger()
 # Local logger
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
+print("GLOBALS KEYS ",globals().keys())
 logging.basicConfig(
     format=LOGGING_FORMAT,
     datefmt=LOGGING_DATEFMT,
@@ -33,14 +35,28 @@ def record_factory(*args, **kwargs):
     return record
 logging.setLogRecordFactory(record_factory)
 
-def set_logging_context_token(model_timestamp, time_horizon, version):
-    """Sets the metadata of logs that will be present for all logs originating from the
-    module where this is used
-    CAN ADD INFORMATION IF WANTED"""
+def set_logging_context_token(
+        job_id: str | None,                 # ex: urn:uuid:..., shared by entire time horizon's merge logs
+        process_id: str | None,             # ex: .../RMM_CREATION
+        run_id: str | None,                 # ex: runs/DayAheadRMM
+        scenario_timestamp: str | None,     # the actual model timestamp
+        task_id: str | None,                # ex: urn:uuid:..., shared by one timestamp's logs
+        time_horizon: str | None,           # ex: ID, WK etc
+        version: str | None                 # merged model version, ex: 001
+        ):
+    """
+    Sets the metadata of logs that will be present for all logs originating from the
+    module where this is used, currently works best for model_merger module.
+    In this setup if any of these log metadata items are missing they will not show up in log at all
+    """
     token = log_context.set({
-        "@model_timestamp": model_timestamp,  # the actual model timestamp
-        "@time_horizon": time_horizon,  # aka ID, WK etc
-        "@version": version  # merged model version
+        "@job_id": job_id,
+        "@process_id": process_id,
+        "@run_id": run_id,
+        "@scenario_timestamp": scenario_timestamp,
+        "@task_id": task_id,
+        "@time_horizon": time_horizon,
+        "@version": version
     })
     return token
 

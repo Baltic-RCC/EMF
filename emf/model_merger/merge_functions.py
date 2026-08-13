@@ -464,21 +464,27 @@ def filter_models(tsos: list, included_models: list | str = None, excluded_model
         return tsos
 
     filtered_tsos = []
+    # Include in logs entire included-excluded lists as two logs instead of a million individual logs
+    _included_log_list = []
+    _excluded_log_list = []
 
     for tso in tsos:
 
         if included_models:
             if tso not in included_models:
-                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                _excluded_log_list.append(tso)
                 continue
 
         elif excluded_models:
             if tso in excluded_models:
-                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                _excluded_log_list.append(tso)
                 continue
 
-        logger.info(f"Included {tso} (pre-metadata-query)")
+        _included_log_list.append(tso)
         filtered_tsos.append(tso)
+
+    logger.info(f"Excluded tsos {_excluded_log_list} (pre-metadata-query)")
+    logger.info(f"Included tsos {_included_log_list} (pre-metadata-query)")
 
     return filtered_tsos
 
