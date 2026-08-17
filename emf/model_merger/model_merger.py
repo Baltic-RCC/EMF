@@ -2,10 +2,9 @@ import logging
 import pypowsybl
 import config
 import json
-import time
 from uuid import uuid4
 import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, astuple
 from typing import List
 from emf.common.helpers.time import parse_datetime
 from io import BytesIO
@@ -15,17 +14,17 @@ from emf.common.integrations import opdm, minio_api, elastic, edx
 from emf.common.integrations.object_storage.models import get_latest_boundary, get_latest_models_and_download
 from emf.common.integrations.object_storage.schedules import query_acnp_schedules, query_hvdc_schedules, \
     calculate_ac_net_position
-from emf.common.loadflow_tool import loadflow_settings, settings_manager
+from emf.common.loadflow_tool import settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
 from emf.common.helpers.loadflow import load_network_model
 from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
+from emf.model_merger import post_processing
 from emf.model_merger import scaler
-from emf.model_merger.merge_functions import filter_models_by_acnp
+from emf.model_merger.merge_functions import filter_models_by_acnp, handle_igm_ssh_vs_cgm_ssh_error
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
-from emf.model_merger.temporary import handle_igm_ssh_vs_cgm_ssh_error
 from emf.common.logging.custom_logger import get_elk_logging_handler
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
@@ -110,6 +109,22 @@ class HandlerMergeModels:
         self.opdm_service = None
 
     @staticmethod
+    def apply_pre_loadflow_corrections(merged_model):
+        """Network-level fixes applied before the loadflow is solved"""
+        # Various corrections from igmsshvscgmssh error
+        if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
+            merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
+
+        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
+        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(
+            network=merged_model.network)
+
+        # Ensure boundary line connectivity consistency for paired boundary lines
+        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+
+        return merged_model
+
+    @staticmethod
     def run_loadflow(merged_model):
         # Set starting point of lf settings priority list
         if json.loads(ENABLE_DYNAMIC_MERGE_SETTINGS.lower()):
@@ -147,8 +162,6 @@ class HandlerMergeModels:
                 island['slack_bus_id'] = 'undefined'
                 island['active_power_mismatch'] = float()
 
-        # merged_model.loadflow = json.loads(loadflow_report.to_json())
-        # merged_model.loadflow = str(loadflow_report)
         merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
         merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
         merged_model.loadflow_settings = lf_settings
@@ -184,33 +197,13 @@ class HandlerMergeModels:
         update_task_status(task, "started")
 
         # Task configuration
-        task_creation_time = task.get('task_creation_time')
-        task_properties = task.get('task_properties', {})
-        included_models = task_properties.get('included', [])
-        excluded_models = task_properties.get('excluded', [])
-        local_import_models = task_properties.get('local_import', [])
-        replace_tso = task_properties.get('replace_tso', [])
-        time_horizon = task_properties["time_horizon"]
-        scenario_datetime = task_properties["timestamp_utc"]
-        schedule_start = task_properties.get("reference_schedule_start_utc")
-        schedule_end = task_properties.get("reference_schedule_end_utc")
-        schedule_time_horizon = task_properties.get("reference_schedule_time_horizon")
-        merging_area = task_properties["merge_type"]
-        merging_entity = task_properties["merging_entity"]
-        mas = task_properties["mas"]
-        version = task_properties["version"]
-        model_replacement = task_properties["replacement"]
-        model_scaling = task_properties["scaling"]
-        outage_update = task_properties["outage_update"]
-        force_outage_fix = task_properties['force_outage_fix']
-        model_upload_to_opdm = task_properties["upload_to_opdm"]
-        model_upload_to_minio = task_properties["upload_to_minio"]
-        model_merge_report_send_to_elk = task_properties["send_merge_report"]
-        post_temp_fixes = task_properties['post_temp_fixes']
-        lvl8_reporting = task_properties['lvl8_reporting']
+        (task_properties, task_creation_time, included_models, excluded_models, local_import_models, replace_tso,
+         time_horizon, scenario_datetime, schedule_start, schedule_end, schedule_time_horizon, merging_area,
+         merging_entity, mas, version, model_replacement, model_scaling, outage_update, force_outage_fix,
+         model_upload_to_opdm, model_upload_to_minio, model_merge_report_send_to_elk, additional_processing,
+         lvl8_reporting) = astuple(merge_functions.TaskConfig.from_task(task))
 
-        # Get aligned schedules
-        # Set default time horizon and scenario timestamp if not provided
+        # Get aligned schedules. Set default time horizon and scenario timestamp if not provided
         if not schedule_time_horizon or schedule_time_horizon == "AUTO":
             schedule_time_horizon = time_horizon
 
@@ -339,8 +332,7 @@ class HandlerMergeModels:
             conform_load_factor=CONFORM_LOAD_FACTOR
         )
 
-        # Exclude TSOs already recorded in replaced_entity, so a substituted model isn't also
-        # reported a second time here as 'Valid' (it stays reported once, as 'Substituted')
+        # Exclude TSOs already recorded in replaced_entity.
         replaced_tsos = {entity['tso'] for entity in merged_model.replaced_entity}
 
         merged_model.merge_included_entity = [
@@ -380,26 +372,16 @@ class HandlerMergeModels:
                                                                 scenario_datetime=scenario_datetime,
                                                                 time_horizon=time_horizon)
 
-        # Various corrections from igmsshvscgmssh error
-        if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
-            merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
-
-        # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
-        merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(
-            network=merged_model.network)
-
-        # Ensure boundary line connectivity consistency for paired boundary lines
-        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+        # Apply network-level corrections before solving loadflow
+        merged_model = self.apply_pre_loadflow_corrections(merged_model=merged_model)
 
         # Run loadflow on merged model
         merged_model, pp_loadflow_parameters = self.run_loadflow(merged_model=merged_model)
         logger.info(
             f"Loadflow status of main island: {merged_model.loadflow_status} [settings: {merged_model.loadflow_settings}]")
 
-        # Perform scaling
+        # Scale merged model to reference schedules
         if model_scaling:
-
-            # Scale balance if all schedules were received
             if all([ac_schedules, dc_schedules]):
                 try:
                     merged_model = scaler.scale_balance(model=merged_model,
@@ -448,11 +430,10 @@ class HandlerMergeModels:
         post_p_start = datetime.datetime.now(datetime.UTC)
         logger.info(f"Starting merged model post-processing")
         # TODO here should be one existing network structure. IIDM model can be exported and removed to release memory
-        sv_data, ssh_data, opdm_object_meta = merge_functions.run_post_merge_processing(input_models=input_models,
+        sv_data, ssh_data, opdm_object_meta = post_processing.run_post_merge_processing(input_models=input_models,
                                                                                         exported_model=exported_model,
                                                                                         opdm_object_meta=opdm_object_meta,
-                                                                                        enable_temp_fixes=post_temp_fixes,
-                                                                                        task_properties=task_properties
+                                                                                        additional_processing=additional_processing,
                                                                                         )
 
         # for merge report need to get the final uuid.
