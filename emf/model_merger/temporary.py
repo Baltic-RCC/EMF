@@ -374,7 +374,8 @@ def set_paired_boundary_injections_to_zero(original_models, cgm_ssh_data):
     updated_q_value["KEY"] = "EquivalentInjection.q"
     updated_q_value["VALUE"] = 0
     return cgm_ssh_data.update_triplet_from_triplet(
-        pd.concat([updated_regulation_status, updated_p_value, updated_q_value], ignore_index=True), add=False)
+        pd.concat([updated_terminal_status, updated_regulation_status, updated_p_value, updated_q_value],
+                 ignore_index=True), add=False)
 
 
 def check_energized_boundary_nodes(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False):
