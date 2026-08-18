@@ -17,7 +17,7 @@ from emf.common.integrations.object_storage.schedules import query_acnp_schedule
 from emf.common.loadflow_tool import settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
-from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes
+from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes, DataSource
 from emf.common.helpers.loadflow import load_network_model
 from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
@@ -89,8 +89,8 @@ class ModelEntity:
     creation_timestamp: str = None
     file_name: str = None
 
-    def __init__(self, data_source: str, quality_indicator: str, **kwargs):
-        self.data_source = data_source
+    def __init__(self, quality_indicator: str, data_source: str | None = None, **kwargs):
+        self.data_source = data_source or kwargs.get('data-source', 'unknown')
         self.quality_indicator = quality_indicator
         self.tso = kwargs.get('pmd:TSO', 'unknown')
         self.time_horizon = kwargs.get('pmd:timeHorizon', 'unknown')
@@ -226,7 +226,7 @@ class HandlerMergeModels:
                                                 scenario_date=scenario_datetime,
                                                 valid=True,
                                                 tso=desired_tsos,
-                                                data_source='OPDM')
+                                                data_source=DataSource.OPDM)
         latest_boundary = get_latest_boundary()
 
         # Get additional models from ObjectStorage if local import is configured
@@ -235,7 +235,7 @@ class HandlerMergeModels:
                                                                scenario_date=scenario_datetime,
                                                                valid=True,
                                                                tso=local_import_models,
-                                                               data_source='PDN')
+                                                               data_source=DataSource.PDN)
 
             additional_tsos = {model['pmd:TSO'] for model in additional_models}
             missing_local_import = [tso for tso in local_import_models if tso not in additional_tsos]
@@ -262,7 +262,7 @@ class HandlerMergeModels:
                                                                  scenario_date=scenario_datetime,
                                                                  valid=True,
                                                                  tso=missing_models_rmm,
-                                                                 data_source='PDN')
+                                                                 data_source=DataSource.PDN)
 
                 # Cache PDN TSO set
                 pdn_tsos = {m['pmd:TSO'] for m in pdn_auto_models}
@@ -271,9 +271,9 @@ class HandlerMergeModels:
                 if missing_pdn_auto:
                     logging.info(f"OPDM and PDN missing for {missing_pdn_auto}")
 
-                replaced_with_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
-                if replaced_with_pdn:
-                    logging.info(f"OPDM missing for {replaced_with_pdn} - replaced with PDN models")
+                sourced_from_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
+                if sourced_from_pdn:
+                    logging.info(f"OPDM missing for {sourced_from_pdn} - sourced from PDN instead")
 
                 models = models + pdn_auto_models
 
@@ -315,10 +315,12 @@ class HandlerMergeModels:
                                       tso not in models_tsos and tso not in missing_models]
                 missing_models = missing_models + excluded_incorrect
 
-        # Execute consolidated model replacement logic
-        models, additional_models = run_replacement(
-            models=models,
-            additional_models=additional_models,
+        # Merge OPDM and PDN models into a single list.
+        igm_models = models + additional_models
+
+        # Execute model replacement logic.
+        igm_models = run_replacement(
+            igm_models=igm_models,
             model_replacement=model_replacement,
             local_import_models=local_import_models,
             missing_local_import=missing_local_import,
@@ -336,15 +338,11 @@ class HandlerMergeModels:
         replaced_tsos = {entity['tso'] for entity in merged_model.replaced_entity}
 
         merged_model.merge_included_entity = [
-            ModelEntity(data_source='OPDM', quality_indicator='Valid', **model).__dict__
-            for model in models if model.get('pmd:TSO') not in replaced_tsos]
-
-        merged_model.merge_included_entity.extend(
-            [ModelEntity(data_source='PDN', quality_indicator='Valid', **model).__dict__ for model in
-             additional_models if model.get('pmd:TSO') not in replaced_tsos])
+            ModelEntity(quality_indicator='Valid', **model).__dict__
+            for model in igm_models if model.get('pmd:TSO') not in replaced_tsos]
 
         # Store models together with boundary set and check whether there are enough models to merge
-        input_models = models + additional_models + [latest_boundary]
+        input_models = igm_models + [latest_boundary]
         if len(input_models) < 2:
             logger.warning("No valid models found for merging, exiting merge process")
             properties.headers['success'] = False

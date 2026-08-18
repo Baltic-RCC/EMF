@@ -4,11 +4,13 @@ from isodate import parse_duration
 import logging
 import config
 import json
+from dataclasses import dataclass
 from dateutil import parser
 from pathlib import Path
 from emf.common.integrations.object_storage.models import query_data, get_content, fetch_unique_values
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
+from emf.common.helpers.opdm_objects import DataSource
 from emf.model_merger.merge_functions import filter_replacements_by_acnp
 
 logger = logging.getLogger(__name__)
@@ -17,181 +19,127 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.repl
 replacement_config = json.load(config.paths.cgm_worker.replacement_conf)
 
 
-def run_replacement(models, additional_models, model_replacement, local_import_models,
+@dataclass
+class ReplacementRequest:
+    """A single 'this TSO's IGM needs a same-source, different-timeframe substitute' request."""
+    tso: str
+    data_source: str
+    forced: bool = False
+
+
+def run_replacement(igm_models, model_replacement, local_import_models,
                     missing_local_import, missing_models, replace_tso, time_horizon,
                     scenario_datetime, merged_model, acnp_dict=None, acnp_threshold=None,
                     conform_load_factor=None):
     """
-    Execute consolidated model replacement logic with priority order: FORCED → OPDM → PDN
-    Forced replacement intelligently detects which source (OPDM or PDN) each TSO should be replaced in,
-    regardless of whether models currently exist (it's FORCED replacement).
+    Execute model replacement (the ENTSO-E EMF requirements STEP1-4 historical fallback) in a
+    single pass over a flat, priority-ordered list of replacement requests, dispatched by
+    data-source.
+
+    Priority order: forced (replace_tso) first, then normal missing-model replacement. A TSO
+    already satisfied by a higher-priority request is skipped by later ones.
 
     Args:
-        models: List of OPDM models
-        additional_models: List of PDN models
-        model_replacement: Boolean flag for normal replacement
-        local_import_models: List of TSOs to import from local (PDN)
-        missing_local_import: List of missing TSOs in local import
-        missing_models: List of missing TSOs in main models
-        replace_tso: List of TSOs to force replacement for (highest priority, ignores existing models)
-        time_horizon: Time horizon for replacement query
-        scenario_datetime: Scenario datetime for replacement query
-        merged_model: MergedModel instance to update
-        acnp_dict: AC Net Position dictionary (optional)
-        acnp_threshold: ACNP threshold (optional)
-        conform_load_factor: Conform load factor (optional)
+        igm_models: Unified list of OPDM/PDN model dicts, each carrying its own 'data-source'.
+        model_replacement: Boolean flag for normal (non-forced) replacement.
+        local_import_models: List of TSOs configured for local (PDN) import.
+        missing_local_import: List of TSOs missing from PDN.
+        missing_models: List of TSOs missing from OPDM.
+        replace_tso: List of TSOs to force replacement for (highest priority, ignores existing models).
+        time_horizon: Time horizon for replacement query.
+        scenario_datetime: Scenario datetime for replacement query.
+        merged_model: MergedModel instance to update (replaced_entity, replaced).
+        acnp_dict: AC Net Position dictionary (optional).
+        acnp_threshold: ACNP threshold (optional).
+        conform_load_factor: Conform load factor (optional).
 
     Returns:
-        Tuple of (models, additional_models) with replacements applied
+        igm_models with replacements applied.
     """
     from emf.model_merger.model_merger import ModelEntity
 
-    # Define all replacement scenarios upfront (in priority order: FORCED → OPDM → PDN)
-    replacement_scenarios = []
-    replaced_tsos_tracker = set()  # Track TSOs already replaced to avoid duplicates
-
-    # Scenario 1: Forced Replacement for specific TSOs - HIGHEST PRIORITY (overrides replacement flag)
-    # FORCED replacement happens regardless of whether models currently exist
+    # Build the flat, priority-ordered request list: forced first, then normal missing-model replacement
+    requests = []
     if replace_tso:
-        # For FORCED replacement, we replace TSOs based on their assignment:
-        # - If TSO is in local_import_models, force replace from PDN
-        # - Otherwise, force replace from OPDM (default)
+        for tso in replace_tso:
+            data_source = DataSource.PDN if tso in local_import_models else DataSource.OPDM
+            logger.info(f"Forced replacement requested for {data_source} TSO (ignoring current models): {tso}")
+            requests.append(ReplacementRequest(tso=tso, data_source=data_source, forced=True))
 
-        forced_replace_in_opdm = [tso for tso in replace_tso if tso not in local_import_models]
-        forced_replace_in_pdn = [tso for tso in replace_tso if tso in local_import_models]
+    if model_replacement:
+        for tso in missing_models:
+            requests.append(ReplacementRequest(tso=tso, data_source=DataSource.OPDM))
+        if local_import_models:
+            for tso in missing_local_import:
+                requests.append(ReplacementRequest(tso=tso, data_source=DataSource.PDN))
 
-        # Create scenarios for forced replacements from OPDM
-        if forced_replace_in_opdm:
-            logger.info(
-                f"Forced replacement requested for OPDM TSO(s) (ignoring current models): {forced_replace_in_opdm}")
-            replacement_scenarios.append({
-                'name': 'FORCED-OPDM',
-                'tso_list': forced_replace_in_opdm,
-                'model_list': models,  # Add to OPDM models only
-                'data_source': 'OPDM',
-            })
+    replaced_tsos_tracker = set()
+    any_success = False
 
-        # Create scenarios for forced replacements from PDN
-        if forced_replace_in_pdn:
-            logger.info(
-                f"Forced replacement requested for PDN TSO(s) (ignoring current models): {forced_replace_in_pdn}")
-            replacement_scenarios.append({
-                'name': 'FORCED-PDN',
-                'tso_list': forced_replace_in_pdn,
-                'model_list': additional_models,  # Add to PDN models only
-                'data_source': 'PDN',
-            })
-
-    # Scenario 2: OPDM (Main) Replacement - MEDIUM PRIORITY (OPDM models only)
-    if model_replacement and missing_models:
-        replacement_scenarios.append({
-            'name': 'OPDM',
-            'tso_list': missing_models,
-            'model_list': models,  # Add ONLY to OPDM models
-            'data_source': 'OPDM',
-        })
-
-    # Scenario 3: PDN (Local Import) Replacement - LOWEST PRIORITY (PDN models only)
-    if local_import_models and model_replacement and missing_local_import:
-        replacement_scenarios.append({
-            'name': 'PDN',
-            'tso_list': missing_local_import,
-            'model_list': additional_models,  # Add ONLY to PDN models
-            'data_source': 'PDN',
-        })
-
-    # Execute all replacement scenarios with unified logic (priority order maintained)
-    for scenario in replacement_scenarios:
-        # Filter out TSOs already replaced in previous scenarios (respects priority)
-        tsos_to_replace = [tso for tso in scenario['tso_list'] if tso not in replaced_tsos_tracker]
-
-        if not tsos_to_replace:
-            logger.info(
-                f"{scenario['name']} replacement skipped - all TSOs already replaced in higher priority scenarios: {scenario['tso_list']}")
+    for request in requests:
+        if request.tso in replaced_tsos_tracker:
+            logger.info(f"Replacement for {request.tso} [{request.data_source}] skipped - "
+                       f"already satisfied by a higher priority request")
             continue
 
-        logger.info(f"Attempting {scenario['name']} replacement for: {tsos_to_replace}")
+        label = f"{'forced ' if request.forced else ''}{request.data_source}"
+        logger.info(f"Attempting {label} replacement for: {request.tso}")
 
         try:
-            # Get existing models for this scenario to avoid duplicates
-            # For forced replacement, we only exclude models from the same TSO to avoid exact duplicates
-            if scenario['name'] in ['FORCED-OPDM', 'FORCED-PDN']:
-                existing_models_for_scenario = [
-                    model for model in scenario['model_list']
-                    if model.get('pmd:TSO') in tsos_to_replace
+            # Forced replacement excludes only the TSO's own existing model (it replaces regardless
+            # of whether one exists); normal replacement excludes against the whole data-source
+            if request.forced:
+                existing_models_for_request = [
+                    model for model in igm_models
+                    if model.get('pmd:TSO') == request.tso and model.get('data-source') == request.data_source
                 ]
             else:
-                existing_models_for_scenario = scenario['model_list']
+                existing_models_for_request = [
+                    model for model in igm_models if model.get('data-source') == request.data_source
+                ]
 
             replacement_models = find_replacement_models(
-                tso_list=tsos_to_replace,
+                tso_list=[request.tso],
                 time_horizon=time_horizon,
                 scenario_date=scenario_datetime,
-                data_source=scenario['data_source'],
+                data_source=request.data_source,
                 acnp_dict=acnp_dict,
                 acnp_threshold=acnp_threshold,
                 conform_load_factor=conform_load_factor,
-                existing_models=existing_models_for_scenario
+                existing_models=existing_models_for_request
             ) or []
 
             if replacement_models:
-                replaced_tsos_list = [m['pmd:TSO'] for m in replacement_models]
-                logger.info(
-                    f"{scenario['name']} replacement succeeded for TSO(s): {replaced_tsos_list} "
-                    f"({[m['pmd:fileName'] for m in replacement_models]})"
-                )
+                logger.info(f"{label} replacement succeeded for {request.tso} "
+                           f"({[m['pmd:fileName'] for m in replacement_models]})")
+                replaced_tsos_tracker.add(request.tso)
+                any_success = True
 
-                # Track replaced TSOs
-                replaced_tsos_tracker.update(replaced_tsos_list)
-
-                # Create entity records
-                replaced_entities = [
-                    ModelEntity(
-                        data_source=scenario['data_source'],
-                        quality_indicator='Substituted',
-                        **model
-                    ).__dict__
+                merged_model.replaced_entity.extend([
+                    ModelEntity(quality_indicator='Substituted', **model).__dict__
                     for model in replacement_models
-                ]
-                merged_model.replaced_entity.extend(replaced_entities)
+                ])
 
-                # Add to appropriate model list based on scenario type
-                # For FORCED replacements, we might need to remove old models first
-                if scenario['name'] in ['FORCED-OPDM', 'FORCED-PDN']:
-                    # Remove old models for these TSOs from the appropriate list
-                    model_list = scenario['model_list']
-                    old_tsos_to_remove = replaced_tsos_list
-                    model_list[:] = [m for m in model_list if m.get('pmd:TSO') not in old_tsos_to_remove]
-                    logger.debug(f"{scenario['name']}: Removed old models for TSO(s): {old_tsos_to_remove}")
-
-                scenario['model_list'].extend(replacement_models)
-
-                # Set replaced flag for main scenarios (OPDM-based)
-                if scenario['name'] in ['OPDM', 'FORCED-OPDM']:
-                    merged_model.replaced = True
+                if request.forced:
+                    # Remove the TSO's old model of this data-source before adding its replacement
+                    igm_models[:] = [
+                        model for model in igm_models
+                        if not (model.get('pmd:TSO') == request.tso
+                                and model.get('data-source') == request.data_source)
+                    ]
+                igm_models.extend(replacement_models)
             else:
-                logger.warning(f"No {scenario['name']} replacements available for: {tsos_to_replace}")
-                # Only set replaced=False if this is OPDM/FORCED-OPDM and no replacements found
-                # and no other main scenario has succeeded yet
-                if scenario['name'] in ['OPDM', 'FORCED-OPDM'] and scenario['name'] not in [s['name'] for s in
-                                                                                            replacement_scenarios[
-                                                                                                :replacement_scenarios.index(
-                                                                                                    scenario)] if
-                                                                                            s['name'] in ['OPDM',
-                                                                                                          'FORCED-OPDM']]:
-                    merged_model.replaced = False
+                logger.warning(f"No {label} replacement available for: {request.tso}")
 
         except Exception as error:
-            logger.error(f"{scenario['name']} replacement failed for TSO(s) {tsos_to_replace}: {error}")
-            if scenario['name'] in ['OPDM', 'FORCED-OPDM'] and scenario['name'] not in [s['name'] for s in
-                                                                                        replacement_scenarios[
-                                                                                            :replacement_scenarios.index(
-                                                                                                scenario)] if
-                                                                                        s['name'] in ['OPDM',
-                                                                                                      'FORCED-OPDM']]:
-                merged_model.replaced = False
+            logger.error(f"{label} replacement failed for {request.tso}: {error}")
 
-    return models, additional_models
+    if any_success:
+        merged_model.replaced = True
+    elif requests:
+        merged_model.replaced = False
+
+    return igm_models
 
 
 def _build_replacement_query(tso_list: list, data_source: str, config: dict, time_horizon: str) -> tuple:

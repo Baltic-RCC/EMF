@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from io import BytesIO
 import pandas as pd
 import triplets
@@ -9,6 +10,12 @@ from emf.common.helpers.cgmes import get_metadata_from_rdfxml
 
 
 logger = logging.getLogger(__name__)
+
+
+class DataSource(str, Enum):
+    """Where an opdm_object's data originates from, per its 'data-source' key."""
+    OPDM = "OPDM"
+    PDN = "PDN"
 
 
 def clean_data_from_opdm_objects(opdm_objects: list) -> list:
