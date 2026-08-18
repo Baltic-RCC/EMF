@@ -304,26 +304,25 @@ class HandlerMergeModels:
             else:
                 missing_models = []
 
-        # Exclude models that are outside scheduled AC net position deadband
-        if acnp_dict:
-            logger.info("Excluding models with incorrect ACNP")
-            filtered_models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-            filtered_additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
-                                                      CONFORM_LOAD_FACTOR)
-            if included_models:
-                # Update missing models
-                missing_models = [m for m in included_models if m not in [m['pmd:TSO'] for m in filtered_models]]
-                missing_local_import = [m for m in local_import_models if m not in [m['pmd:TSO'] for m in filtered_additional_models]]
-                models = filtered_models
-                additional_models = filtered_additional_models
-            elif model_replacement:
-                models_tsos = {model['pmd:TSO'] for model in models}
-                excluded_incorrect = [tso for tso in valid_model_tsos if
-                                      tso not in models_tsos and tso not in missing_models]
-                missing_models = missing_models + excluded_incorrect
-
         # Merge OPDM and PDN models into a single list.
         igm_models = models + additional_models
+
+        # Exclude models that are outside scheduled AC net position deadband.
+        if acnp_dict:
+            logger.info("Excluding models with incorrect ACNP")
+            igm_models_before = {m['pmd:TSO'] for m in igm_models}
+            pdn_tsos_before = {m['pmd:TSO'] for m in additional_models}
+
+            igm_models = filter_models_by_acnp(igm_models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            surviving_tsos = {m['pmd:TSO'] for m in igm_models}
+
+            if included_models:
+                # A TSO counts as present if either source survived; local-import TSOs are held to
+                # their configured source specifically, since that's a deliberate per-TSO routing choice
+                missing_models = [tso for tso in included_models if tso not in surviving_tsos]
+                missing_local_import = [tso for tso in local_import_models if tso not in (pdn_tsos_before & surviving_tsos)]
+            elif model_replacement:
+                missing_models = missing_models + [tso for tso in (igm_models_before - surviving_tsos) if tso not in missing_models]
 
         # Execute model replacement logic.
         igm_models = run_replacement(
