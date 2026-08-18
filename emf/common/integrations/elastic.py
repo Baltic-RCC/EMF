@@ -13,6 +13,9 @@ from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 
+# Disabling elasticsearch client's per-request logging (e.g. "POST https://... [status:200]") at INFO level
+logging.getLogger('elastic_transport').setLevel(logging.WARNING)
+
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
 
 

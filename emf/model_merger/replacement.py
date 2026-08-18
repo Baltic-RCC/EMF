@@ -61,10 +61,13 @@ def run_replacement(igm_models, model_replacement, local_import_models,
     # Build the flat, priority-ordered request list: forced first, then normal missing-model replacement
     requests = []
     if replace_tso:
+        forced_by_source = {}
         for tso in replace_tso:
             data_source = DataSource.PDN if tso in local_import_models else DataSource.OPDM
-            logger.info(f"Forced replacement requested for {data_source} TSO (ignoring current models): {tso}")
+            forced_by_source.setdefault(data_source, []).append(tso)
             requests.append(ReplacementRequest(tso=tso, data_source=data_source, forced=True))
+        for data_source, tsos in forced_by_source.items():
+            logger.info(f"Forced {data_source} replacement requested (ignoring current models) for: {tsos}")
 
     if model_replacement:
         for tso in missing_models:
@@ -75,15 +78,16 @@ def run_replacement(igm_models, model_replacement, local_import_models,
 
     replaced_tsos_tracker = set()
     any_success = False
+    results_by_label = {}
 
     for request in requests:
-        if request.tso in replaced_tsos_tracker:
-            logger.info(f"Replacement for {request.tso} [{request.data_source}] skipped - "
-                       f"already satisfied by a higher priority request")
-            continue
-
         label = f"{'forced ' if request.forced else ''}{request.data_source}"
-        logger.info(f"Attempting {label} replacement for: {request.tso}")
+        outcome = results_by_label.setdefault(
+            label, {"succeeded": [], "no_replacement": [], "skipped": [], "errored": []})
+
+        if request.tso in replaced_tsos_tracker:
+            outcome["skipped"].append(request.tso)
+            continue
 
         try:
             # Forced replacement excludes only the TSO's own existing model (it replaces regardless
@@ -110,8 +114,7 @@ def run_replacement(igm_models, model_replacement, local_import_models,
             ) or []
 
             if replacement_models:
-                logger.info(f"{label} replacement succeeded for {request.tso} "
-                           f"({[m['pmd:fileName'] for m in replacement_models]})")
+                outcome["succeeded"].append(request.tso)
                 replaced_tsos_tracker.add(request.tso)
                 any_success = True
 
@@ -129,10 +132,17 @@ def run_replacement(igm_models, model_replacement, local_import_models,
                     ]
                 igm_models.extend(replacement_models)
             else:
-                logger.warning(f"No {label} replacement available for: {request.tso}")
+                outcome["no_replacement"].append(request.tso)
 
         except Exception as error:
-            logger.error(f"{label} replacement failed for {request.tso}: {error}")
+            logger.error(f"{label} replacement failed for {request.tso}: {error}", exc_info=True)
+            outcome["errored"].append(request.tso)
+
+    # One consolidated line per replacement type, listing the TSOs behind each outcome
+    for label, outcome in results_by_label.items():
+        summary = ", ".join(f"{key}={value}" for key, value in outcome.items() if value)
+        log = logger.warning if (outcome["no_replacement"] or outcome["errored"]) else logger.info
+        log(f"{label} replacement: {summary}")
 
     if any_success:
         merged_model.replaced = True

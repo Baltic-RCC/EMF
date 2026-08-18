@@ -48,10 +48,14 @@ def log_opdm_response(response):
 @dataclass
 class MergedModel:
     network: pypowsybl.network = None
+    network_meta: dict | None = None
     time_horizon: str = None
     time_horizon_id: str = field(default_factory=str)
-    name = None
+    name: str = None
     loadflow_status: str | None = None
+    loadflow_settings: str | None = None
+    duration_s: float | None = None
+    content_reference: str | None = None
 
     # Status flags
     scaled: bool = None
@@ -64,6 +68,7 @@ class MergedModel:
 
     # Extended data
     loadflow: List = field(default_factory=list)
+    included: List = field(default_factory=list)
     excluded: List = field(default_factory=list)
     scaled_entity: List = field(default_factory=list)
     scaled_hvdc: List = field(default_factory=list)
@@ -128,18 +133,20 @@ class HandlerMergeModels:
     def run_loadflow(merged_model):
         # Set starting point of lf settings priority list
         if json.loads(ENABLE_DYNAMIC_MERGE_SETTINGS.lower()):
-            settings_list = [param.strip() for param in MERGE_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
-            settings_priority = next((i for i, value in enumerate(settings_list) if value == MERGE_LOAD_FLOW_SETTINGS),
-                                     None)
-            settings_list = settings_list[settings_priority:]
+            settings_keywords = [param.strip() for param in MERGE_LOAD_FLOW_SETTINGS_PRIORITY.split(",")]
+            start_index = next(
+                (i for i, setting in enumerate(settings_keywords) if setting == MERGE_LOAD_FLOW_SETTINGS),
+                None
+            )
+            settings_keywords = settings_keywords[start_index:]
         else:
-            settings_list = [MERGE_LOAD_FLOW_SETTINGS]
+            settings_keywords = [MERGE_LOAD_FLOW_SETTINGS]
 
-        for lf_settings in settings_list:
-            logger.info(f"Solving loadflow with settings: {lf_settings}")
+        for settings_keyword in settings_keywords:
+            logger.info(f"Solving loadflow with settings: {settings_keyword}")
             # report = pypowsybl.report.Reporter()
-            manager = settings_manager.LoadflowSettingsManager(settings_keyword=lf_settings)
-            pp_loadflow_parameters = manager.build_pypowsybl_parameters()
+            settings_mgr = settings_manager.LoadflowSettingsManager(settings_keyword=settings_keyword)
+            pp_loadflow_parameters = settings_mgr.build_pypowsybl_parameters()
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
                                                parameters=pp_loadflow_parameters,
                                                # reporter=loadflow_report,
@@ -147,7 +154,7 @@ class HandlerMergeModels:
             if result[0].status_text == 'Converged':
                 break
             else:
-                logger.warning(f"Failed to solve loadflow with settings: {lf_settings}")
+                logger.warning(f"Failed to solve loadflow with settings: {settings_keyword}")
 
         result_dict = [attr_to_dict(island) for island in result]
         # Modify all nested objects to native data types
@@ -164,13 +171,13 @@ class HandlerMergeModels:
 
         merged_model.loadflow = [island for island in result_dict if island['reference_bus_id']]
         merged_model.loadflow_status = result[0].status.name  # store main island loadflow status
-        merged_model.loadflow_settings = lf_settings
+        merged_model.loadflow_settings = settings_keyword
 
         return merged_model, pp_loadflow_parameters
 
     def handle(self, task_object: dict, properties: dict, **kwargs):
 
-        start_time = datetime.datetime.now(datetime.UTC)
+        task_start_time = datetime.datetime.now(datetime.UTC)
 
         # Create instance of merged model
         merged_model = MergedModel()
@@ -269,11 +276,11 @@ class HandlerMergeModels:
                 missing_pdn_auto = [tso for tso in missing_models_rmm if tso not in pdn_tsos]
 
                 if missing_pdn_auto:
-                    logging.info(f"OPDM and PDN missing for {missing_pdn_auto}")
+                    logger.info(f"OPDM and PDN missing for {missing_pdn_auto}")
 
                 sourced_from_pdn = [tso for tso in missing_models_rmm if tso not in missing_pdn_auto]
                 if sourced_from_pdn:
-                    logging.info(f"OPDM missing for {sourced_from_pdn} - sourced from PDN instead")
+                    logger.info(f"OPDM missing for {sourced_from_pdn} - sourced from PDN instead")
 
                 models = models + pdn_auto_models
 
@@ -300,15 +307,15 @@ class HandlerMergeModels:
         # Exclude models that are outside scheduled AC net position deadband
         if acnp_dict:
             logger.info("Excluding models with incorrect ACNP")
-            filterd_models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
-            filterd_additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
+            filtered_models = filter_models_by_acnp(models, merged_model, acnp_dict, ACNP_THRESHOLD, CONFORM_LOAD_FACTOR)
+            filtered_additional_models = filter_models_by_acnp(additional_models, merged_model, acnp_dict, ACNP_THRESHOLD,
                                                       CONFORM_LOAD_FACTOR)
             if included_models:
                 # Update missing models
-                missing_models = [m for m in included_models if m not in [m['pmd:TSO'] for m in filterd_models]]
-                missing_local_import = [m for m in local_import_models if m not in [m['pmd:TSO'] for m in filterd_additional_models]]
-                models = filterd_models
-                additional_models = filterd_additional_models
+                missing_models = [m for m in included_models if m not in [m['pmd:TSO'] for m in filtered_models]]
+                missing_local_import = [m for m in local_import_models if m not in [m['pmd:TSO'] for m in filtered_additional_models]]
+                models = filtered_models
+                additional_models = filtered_additional_models
             elif model_replacement:
                 models_tsos = {model['pmd:TSO'] for model in models}
                 excluded_incorrect = [tso for tso in valid_model_tsos if
@@ -349,7 +356,7 @@ class HandlerMergeModels:
             return task_object, properties
 
         # Load network model and merge
-        merge_start = datetime.datetime.now(datetime.UTC)
+        merge_start_time = datetime.datetime.now(datetime.UTC)
         merged_model.network = load_network_model(opdm_objects=input_models)
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
         merged_model.included = [model['pmd:TSO'] for model in input_models if model.get('pmd:TSO', None)]
@@ -395,7 +402,7 @@ class HandlerMergeModels:
                 merged_model.scaled = False
 
         # Record main merging process end
-        merge_end = datetime.datetime.now(datetime.UTC)
+        merge_end_time = datetime.datetime.now(datetime.UTC)
 
         # Update time_horizon in case of generic ID process type
         if time_horizon.upper() == "ID":
@@ -425,7 +432,7 @@ class HandlerMergeModels:
                                                              cgm_convention=False)
 
         # Run post-processing
-        post_p_start = datetime.datetime.now(datetime.UTC)
+        post_processing_start_time = datetime.datetime.now(datetime.UTC)
         logger.info(f"Starting merged model post-processing")
         # TODO here should be one existing network structure. IIDM model can be exported and removed to release memory
         sv_data, ssh_data, opdm_object_meta = post_processing.run_post_merge_processing(input_models=input_models,
@@ -438,9 +445,9 @@ class HandlerMergeModels:
         merged_model.network_meta['fullModel_ID'] = opdm_object_meta['pmd:fullModel_ID']
         # Package both input models and exported CGM profiles to in memory zip files
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
-        post_p_end = datetime.datetime.now(datetime.UTC)
-        logger.debug(f"Post processing took: {(post_p_end - post_p_start).total_seconds()} seconds")
-        logger.debug(f"Merging took: {(merge_end - merge_start).total_seconds()} seconds")
+        post_processing_end_time = datetime.datetime.now(datetime.UTC)
+        logger.debug(f"Post processing took: {(post_processing_end_time - post_processing_start_time).total_seconds()} seconds")
+        logger.debug(f"Merging took: {(merge_end_time - merge_start_time).total_seconds()} seconds")
 
         # Upload to OPDM
         if model_upload_to_opdm:
@@ -464,7 +471,7 @@ class HandlerMergeModels:
 
                     merged_model.uploaded_to_opde = True
                 except Exception as error:
-                    logging.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
+                    logger.error(f"Unexpected error on uploading to OPDM: {error}", exc_info=True)
             else:
                 logger.info(f"Model not uploaded to OPDM due to convergence or failed scaling issues")
 
@@ -480,7 +487,7 @@ class HandlerMergeModels:
                 for instance in input_model['opde:Component']:
                     if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD', 'EQ_BD', 'TP_BD']:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
-                        logging.info(f"Adding file: {file_object.name}")
+                        logger.info(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
         saved_horizon = str(task_properties["time_horizon"]).strip().upper()
         folder = f"{OUTPUT_MINIO_FOLDER}/{saved_horizon}"
@@ -524,22 +531,22 @@ class HandlerMergeModels:
                         merged_model_object.name = original_name
 
             except Exception as error:
-                logging.error(f"Unexpected error on uploading to Object Storage: {error}", exc_info=True)
+                logger.error(f"Unexpected error on uploading to Object Storage: {error}", exc_info=True)
         logger.info(f"Merged model creation done for: {merged_model.name}")
 
-        end_time = datetime.datetime.now(datetime.UTC)
-        task_duration = end_time - start_time
-        logger.info(f"Task ended at {end_time}, total run time {task_duration}",
+        task_end_time = datetime.datetime.now(datetime.UTC)
+        task_duration = task_end_time - task_start_time
+        logger.info(f"Task ended at {task_end_time}, total run time {task_duration}",
                     extra={"task_duration": task_duration.total_seconds(),
-                           "task_start_time": start_time.isoformat(),
-                           "task_end_time": end_time.isoformat()})
+                           "task_start_time": task_start_time.isoformat(),
+                           "task_end_time": task_end_time.isoformat()})
 
         # Set task to finished
         update_task_status(task, "finished")
         logger.debug(task)
 
         # Update merged model attributes
-        merged_model.duration_s = (end_time - merge_start).total_seconds()
+        merged_model.duration_s = (task_end_time - merge_start_time).total_seconds()
         merged_model.content_reference = merged_model_object.name
 
         # Update OPDM object data with CGM relevant data and send to Elastic
