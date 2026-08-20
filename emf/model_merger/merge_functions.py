@@ -701,6 +701,10 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
 
 
 def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
+    # BRELL (Baltic-Russia/Belarus) EICs never have a merged neighbour - exclude them
+    BRELL_XBORDER_EICS = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
+                         '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
+                         '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
     area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
     outage_areas = [area_map.get(item, item) for item in tso_list]
 
@@ -756,16 +760,52 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
-    # Include cross-border lines for reconnection (both boundary lines)
+    # Include cross-border lines for reconnection, but only when the neighbour is actually
+    # paired (tie_line_id set) - unpaired means there's no neighbour to safely sync with.
     boundary_lines = get_network_elements(network=merged_model.network,
                                           element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(
         names=['grid_id'])
-    border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
-    relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
-    # Removing any BRELL lines
-    relevant_border_lines = relevant_border_lines[
-        ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].str.contains('RU')]
-    additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(relevant_border_lines['pairing_key'])]
+
+    additional_boundary_lines = boundary_lines.iloc[0:0]
+    if 'pairing_key' in boundary_lines.columns and 'pairing_key' in model_outages.columns:
+        border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
+        relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
+        # Removing any BRELL lines - exact EIC match, not a 'contains RU' substring guess
+        relevant_border_lines = relevant_border_lines[
+            ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].isin(BRELL_XBORDER_EICS)]
+
+        if 'tie_line_id' in relevant_border_lines.columns:
+            is_paired = relevant_border_lines['tie_line_id'].fillna('') != ''
+        else:
+            is_paired = pd.Series(False, index=relevant_border_lines.index)
+
+        unpaired = relevant_border_lines[~is_paired]
+        if not unpaired.empty:
+            logger.warning(f"Neighbour not paired, reconnecting local side only: "
+                           f"{unpaired[['name', 'grid_id']].to_dict('records')}")
+
+        paired_lines = relevant_border_lines[is_paired]
+        additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(paired_lines['pairing_key'])]
+
+        # Paired just means present - check the neighbour's own half against the live plan
+        # before reconnecting it, since the plan is the source of truth, not the local side.
+        neighbour_side = additional_boundary_lines[~additional_boundary_lines['country'].isin(model_outage_areas)]
+        if not neighbour_side.empty:
+            now_in_outage_mrids = set(
+                uap_outages.loc[
+                    (uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime),
+                    'mrid'
+                ].dropna().str.lstrip('_'))
+            # unmapped eic -> mrid is unverifiable, not confirmed-clear; treat as still-outaged
+            cant_verify = neighbour_side['lineEnergyIdentificationCodeEIC'].isin(unmapped_outages['eic'])
+            neighbour_still_outaged = neighbour_side[
+                neighbour_side['grid_id'].isin(now_in_outage_mrids) | cant_verify]
+
+            if not neighbour_still_outaged.empty:
+                logger.warning(f"Neighbour still outaged or unverified, left untouched: "
+                               f"{neighbour_still_outaged[['name', 'grid_id']].to_dict('records')}")
+            additional_boundary_lines = additional_boundary_lines[
+                ~additional_boundary_lines['grid_id'].isin(neighbour_still_outaged['grid_id'])]
 
     # Merged dataframe of network elements to be reconnected
     filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(
@@ -778,60 +818,102 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
     mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
 
+    # Don't reconnect something the live plan still wants disconnected - it would just get
+    # disconnected again by the loop below.
+    filtered_model_outages = filtered_model_outages[~filtered_model_outages['mrid'].isin(mapped_outages['mrid'])]
+
     logger.info(f"Updating outages in merged model areas: {model_outage_areas}")
 
     # Reconnecting outages from network-config list
     outages_updated = {}
+    reconnected, already_connected, failed_connect = [], [], []
     filtered_model_outages["eic"] = (
         filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
     for index, outage in filtered_model_outages.iterrows():
         try:
             if merged_model.network.connect(outage['mrid']):
-                logger.info(f"Successfully reconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
                 outage_dict = outage.to_dict()
                 outage_dict.update({'status': 'connected'})
                 outages_updated[outage_dict['mrid']] = outage_dict
+                reconnected.append(outage['name'])
+            elif uap_outages['mrid'].str.contains(("_" + outage['mrid']), regex=False).any():
+                already_connected.append(outage['name'])
             else:
-                if uap_outages['grid_id'].str.contains(outage['mrid']).any():
-                    logger.info(f"Element is already connected: {outage['name']} [mrid: {outage['mrid']}]")
-                else:
-                    logger.error(f"Failed to connect element: {outage['name']} [mrid: {outage['mrid']}]")
-                    merged_model.outages_unmapped.extend(
-                        [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+                failed_connect.append(outage['name'])
+                merged_model.outages_unmapped.extend(
+                    [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
-            logger.error((e, outage['name']))
+            logger.error(f"Failed to reconnect element {outage['name']} [mrid: {outage['mrid']}]: {e}", exc_info=True)
+            failed_connect.append(outage['name'])
             merged_model.outages_unmapped.extend(
                 [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
-            continue
+
+    if reconnected:
+        logger.info(f"Reconnected: {reconnected}")
+    if already_connected:
+        logger.info(f"Already connected: {already_connected}")
+    if failed_connect:
+        logger.error(f"Failed to reconnect: {failed_connect}")
 
     # Applying outages from UAP
+    disconnected, already_outaged, failed_disconnect = [], [], []
     mapped_outages["eic"] = (mapped_outages["eic"].astype(object).where(mapped_outages["eic"].notna(), None))
     for index, outage in mapped_outages.iterrows():
         try:
             if merged_model.network.disconnect(outage['mrid']):
-                logger.info(f"Successfully disconnected: {outage['name']} [mrid: {outage['mrid']}]")
                 merged_model.outages = True
                 outage_dict = outage.to_dict()
                 outage_dict.update({'status': 'disconnected'})
                 outages_updated[outage_dict['mrid']] = outage_dict
+                disconnected.append(outage['name'])
+            elif uap_outages['mrid'].str.contains(("_" + outage['mrid']), regex=False).any():
+                already_outaged.append(outage['name'])
             else:
-                if uap_outages['mrid'].str.contains(("_" + outage['mrid'])).any():
-                    logger.info(f"Element is already in outage: {outage['name']} [mrid: {outage['mrid']}]")
-                else:
-                    logger.error(f"Failed to disconnect element: {outage['name']} [mrid: {outage['mrid']}]")
-                    merged_model.outages_unmapped.extend(
-                        [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
+                failed_disconnect.append(outage['name'])
+                merged_model.outages_unmapped.extend(
+                    [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
         except Exception as e:
-            logger.error((e, outage['name'], outage['mrid']))
+            logger.error(f"Failed to disconnect element {outage['name']} [mrid: {outage['mrid']}]: {e}", exc_info=True)
+            failed_disconnect.append(outage['name'])
             merged_model.outages_unmapped.extend(
                 [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
             merged_model.outages = False
-            continue
+
+    if disconnected:
+        logger.info(f"Disconnected: {disconnected}")
+    if already_outaged:
+        logger.info(f"Already in outage: {already_outaged}")
+    if failed_disconnect:
+        logger.error(f"Failed to disconnect: {failed_disconnect}")
 
     # Keep only important keys of updated outages
     merged_model.outages_updated = list(outages_updated.values())
+
+    # Safety net: re-check every paired tie line this run touched for a resulting mismatch
+    # between its two halves. Not auto-corrected, just logged for visibility.
+    touched_grid_ids = pd.concat([
+        filtered_model_outages.get('mrid', pd.Series(dtype=str)),
+        mapped_outages.get('mrid', pd.Series(dtype=str)),
+    ]).dropna().unique()
+
+    if 'pairing_key' in boundary_lines.columns and len(touched_grid_ids):
+        current_boundary_lines = get_network_elements(
+            network=merged_model.network, element_type=pypowsybl.network.ElementType.BOUNDARY_LINE
+        ).reset_index(names=['grid_id'])
+
+        if 'tie_line_id' in current_boundary_lines.columns:
+            touched_keys = current_boundary_lines.loc[
+                current_boundary_lines['grid_id'].isin(touched_grid_ids), 'pairing_key'].unique()
+            paired_touched = current_boundary_lines[
+                current_boundary_lines['pairing_key'].isin(touched_keys) &
+                (current_boundary_lines['tie_line_id'].fillna('') != '')]
+
+            mismatched = [pair for _, pair in paired_touched.groupby('pairing_key') if pair['connected'].nunique() > 1]
+            if mismatched:
+                logger.warning(f"Cross-border pairing mismatches after outage update: "
+                               f"{pd.concat(mismatched)[['name', 'grid_id', 'country', 'connected']].to_dict('records')}")
 
     if merged_model.outages_unmapped:
         merged_model.outages = False
