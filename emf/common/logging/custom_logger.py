@@ -19,6 +19,44 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
+from contextvars import ContextVar
+log_context = ContextVar("log_context", default={})
+old_factory = logging.getLogRecordFactory()
+
+def record_factory(*args, **kwargs):
+    record = old_factory(*args, **kwargs)
+    ctx = log_context.get()
+    if ctx:
+        for k, v in ctx.items():
+            record.__dict__[k] = v
+
+    return record
+logging.setLogRecordFactory(record_factory)
+
+def set_logging_context_token(
+        job_id: str | None,                 # ex: urn:uuid:..., shared by entire time horizon's merge logs
+        process_id: str | None,             # ex: .../RMM_CREATION
+        run_id: str | None,                 # ex: runs/DayAheadRMM
+        scenario_timestamp: str | None,     # the actual model timestamp
+        task_id: str | None,                # ex: urn:uuid:..., shared by one timestamp's logs
+        time_horizon: str | None,           # ex: ID, WK etc
+        version: str | None                 # merged model version, ex: 001
+        ):
+    """
+    Sets the metadata of logs that will be present for all logs originating from the
+    module where this is used, currently works best for model_merger module.
+    In this setup if any of these log metadata items are missing they will not show up in log at all
+    """
+    token = log_context.set({
+        "@job_id": job_id,
+        "@process_id": process_id,
+        "@run_id": run_id,
+        "@scenario_timestamp": scenario_timestamp,
+        "@task_id": task_id,
+        "@time_horizon": time_horizon,
+        "@version": version
+    })
+    return token
 
 def initialize_custom_logger(
         level: str = LOGGING_LEVEL,
