@@ -77,63 +77,6 @@ class TaskConfig:
             lvl8_reporting=task_properties['lvl8_reporting'],
         )
 
-@dataclass
-class TaskConfig:
-    # ponytail: model_merger.py unpacks this via astuple() positionally - keep field order in sync with that unpack
-    task_properties: dict
-    task_creation_time: str
-    included_models: list
-    excluded_models: list
-    local_import_models: list
-    replace_tso: list
-    time_horizon: str
-    scenario_datetime: str
-    schedule_start: str
-    schedule_end: str
-    schedule_time_horizon: str
-    merging_area: str
-    merging_entity: str
-    mas: str
-    version: str
-    model_replacement: bool
-    model_scaling: bool
-    outage_update: bool
-    force_outage_fix: bool
-    model_upload_to_opdm: bool
-    model_upload_to_minio: bool
-    model_merge_report_send_to_elk: bool
-    additional_processing: bool
-    lvl8_reporting: bool
-
-    @staticmethod
-    def from_task(task: dict) -> "TaskConfig":
-        task_properties = task.get('task_properties', {})
-        return TaskConfig(
-            task_properties=task_properties,
-            task_creation_time=task.get('task_creation_time', ""),
-            included_models=task_properties.get('included', []),
-            excluded_models=task_properties.get('excluded', []),
-            local_import_models=task_properties.get('local_import', []),
-            replace_tso=task_properties.get('replace_tso', []),
-            time_horizon=task_properties["time_horizon"],
-            scenario_datetime=task_properties["timestamp_utc"],
-            schedule_start=task_properties.get("reference_schedule_start_utc"),
-            schedule_end=task_properties.get("reference_schedule_end_utc"),
-            schedule_time_horizon=task_properties.get("reference_schedule_time_horizon"),
-            merging_area=task_properties["merge_type"],
-            merging_entity=task_properties["merging_entity"],
-            mas=task_properties["mas"],
-            version=task_properties["version"],
-            model_replacement=task_properties["replacement"],
-            model_scaling=task_properties["scaling"],
-            outage_update=task_properties["outage_update"],
-            force_outage_fix=task_properties['force_outage_fix'],
-            model_upload_to_opdm=task_properties["upload_to_opdm"],
-            model_upload_to_minio=task_properties["upload_to_minio"],
-            model_merge_report_send_to_elk=task_properties["send_merge_report"],
-            additional_processing=task_properties['post_temp_fixes'],
-            lvl8_reporting=task_properties['lvl8_reporting'],
-        )
 
 def set_merge_logging_context(task: dict):
     """
