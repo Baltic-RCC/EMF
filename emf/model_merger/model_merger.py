@@ -134,6 +134,8 @@ class HandlerMergeModels:
         tsos_config_json = json.load(config_areas_mapping)
         full_tso_list = [area['party.name'] for area in tsos_config_json if 'party.name' in area]
 
+        merge_functions.set_merge_logging_context(task)
+
         # TODO - make it to a wrapper once it is settled/standardized how this info is exchanged
         # Initialize trace
         self.elk_logging_handler.start_trace(task)

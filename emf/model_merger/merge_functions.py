@@ -14,6 +14,7 @@ from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
 from emf.common.helpers.utils import sanitize_nan, is_valid_uuid
+from emf.common.logging.custom_logger import set_logging_context_token
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,76 @@ class TaskConfig:
             additional_processing=task_properties['post_temp_fixes'],
             lvl8_reporting=task_properties['lvl8_reporting'],
         )
+
+@dataclass
+class TaskConfig:
+    # ponytail: model_merger.py unpacks this via astuple() positionally - keep field order in sync with that unpack
+    task_properties: dict
+    task_creation_time: str
+    included_models: list
+    excluded_models: list
+    local_import_models: list
+    replace_tso: list
+    time_horizon: str
+    scenario_datetime: str
+    schedule_start: str
+    schedule_end: str
+    schedule_time_horizon: str
+    merging_area: str
+    merging_entity: str
+    mas: str
+    version: str
+    model_replacement: bool
+    model_scaling: bool
+    outage_update: bool
+    force_outage_fix: bool
+    model_upload_to_opdm: bool
+    model_upload_to_minio: bool
+    model_merge_report_send_to_elk: bool
+    additional_processing: bool
+    lvl8_reporting: bool
+
+    @staticmethod
+    def from_task(task: dict) -> "TaskConfig":
+        task_properties = task.get('task_properties', {})
+        return TaskConfig(
+            task_properties=task_properties,
+            task_creation_time=task.get('task_creation_time', ""),
+            included_models=task_properties.get('included', []),
+            excluded_models=task_properties.get('excluded', []),
+            local_import_models=task_properties.get('local_import', []),
+            replace_tso=task_properties.get('replace_tso', []),
+            time_horizon=task_properties["time_horizon"],
+            scenario_datetime=task_properties["timestamp_utc"],
+            schedule_start=task_properties.get("reference_schedule_start_utc"),
+            schedule_end=task_properties.get("reference_schedule_end_utc"),
+            schedule_time_horizon=task_properties.get("reference_schedule_time_horizon"),
+            merging_area=task_properties["merge_type"],
+            merging_entity=task_properties["merging_entity"],
+            mas=task_properties["mas"],
+            version=task_properties["version"],
+            model_replacement=task_properties["replacement"],
+            model_scaling=task_properties["scaling"],
+            outage_update=task_properties["outage_update"],
+            force_outage_fix=task_properties['force_outage_fix'],
+            model_upload_to_opdm=task_properties["upload_to_opdm"],
+            model_upload_to_minio=task_properties["upload_to_minio"],
+            model_merge_report_send_to_elk=task_properties["send_merge_report"],
+            additional_processing=task_properties['post_temp_fixes'],
+            lvl8_reporting=task_properties['lvl8_reporting'],
+        )
+
+def set_merge_logging_context(task: dict):
+    """
+    Attaches job/process/run/task/time_horizon/version metadata from the task to every
+    subsequent log record, so merge logs can be correlated with the merge report.
+    Job id, process id and run id come directly from the task; the rest from task_properties.
+    """
+    task_properties = task.get('task_properties', {})
+    set_logging_context_token(job_id=task.get('@id'), process_id=task.get('process_id'),
+                              run_id=task.get('run_id'), scenario_timestamp=task_properties['timestamp_utc'],
+                              task_id=task.get('@task_id'), time_horizon=task_properties['time_horizon'],
+                              version=task_properties['version'])
 
 
 @dataclass
@@ -668,21 +739,27 @@ def filter_models(tsos: list, included_models: list | str = None, excluded_model
         return tsos
 
     filtered_tsos = []
+    # Include in logs entire included-excluded lists as two logs instead of a million individual logs
+    _included_log_list = []
+    _excluded_log_list = []
 
     for tso in tsos:
 
         if included_models:
             if tso not in included_models:
-                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                _excluded_log_list.append(tso)
                 continue
 
         elif excluded_models:
             if tso in excluded_models:
-                logger.info(f"Excluded {tso} (pre-metadata-query)")
+                _excluded_log_list.append(tso)
                 continue
 
-        logger.info(f"Included {tso} (pre-metadata-query)")
+        _included_log_list.append(tso)
         filtered_tsos.append(tso)
+
+    logger.info(f"Excluded tsos {_excluded_log_list} (pre-metadata-query)")
+    logger.info(f"Included tsos {_included_log_list} (pre-metadata-query)")
 
     return filtered_tsos
 
