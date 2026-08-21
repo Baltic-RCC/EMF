@@ -5,7 +5,6 @@ import requests
 from emf.common.integrations import elastic
 import config
 from emf.common.config_parser import parse_app_properties
-#from emf.common.logging.custom_logger import log_context
 
 # Root logger
 root_logger = logging.getLogger()
@@ -13,7 +12,6 @@ root_logger = logging.getLogger()
 # Local logger
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
-print("GLOBALS KEYS ",globals().keys())
 logging.basicConfig(
     format=LOGGING_FORMAT,
     datefmt=LOGGING_DATEFMT,
