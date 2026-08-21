@@ -73,7 +73,7 @@ def get_nodes_against_kirchhoff_first_law(original_models,
                         pl.col('SvPowerFlow.q').cast(pl.Float64, strict=False),
                     ])
                 )
-        except Exception:
+        except (AttributeError, pl.exceptions.ColumnNotFoundError, pl.exceptions.SchemaError):
             # logger.warning(f"No SvInjections provided")
             pass
 
@@ -81,7 +81,7 @@ def get_nodes_against_kirchhoff_first_law(original_models,
     # column (polars has no index), so its just renamed - no reset_index dance needed.
     terminals_view = triplet_tools.type_tableview(original_models, 'Terminal')
     if terminals_view is None:
-        return pandas.DataFrame() if not nodes_only else pandas.DataFrame()
+        return pandas.DataFrame()
     terminals = (
         terminals_view.rename({'ID': 'Terminal'})
         .select(['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode'])
@@ -122,9 +122,9 @@ def get_nodes_against_kirchhoff_first_law(original_models,
         terminals_nodes = terminals.join(flows_summed, on='Terminal.TopologicalNode', how='left')
         terminals_nodes = terminals_nodes.join(nok_nodes, on='Terminal.TopologicalNode', how='inner')
         return terminals_nodes.to_pandas()
-    except Exception:
-        # Mirrors the original's defensive IndexError catch; broadened because polars raises
-        # its own exception types (e.g. ColumnNotFoundError) for the equivalent failure modes.
+    except (IndexError, pl.exceptions.ColumnNotFoundError, pl.exceptions.SchemaError):
+        # Mirrors the original's defensive IndexError catch, plus polars' own exception
+        # types for the equivalent failure modes.
         return pandas.DataFrame()
 
 def check_not_retained_switches_between_nodes(original_data, open_not_retained_switches: bool = False):
@@ -185,7 +185,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
             open_switches = closed_switches.join(between_tn.select('ID'), on='ID', how='inner')
             open_switches = open_switches.with_columns(pl.lit('true').alias('VALUE'))
 
-            # triplets.tools.update_triplet_from_triplet dispatches on the original_data
+            # triplets.tools.update_triplets_from_triplets dispatches on the original_data
             # object's own type - if it's pandas, the update_data must be pandas too. This
             # preserves the original function's behavior of updating `original_data` (not the
             # locally-normalized `original_models`) verbatim.
@@ -193,7 +193,7 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
                 update_arg = open_switches
             else:
                 update_arg = open_switches.to_pandas()
-            original_data = triplet_tools.update_triplet_from_triplet(original_data, update_arg)
+            original_data = triplet_tools.update_triplets_from_triplets(original_data, update_arg)
 
     return original_data, violated_switches
 
@@ -372,6 +372,6 @@ def modify_region_name_for_denmark(input_data):
         # check_not_retained_switches_between_nodes - match the tableview's type to whichever
         # engine `input_data` itself uses.
         tableview_arg = sub_regions if was_polars else sub_regions.to_pandas()
-        input_data = triplet_tools.update_triplet_from_tableview(input_data, tableview_arg, update=True)
+        input_data = triplet_tools.update_triplets_from_tableview(input_data, tableview_arg, update=True)
 
     return input_data
