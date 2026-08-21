@@ -1,6 +1,8 @@
 import logging
 import pandas
+import polars as pl
 import triplets
+import triplets.tools as triplet_tools
 import xml.etree.ElementTree as ET
 import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
@@ -9,8 +11,22 @@ from emf.common.helpers.statistics import get_tieflow_data, sum_on_KEY
 logger = logging.getLogger(__name__)
 
 
+def _as_polars(data):
+    """
+    Normalizes triplet data to a polars DataFrame.
+
+    `load_opdm_objects_to_triplets` / `get_tieflow_data` live in emf.common.helpers, outside
+    the triplets package, so there's no control whether it hands back pandas or polars. This
+    makes the rest of the pipeline work either way while staying on polars internally,
+    (triplets.tools functions dispatch to their native polars_engine implementation when
+    given a polars DataFrame).
+    """
+    if isinstance(data, pl.DataFrame):
+        return data
+    return pl.from_pandas(data)
+
 def get_nodes_against_kirchhoff_first_law(original_models,
-                                          cgm_sv_data: pandas.DataFrame = None,
+                                          cgm_sv_data=None,
                                           sv_injection_limit: float = 0.1,
                                           consider_sv_injection: bool = False,
                                           nodes_only: bool = False):
@@ -22,56 +38,94 @@ def get_nodes_against_kirchhoff_first_law(original_models,
     :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
     :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
     """
-    original_models = load_opdm_objects_to_triplets(opdm_objects=original_models)
-    sv_injections = pandas.DataFrame()
+    original_models = _as_polars(load_opdm_objects_to_triplets(opdm_objects=original_models))
     if cgm_sv_data is None:
         cgm_sv_data = original_models
-    power_flow = cgm_sv_data.type_tableview('SvPowerFlow')[['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q']]
+    else:
+        cgm_sv_data = _as_polars(cgm_sv_data)
+
+    power_flow_view = triplet_tools.type_tableview(cgm_sv_data, 'SvPowerFlow')
+    if power_flow_view is None:
+        power_flow = pl.DataFrame(
+            schema={'SvPowerFlow.Terminal': pl.Utf8, 'SvPowerFlow.p': pl.Float64, 'SvPowerFlow.q': pl.Float64}
+        )
+    else:
+        power_flow = power_flow_view.select(['SvPowerFlow.Terminal', 'SvPowerFlow.p', 'SvPowerFlow.q'])
+    power_flow = power_flow.with_columns([
+        pl.col('SvPowerFlow.p').cast(pl.Float64, strict=False),
+        pl.col('SvPowerFlow.q').cast(pl.Float64, strict=False),
+    ])
+
+    sv_injections = None
     if consider_sv_injection:
         try:
-            sv_injections = (cgm_sv_data.type_tableview('SvInjection')
-                             .rename_axis('SvInjection')
-                             .rename(columns={'SvInjection.TopologicalNode': 'Terminal.TopologicalNode',
-                                              'SvInjection.pInjection': 'SvPowerFlow.p',
-                                              'SvInjection.qInjection': 'SvPowerFlow.q'})
-                             .reset_index())[['Terminal.TopologicalNode', 'SvPowerFlow.p', 'SvPowerFlow.q']]
-        except AttributeError:
+            sv_view = triplet_tools.type_tableview(cgm_sv_data, 'SvInjection')
+            if sv_view is not None:
+                sv_injections = (
+                    sv_view.rename({
+                        'SvInjection.TopologicalNode': 'Terminal.TopologicalNode',
+                        'SvInjection.pInjection': 'SvPowerFlow.p',
+                        'SvInjection.qInjection': 'SvPowerFlow.q',
+                    })
+                    .select(['Terminal.TopologicalNode', 'SvPowerFlow.p', 'SvPowerFlow.q'])
+                    .with_columns([
+                        pl.col('SvPowerFlow.p').cast(pl.Float64, strict=False),
+                        pl.col('SvPowerFlow.q').cast(pl.Float64, strict=False),
+                    ])
+                )
+        except (AttributeError, pl.exceptions.ColumnNotFoundError, pl.exceptions.SchemaError):
             # logger.warning(f"No SvInjections provided")
             pass
-    # Get terminals
-    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
-    terminals = terminals[['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
-    # Calculate summed flows per topological node
-    flows_summed = ((power_flow.merge(terminals, left_on='SvPowerFlow.Terminal', right_on='Terminal', how='left')
-                     .groupby('Terminal.TopologicalNode')[['SvPowerFlow.p', 'SvPowerFlow.q']]
-                     .agg(lambda x: pandas.to_numeric(x, errors='coerce').sum()))
-                    .rename_axis('Terminal.TopologicalNode').reset_index())
-    if not sv_injections.empty:
-        flows_summed = (pandas.concat([flows_summed, sv_injections]).groupby('Terminal.TopologicalNode').sum()
-                        .reset_index())
-    # Get topological nodes that have mismatch
-    nok_nodes = flows_summed[(abs(flows_summed['SvPowerFlow.p']) > sv_injection_limit) |
-                             (abs(flows_summed['SvPowerFlow.q']) > sv_injection_limit)][['Terminal.TopologicalNode']]
-    if nodes_only:
-        return nok_nodes
-    try:
-        terminals_nodes = terminals.merge(flows_summed, on='Terminal.TopologicalNode', how='left')
-        terminals_nodes = terminals_nodes.merge(nok_nodes, on='Terminal.TopologicalNode')
-        return terminals_nodes
-    except IndexError:
+
+    # Get terminals. type_tableview's polars engine returns the object ID as a plain "ID"
+    # column (polars has no index), so its just renamed - no reset_index dance needed.
+    terminals_view = triplet_tools.type_tableview(original_models, 'Terminal')
+    if terminals_view is None:
         return pandas.DataFrame()
+    terminals = (
+        terminals_view.rename({'ID': 'Terminal'})
+        .select(['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode'])
+    )
 
+    # Calculate summed flows per topological node (vectorized left-join + group_by/agg,
+    # equivalent to pandas.to_numeric(..., errors='coerce').sum() - unparsable values were
+    # cast to null above, and sum() skips nulls just like pandas skips NaN)
+    flows_summed = (
+        power_flow.join(terminals, left_on='SvPowerFlow.Terminal', right_on='Terminal', how='left')
+        .group_by('Terminal.TopologicalNode')
+        .agg([
+            pl.col('SvPowerFlow.p').sum(),
+            pl.col('SvPowerFlow.q').sum(),
+        ])
+    )
 
-def check_switch_terminals(input_data: pandas.DataFrame, column_name: str):
-    """
-    Checks if column of a dataframe contains only one value
-    :param input_data: input data frame
-    :param column_name: name of the column to check
-    return True if different values are in column, false otherwise
-    """
-    data_slice = (input_data.reset_index())[column_name]
-    return not pandas.Series(data_slice[0] == data_slice).all()
+    if sv_injections is not None and sv_injections.height > 0:
+        flows_summed = (
+            pl.concat([flows_summed, sv_injections], how='diagonal')
+            .group_by('Terminal.TopologicalNode')
+            .agg([
+                pl.col('SvPowerFlow.p').sum(),
+                pl.col('SvPowerFlow.q').sum(),
+            ])
+        )
 
+    # Get topological nodes that have mismatch
+    nok_nodes = flows_summed.filter(
+        (pl.col('SvPowerFlow.p').abs() > sv_injection_limit) |
+        (pl.col('SvPowerFlow.q').abs() > sv_injection_limit)
+    ).select('Terminal.TopologicalNode')
+
+    if nodes_only:
+        return nok_nodes.to_pandas()
+
+    try:
+        terminals_nodes = terminals.join(flows_summed, on='Terminal.TopologicalNode', how='left')
+        terminals_nodes = terminals_nodes.join(nok_nodes, on='Terminal.TopologicalNode', how='inner')
+        return terminals_nodes.to_pandas()
+    except (IndexError, pl.exceptions.ColumnNotFoundError, pl.exceptions.SchemaError):
+        # Mirrors the original's defensive IndexError catch, plus polars' own exception
+        # types for the equivalent failure modes.
+        return pandas.DataFrame()
 
 def check_not_retained_switches_between_nodes(original_data, open_not_retained_switches: bool = False):
     """
@@ -82,39 +136,68 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     :return: updated original data
     """
     violated_switches = 0
-    if not isinstance(original_data, pandas.DataFrame):
-        original_models = load_opdm_objects_to_triplets(opdm_objects=original_data)
+    was_dataframe = isinstance(original_data, (pandas.DataFrame, pl.DataFrame))
+    if not was_dataframe:
+        original_models = _as_polars(load_opdm_objects_to_triplets(opdm_objects=original_data))
     else:
-        original_models = original_data
-    not_retained_switches = original_models[(original_models['KEY'] == 'Switch.retained')
-                                            & (original_models['VALUE'] == "false")][['ID']]
-    closed_switches = original_models[(original_models['KEY'] == 'Switch.open')
-                                      & (original_models['VALUE'] == 'false')]
-    not_retained_closed = not_retained_switches.merge(closed_switches[['ID']], on='ID')
-    terminals = original_models.type_tableview('Terminal').rename_axis('Terminal').reset_index()
-    terminals = terminals[['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode']]
-    not_retained_terminals = (terminals.rename(columns={'Terminal.ConductingEquipment': 'ID'})
-                              .merge(not_retained_closed, on='ID'))
-    if not_retained_terminals.empty:
+        original_models = _as_polars(original_data)
+
+    not_retained_switches = (
+        original_models
+        .filter((pl.col('KEY') == 'Switch.retained') & (pl.col('VALUE') == 'false'))
+        .select('ID')
+    )
+    closed_switches = (
+        original_models
+        .filter((pl.col('KEY') == 'Switch.open') & (pl.col('VALUE') == 'false'))
+    )
+    not_retained_closed = not_retained_switches.join(closed_switches.select('ID'), on='ID', how='inner')
+
+    terminals_view = triplet_tools.type_tableview(original_models, 'Terminal')
+    if terminals_view is None:
+        return original_data, violated_switches
+    terminals = (
+        terminals_view.rename({'ID': 'Terminal'})
+        .select(['Terminal', 'Terminal.ConductingEquipment', 'Terminal.TopologicalNode'])
+        .rename({'Terminal.ConductingEquipment': 'ID'})
+    )
+
+    not_retained_terminals = terminals.join(not_retained_closed, on='ID', how='inner')
+
+    if not_retained_terminals.height == 0:
         return original_data, violated_switches
 
-    between_tn = ((not_retained_terminals.groupby('ID')[['Terminal.TopologicalNode']]
-                  .apply(lambda x: check_switch_terminals(x, 'Terminal.TopologicalNode')))
-                  .reset_index(name='same_TN'))
-    between_tn = between_tn[between_tn['same_TN']]
-    if not between_tn.empty:
-        violated_switches = len(between_tn.index)
-        logger.warning(f"Found {len(between_tn.index)} not retained switches between topological nodes")
+    # Replaces the pandas groupby().apply(check_switch_terminals) python-level loop with a
+    # single vectorized group_by/agg: a switch is violated when its terminals span more than
+    # one distinct TopologicalNode.
+    between_tn = (
+        not_retained_terminals
+        .group_by('ID')
+        .agg(pl.col('Terminal.TopologicalNode').n_unique().alias('n_unique_tn'))
+        .filter(pl.col('n_unique_tn') > 1)
+    )
+
+    if between_tn.height > 0:
+        violated_switches = between_tn.height
+        logger.warning(f"Found {violated_switches} not retained switches between topological nodes")
         if open_not_retained_switches:
             logger.warning(f"Opening not retained switches")
-            open_switches = closed_switches.merge(between_tn[['ID']], on='ID')
-            open_switches.loc[:, 'VALUE'] = 'true'
-            original_data = triplets.rdf_parser.update_triplet_from_triplet(original_data, open_switches)
+            open_switches = closed_switches.join(between_tn.select('ID'), on='ID', how='inner')
+            open_switches = open_switches.with_columns(pl.lit('true').alias('VALUE'))
+
+            # triplets.tools.update_triplets_from_triplets dispatches on the original_data
+            # object's own type - if it's pandas, the update_data must be pandas too. This
+            # preserves the original function's behavior of updating `original_data` (not the
+            # locally-normalized `original_models`) verbatim.
+            if isinstance(original_data, pl.DataFrame):
+                update_arg = open_switches
+            else:
+                update_arg = open_switches.to_pandas()
+            original_data = triplet_tools.update_triplets_from_triplets(original_data, update_arg)
 
     return original_data, violated_switches
 
-
-def get_ac_net_position(models_as_triplets: pandas.DataFrame):
+def get_ac_net_position(models_as_triplets):
     """
     Taken from model_quality/statistics.py. Finds sum of EquivalentInjection on the borders
 
@@ -122,19 +205,25 @@ def get_ac_net_position(models_as_triplets: pandas.DataFrame):
     """
     # Use only Interchange Control Area Tieflows
     tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
-    tieflow_data = get_tieflow_data(models_as_triplets)
-    tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
+    tieflow_data = _as_polars(get_tieflow_data(models_as_triplets))
+
+    tieflow_data = tieflow_data.filter(pl.col('ControlArea.type') == tieflow_type)
     # AC was needed?
-    try:
-        tieflow_data = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False]
-    except KeyError:
-        pass
+    if 'BoundaryPoint.isDirectCurrent' in tieflow_data.columns:
+        tieflow_data = tieflow_data.filter(pl.col('BoundaryPoint.isDirectCurrent') == False)  # noqa: E712
+
     data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
-    tieflow_values = tieflow_data[data_columns].sum().to_dict()
+    if tieflow_data.height == 0:
+        tieflow_values = {c: 0.0 for c in data_columns}
+    else:
+        sums = tieflow_data.select([
+            pl.col(c).cast(pl.Float64).sum().alias(c) for c in data_columns
+        ])
+        tieflow_values = sums.to_dicts()[0]
+
     return tieflow_values.get("EquivalentInjection.p", None)
 
-
-def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
+def get_sum_of_loads(models_as_triplets, parameter_name: str = 'ConformLoad'):
     """
     Taken from model_quality/statistics.py. Slices the data and takes sum of values
 
@@ -142,13 +231,26 @@ def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str =
     :param parameter_name: VALUE that can be used to slice the input data
 
     """
-    input_data = models_as_triplets.merge(models_as_triplets.query("KEY == 'Type' & VALUE == @parameter_name")[['ID']], on='ID') \
-        if parameter_name is not None else models_as_triplets
+    models_pl = _as_polars(models_as_triplets)
+
+    if parameter_name is not None:
+        ids_of_type = models_pl.filter(
+            (pl.col('KEY') == 'Type') & (pl.col('VALUE') == parameter_name)
+        ).select('ID')
+        input_data_pl = models_pl.join(ids_of_type, on='ID', how='inner')
+    else:
+        input_data_pl = models_pl
 
     # Filter out negative conform loads
-    conform_keys = ['EnergyConsumer.p', 'EnergyConsumer.q',]
-    load_data = input_data.query("KEY in @conform_keys")
-    filtered_input_data = load_data[load_data["VALUE"].astype(float) >= 0]
+    conform_keys = ['EnergyConsumer.p', 'EnergyConsumer.q']
+    load_data_pl = input_data_pl.filter(pl.col('KEY').is_in(conform_keys))
+    filtered_pl = load_data_pl.filter(pl.col('VALUE').cast(pl.Float64) >= 0)
+
+    # The heavy filtering above (over the full triplet table) is done in polars; the final
+    # summation is delegated back to the existing sum_on_KEY helper (from emf.common.helpers),
+    # to keep its exact semantics intact. sum_on_KEY presumably expects
+    # pandas, so convert only this already-small, already-filtered slice.
+    filtered_input_data = filtered_pl.to_pandas()
 
     output = {
         "EnergyConsumer.p": sum_on_KEY(filtered_input_data, 'EnergyConsumer.p'),
@@ -158,8 +260,8 @@ def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str =
     }
     return output.get("EnergyConsumer.p", None)
 
-
 def get_lvl8_report_igm(report: dict):
+    # Pure XML construction from a plain dict - no dataframe involved, so left as-is.
 
     # Create <QAReport> root
     qa_attribs = {
@@ -179,7 +281,7 @@ def get_lvl8_report_igm(report: dict):
             'Message': "Power flow could not be calculated for IGM with default settings."
         },
     ]
-    
+
     # Later possible to add violation conditions and checks
     violations = list()
     if report["loadflow"]["status_text"] == 'Converged':
@@ -218,41 +320,58 @@ def get_lvl8_report_igm(report: dict):
 
     return qa_report_lvl8
 
-
-def modify_region_name_for_denmark(input_data: pandas.DataFrame):
+def modify_region_name_for_denmark(input_data):
     """
     For fixing issues when GeographicalRegion ids do not match
     """
-    # Get all Geographical regions
-    geo_regions = (input_data.type_tableview('GeographicalRegion').reset_index()
-                   .rename(columns={'ID': 'SubGeographicalRegion.Region'}))
+    was_polars = isinstance(input_data, pl.DataFrame)
+    input_data_pl = _as_polars(input_data)
+
+    # Get all Geographical regions. type_tableview's polars engine returns the object ID as a
+    # plain "ID" column, so this rename replaces the old rename_axis+reset_index combo.
+    geo_regions = (
+        triplet_tools.type_tableview(input_data_pl, 'GeographicalRegion')
+        .rename({'ID': 'SubGeographicalRegion.Region'})
+    )
+    control_areas = triplet_tools.type_tableview(input_data_pl, 'ControlArea')
+    sub_regions = triplet_tools.type_tableview(input_data_pl, 'SubGeographicalRegion')
 
     # Slice it with control area EIC codes: get region that has to be
-    control_areas = input_data.type_tableview('ControlArea').reset_index()
-    ca_geo_regions = geo_regions.merge(control_areas[['IdentifiedObject.energyIdentCodeEic']],
-                                       on='IdentifiedObject.energyIdentCodeEic')
-    sub_regions = input_data.type_tableview('SubGeographicalRegion').reset_index()
+    ca_geo_regions = geo_regions.join(
+        control_areas.select('IdentifiedObject.energyIdentCodeEic'),
+        on='IdentifiedObject.energyIdentCodeEic', how='inner'
+    )
 
     # Cut out the SubGeographical region from boundary just in case
-    sub_regions = sub_regions[sub_regions['IdentifiedObject.name'] != 'ENTSO-E']
+    sub_regions = sub_regions.filter(pl.col('IdentifiedObject.name') != 'ENTSO-E')
 
     # Cut regions to DK (because some other TSOs like to redeclare the geographical regions)
-    geo_regions = geo_regions[geo_regions['IdentifiedObject.name'].str.contains('DK')]
-    sub_regions = sub_regions.merge(geo_regions[['SubGeographicalRegion.Region']], on='SubGeographicalRegion.Region')
-    sub_regions_with_eic = sub_regions.merge(ca_geo_regions[['SubGeographicalRegion.Region']],
-                                             on='SubGeographicalRegion.Region')
-    if not sub_regions_with_eic.empty:
+    geo_regions_dk = geo_regions.filter(pl.col('IdentifiedObject.name').str.contains('DK'))
+    sub_regions = sub_regions.join(
+        geo_regions_dk.select('SubGeographicalRegion.Region'),
+        on='SubGeographicalRegion.Region', how='inner'
+    )
+    sub_regions_with_eic = sub_regions.join(
+        ca_geo_regions.select('SubGeographicalRegion.Region'),
+        on='SubGeographicalRegion.Region', how='inner'
+    )
+    if sub_regions_with_eic.height > 0:
         return input_data
 
-    if not sub_regions.empty and not ca_geo_regions.empty:
-        logger.warning(f"Detected {len(sub_regions)} sub regions and {len(ca_geo_regions)} regions with EIC in IGM")
-        sub_regions = sub_regions.drop(columns='SubGeographicalRegion.Region')
-        new_region_names = ca_geo_regions['SubGeographicalRegion.Region'].unique().tolist()
+    if sub_regions.height > 0 and ca_geo_regions.height > 0:
+        logger.warning(f"Detected {sub_regions.height} sub regions and {ca_geo_regions.height} regions with EIC in IGM")
+        sub_regions = sub_regions.drop('SubGeographicalRegion.Region')
+        new_region_names = ca_geo_regions.select('SubGeographicalRegion.Region').unique().to_series().to_list()
         if len(new_region_names) > 1:
             logger.warning(f"More than 1 region found, returning")
             return input_data
 
-        sub_regions['SubGeographicalRegion.Region'] = new_region_names[0]
-        input_data = triplets.rdf_parser.update_triplet_from_tableview(input_data, sub_regions, update=True)
+        sub_regions = sub_regions.with_columns(pl.lit(new_region_names[0]).alias('SubGeographicalRegion.Region'))
+
+        # Same "call update on the original, unnormalized object" pattern as
+        # check_not_retained_switches_between_nodes - match the tableview's type to whichever
+        # engine `input_data` itself uses.
+        tableview_arg = sub_regions if was_polars else sub_regions.to_pandas()
+        input_data = triplet_tools.update_triplets_from_tableview(input_data, tableview_arg, update=True)
 
     return input_data
