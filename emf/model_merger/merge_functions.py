@@ -7,7 +7,8 @@ import datetime
 import triplets
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 from emf.common.integrations import elastic
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
@@ -74,6 +75,67 @@ class TaskConfig:
             additional_processing=task_properties['post_temp_fixes'],
             lvl8_reporting=task_properties['lvl8_reporting'],
         )
+
+
+@dataclass
+class MergedModel:
+    network: pypowsybl.network = None
+    network_meta: dict | None = None
+    time_horizon: str = None
+    time_horizon_id: str = field(default_factory=str)
+    name: str = None
+    loadflow_status: str | None = None
+    loadflow_settings: str | None = None
+    duration_s: float | None = None
+    content_reference: str | None = None
+
+    # Status flags
+    scaled: bool = None
+    replaced: bool = None
+    outages: bool = None
+    acnp_schedule_replaced: bool = None
+    uploaded_to_opde: bool = False
+    uploaded_to_minio: bool = False
+
+
+    # Extended data
+    loadflow: List = field(default_factory=list)
+    included: List = field(default_factory=list)
+    excluded: List = field(default_factory=list)
+    scaled_entity: List = field(default_factory=list)
+    scaled_hvdc: List = field(default_factory=list)
+    replaced_entity: List = field(default_factory=list)
+    replacement_reason: List = field(default_factory=list)
+    outages_updated: List = field(default_factory=list)
+    acnp_schedule_replaced_entity: List = field(default_factory=list)
+    acnp_schedule_missing: List = field(default_factory=list)
+    outages_unmapped: List = field(default_factory=list)
+    merge_included_entity: List = field(default_factory=list)
+
+
+@dataclass(init=False)
+class ModelEntity:
+    data_source: str = "OPDM"
+    quality_indicator: str = "Valid"
+    tso: str = None
+    time_horizon: str = None
+    scenario_timestamp: str = None
+    model_sv_id: str = None
+    version: int = None
+    quality_indicator: str = "Valid"
+    creation_timestamp: str = None
+    file_name: str = None
+
+    def __init__(self, quality_indicator: str, data_source: str | None = None, **kwargs):
+        self.data_source = data_source or kwargs.get('data-source', 'unknown')
+        self.quality_indicator = quality_indicator
+        self.tso = kwargs.get('pmd:TSO', 'unknown')
+        self.time_horizon = kwargs.get('pmd:timeHorizon', 'unknown')
+        self.scenario_timestamp = kwargs.get('pmd:scenarioDate', 'unknown')
+        self.model_sv_id = kwargs.get('pmd:fullModel_ID', 'unknown')
+        self.version = int(kwargs.get('pmd:version', 999))
+        self.creation_timestamp = kwargs.get('pmd:creationDate', 'unknown')
+        self.file_name = kwargs.get('pmd:fileName', 'unknown')
 
 
 def export_merged_model(network: pypowsybl.network,

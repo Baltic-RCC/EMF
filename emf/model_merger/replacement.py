@@ -12,7 +12,7 @@ from emf.common.integrations.object_storage.models import query_data, get_conten
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
 from emf.common.helpers.opdm_objects import DataSource
-from emf.model_merger.merge_functions import filter_replacements_by_acnp
+from emf.model_merger.merge_functions import filter_replacements_by_acnp, ModelEntity
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,6 @@ def run_replacement(igm_models, model_replacement, local_import_models,
     Returns:
         igm_models with replacements applied.
     """
-    from emf.model_merger.model_merger import ModelEntity
-
     # Build the flat, priority-ordered request list: forced first, then normal missing-model replacement
     requests = []
     if replace_tso:
@@ -410,17 +408,7 @@ def find_replacement_models(tso_list: list[str],
     try:
         model_df = pl.DataFrame(columns)
 
-        # Diagnostic row counts per TSO per stage, gated behind isEnabledFor since the
-        # f-string args (a group_by().len() scan) would otherwise run even when filtered out.
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"[replacement diag] raw ES rows per TSO: {_tso_row_counts(model_df, tso_list)}")
-
         replacement_df = create_replacement_table(scenario_date_utc, time_horizon, model_df, config)
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"[replacement diag] rows per TSO after create_replacement_table "
-                f"(priority match + drop_nulls): {_tso_row_counts(replacement_df, tso_list)}"
-            )
 
         # filter_replacements_by_acnp is pandas-native, hence the round trip
         if acnp_dict:
@@ -428,20 +416,10 @@ def find_replacement_models(tso_list: list[str],
                 replacement_df.to_pandas(), acnp_dict, acnp_threshold, conform_load_factor
             )
             replacement_df = pl.from_pandas(filtered_pdf)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"[replacement diag] rows per TSO after filter_replacements_by_acnp: "
-                    f"{_tso_row_counts(replacement_df, tso_list)}"
-                )
 
         # Exclude models that already exist (single call across all TSOs)
         if existing_models:
             replacement_df = _exclude_existing_models(replacement_df, existing_models)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"[replacement diag] rows per TSO after _exclude_existing_models: "
-                    f"{_tso_row_counts(replacement_df, tso_list)}"
-                )
 
         if replacement_df.is_empty():
             logger.error("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
@@ -451,11 +429,7 @@ def find_replacement_models(tso_list: list[str],
                                                           target_time_horizon=time_horizon,
                                                           target_date=scenario_date_utc,
                                                           config=config)
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"[replacement diag] rows per TSO after _select_best_replacement_models: "
-                f"{_tso_row_counts(selected_models, tso_list)}"
-            )
+
         _log_replacement_results(selected_models, tso_list)
 
         if selected_models.is_empty():

@@ -4,8 +4,7 @@ import config
 import json
 from uuid import uuid4
 import datetime
-from dataclasses import dataclass, field, astuple
-from typing import List
+from dataclasses import astuple
 from emf.common.helpers.time import parse_datetime
 from io import BytesIO
 from zipfile import ZipFile
@@ -23,7 +22,8 @@ from emf.common.helpers.tasks import update_task_status
 from emf.model_merger import merge_functions
 from emf.model_merger import post_processing
 from emf.model_merger import scaler
-from emf.model_merger.merge_functions import filter_models_by_acnp, handle_igm_ssh_vs_cgm_ssh_error
+from emf.model_merger.merge_functions import filter_models_by_acnp, handle_igm_ssh_vs_cgm_ssh_error, \
+    MergedModel, ModelEntity
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
 from emf.common.logging.custom_logger import get_elk_logging_handler
 from concurrent.futures import ThreadPoolExecutor
@@ -43,67 +43,6 @@ def async_call(function, callback=None, *args, **kwargs):
 
 def log_opdm_response(response):
     logger.debug(etree.tostring(response, pretty_print=True).decode())
-
-
-@dataclass
-class MergedModel:
-    network: pypowsybl.network = None
-    network_meta: dict | None = None
-    time_horizon: str = None
-    time_horizon_id: str = field(default_factory=str)
-    name: str = None
-    loadflow_status: str | None = None
-    loadflow_settings: str | None = None
-    duration_s: float | None = None
-    content_reference: str | None = None
-
-    # Status flags
-    scaled: bool = None
-    replaced: bool = None
-    outages: bool = None
-    acnp_schedule_replaced: bool = None
-    uploaded_to_opde: bool = False
-    uploaded_to_minio: bool = False
-
-
-    # Extended data
-    loadflow: List = field(default_factory=list)
-    included: List = field(default_factory=list)
-    excluded: List = field(default_factory=list)
-    scaled_entity: List = field(default_factory=list)
-    scaled_hvdc: List = field(default_factory=list)
-    replaced_entity: List = field(default_factory=list)
-    replacement_reason: List = field(default_factory=list)
-    outages_updated: List = field(default_factory=list)
-    acnp_schedule_replaced_entity: List = field(default_factory=list)
-    acnp_schedule_missing: List = field(default_factory=list)
-    outages_unmapped: List = field(default_factory=list)
-    merge_included_entity: List = field(default_factory=list)
-
-
-@dataclass(init=False)
-class ModelEntity:
-    data_source: str = "OPDM"
-    quality_indicator: str = "Valid"
-    tso: str = None
-    time_horizon: str = None
-    scenario_timestamp: str = None
-    model_sv_id: str = None
-    version: int = None
-    quality_indicator: str = "Valid"
-    creation_timestamp: str = None
-    file_name: str = None
-
-    def __init__(self, quality_indicator: str, data_source: str | None = None, **kwargs):
-        self.data_source = data_source or kwargs.get('data-source', 'unknown')
-        self.quality_indicator = quality_indicator
-        self.tso = kwargs.get('pmd:TSO', 'unknown')
-        self.time_horizon = kwargs.get('pmd:timeHorizon', 'unknown')
-        self.scenario_timestamp = kwargs.get('pmd:scenarioDate', 'unknown')
-        self.model_sv_id = kwargs.get('pmd:fullModel_ID', 'unknown')
-        self.version = int(kwargs.get('pmd:version', 999))
-        self.creation_timestamp = kwargs.get('pmd:creationDate', 'unknown')
-        self.file_name = kwargs.get('pmd:fileName', 'unknown')
 
 
 class HandlerMergeModels:
