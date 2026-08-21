@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pandas",
+    "polars>=1.0",
     "numpy",
     "pypowsybl==1.16.1",
     "aniso8601",

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -6,6 +7,20 @@ from lxml import etree
 import math
 
 logger = logging.getLogger(__name__)
+
+
+def is_valid_uuid(uuid_value):
+    """
+    Checks if input is uuid value
+    For merged SV profile the output uuid can be combination of several existing uuids
+    :param uuid_value: input value
+    :return
+    """
+    try:
+        uuid.UUID(str(uuid_value))
+        return True
+    except ValueError:
+        return False
 
 
 def attr_to_dict(instance: object, sanitize_to_strings: bool = False):
