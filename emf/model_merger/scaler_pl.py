@@ -29,6 +29,20 @@ are calculated from P values, then the power factors sign defines what sign shou
 It is possible to use older solution but that causes problems with TTN IGM where some dangling lines does not have
 substation assigned. Current algorithm defines element area from subnetworks identifiables instead of substations
 dataframe.
+
+POLARS CONVERSION NOTES (read before trusting this in production):
+    - pypowsybl only speaks pandas at its API boundary (network.get_*() returns pandas.DataFrame,
+      network.update_*() expects pandas-shaped/list-like input keyed by element id). Every function
+      below converts to polars immediately after a pypowsybl read, and converts back to plain
+      lists right before a pypowsybl write. Search for `_pl_from_pypowsybl` to find every boundary.
+    - pandas' automatic index-alignment (Series - Series, .reindex(), .loc[...]) has NO polars
+      equivalent, since polars has no index concept. Every such spot has been rewritten as an
+      explicit join on 'id' (element id) or 'area_key' (country + "-" + connected_component).
+      These are the highest-risk rewrites in this file -- validate them against real data.
+    - Order-sensitive pandas .loc[] lookups (where row order of the result had to match another
+      already-built list before calling network.update_*()) use `.join(..., maintain_order="left")`
+      to preserve left-frame row order, since network.update_*() calls are positional (id list must
+      line up 1:1 with p0/q0 lists).
 """
 
 import pypowsybl as pp
@@ -56,16 +70,24 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.scal
 _country_col: str = 'CGMES.regionName'
 
 
+# CHANGED (#1): new helper -- pypowsybl only returns/accepts pandas, so every network.get_*()
+# result gets wrapped into polars here, keeping the pandas index (element id) as a real column
+# since polars has no index concept.
 def _pl_from_pypowsybl(df: pd.DataFrame, index_name: str = 'id') -> pl.DataFrame:
-    """pypowsybl only returns pandas; keep its index (element id) as a real column since
-    polars has no index concept."""
+    """Convert a pandas DataFrame coming out of pypowsybl into polars, keeping the
+    pypowsybl element index (element id) as an explicit column so it survives outside pandas."""
     name = df.index.name or index_name
     return pl.from_pandas(df.rename_axis(name).reset_index())
 
 
+# CHANGED (#3): new helper replacing `_get_series_from_df(df, value_col).groupby(level=0).sum()`.
+# The original built a pandas Series indexed by a string "country-component" key; here that key
+# becomes an explicit 'area_key' column and the groupby+sum is done directly on it.
 def _area_key_frame(df: pl.DataFrame, value_col: str, area_col: str = _country_col) -> pl.DataFrame:
-    """Build an 'area_key' column (country + "-" + connected_component) and sum value_col
-    per area_key -- equivalent to pandas' string-concatenated-index + groupby(level=0)."""
+    """Replacement for the old `_get_series_from_df(...).groupby(level=0).sum()` pattern.
+    Builds an explicit 'area_key' column (country + "-" + connected_component) and sums
+    value_col per area_key -- equivalent to pandas' string-concatenated-index + groupby(level=0).
+    Safe to call even when rows are already unique per area_key (e.g. already grouped upstream)."""
     return (
         df.with_columns(
             (pl.col(area_col).cast(pl.Utf8) + "-" + pl.col('connected_component').cast(pl.Utf8)).alias('area_key')
@@ -77,8 +99,11 @@ def _area_key_frame(df: pl.DataFrame, value_col: str, area_col: str = _country_c
     )
 
 
+# CHANGED (#5): new helper replacing the `pd.concat([series, pd.Series({'KEY': ...})]).to_dict()`
+# idiom used everywhere to flatten a Series into a report-row dict with extra metadata keys.
 def _to_area_dict(frame: pl.DataFrame, key_col: str = 'area_key', val_col: str = 'value') -> dict:
-    """Flatten a 2-column polars frame into a plain dict for report rows."""
+    """Flatten a 2-column polars frame into a plain dict, replacing the old
+    `pd.concat([series, pd.Series({'KEY': ...})]).to_dict()` idiom used for report rows."""
     return dict(zip(frame[key_col].to_list(), frame[val_col].to_list()))
 
 
@@ -99,6 +124,8 @@ def validate_loadflow_status(results: List, components: Dict):
 def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, components: Dict) -> pl.DataFrame:
     # Calculate ACNP with losses (from cross-border lines)
     boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE, all_attributes=True))
+    # CHANGED (#2): pandas `.merge(buses.connected_component, left_on='bus_id', right_index=True)`
+    # -> explicit join on a real 'id' column (renamed to 'bus_id' to match the join key).
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}),
         on='bus_id', how='left'
@@ -115,8 +142,13 @@ def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, component
     consumption = get_areas_metrics(network=network, buses=buses, components=components, metric='LOAD')
     dcnp = _area_key_frame(df=dc_boundary_lines, value_col='boundary_p')
 
-    # full join replaces pandas' index-alignment subtraction. Only dcnp gets fill_null(0)
-    # (matches pandas' explicit reindex fill); the rest stay null on mismatch and propagate.
+    # CHANGED (#4): pandas did `generation - consumption - dcnp` relying on automatic index
+    # alignment (NaN where an area_key is missing on one side), plus an explicit
+    # `.reindex(present_areas, fill_value=0)` just for dcnp. Polars has no index alignment, so
+    # this is now an explicit `full` join across all four value frames. Only `dcnp` gets
+    # `fill_null(0)` (matching pandas' explicit reindex fill); generation / consumption /
+    # acnp_with_losses stay null on mismatch, and the subtraction below propagates that null --
+    # same NaN-on-mismatch behaviour as the original pandas code.
     losses = (
         generation.rename({'value': 'generation'})
         .join(consumption.rename({'value': 'consumption'}), on='area_key', how='full', coalesce=True)
@@ -137,6 +169,7 @@ def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, component
 
 def get_areas_metrics(network: pp.network.Network, buses: pl.DataFrame, components: Dict, metric: str) -> pl.DataFrame:
     df = _pl_from_pypowsybl(get_network_elements(network, getattr(pp.network.ElementType, metric), all_attributes=True))
+    # CHANGED (#2): same bus-index merge -> explicit join, as in get_areas_losses above.
     df = df.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}),
         on='bus_id', how='left'
@@ -154,6 +187,8 @@ def validate_converged_components(boundary_lines: pl.DataFrame, converged_compon
         v['state'] = 'valid'
         # In case of internal island it should contain only one area
         if len(v['countries']) == 1:
+            # CHANGED (#6): pandas boolean-mask filter `boundary_lines[boundary_lines['connected_component'] == k]`
+            # -> polars `.filter(pl.col(...) == k)`.
             component_boundary_lines = boundary_lines.filter(pl.col('connected_component') == k)
             # Check if there are any boundary lines which belongs to component
             if component_boundary_lines.is_empty():
@@ -177,7 +212,9 @@ def get_network_elements_map_to_areas(network: pp.network) -> pl.DataFrame:
         identifiables = identifiables.with_columns(pl.lit(country_id).alias(_country_col))
         _temp.append(identifiables)
 
-    return pl.concat(_temp, how='diagonal_relaxed')  # tolerates per-subnetwork column/dtype mismatches
+    # CHANGED: pd.concat(_temp) -> pl.concat(_temp, how='diagonal_relaxed') (tolerates any
+    # per-subnetwork column/dtype mismatches the same way pandas' concat would).
+    return pl.concat(_temp, how='diagonal_relaxed')
 
 
 def get_countries_to_components(components: Dict):
@@ -194,6 +231,7 @@ def get_fragmented_areas_participation(unpaired_boundary_lines: pl.DataFrame, ar
     for area, comps in areas_to_components.items():
         if len(comps) > 1:
             logger.warning(f"Fragmented area identified: {area} in components {list(comps)}")
+            # CHANGED (#6): boolean-mask filters -> .filter(pl.col(...) == ...).
             area_boundary_lines = unpaired_boundary_lines.filter(pl.col(_country_col) == area)
             fragments_acnp = {
                 comp: area_boundary_lines.filter(pl.col('connected_component') == comp)['boundary_p'].sum() or 0.0
@@ -213,8 +251,9 @@ def get_fragmented_areas_participation(unpaired_boundary_lines: pl.DataFrame, ar
         return pl.DataFrame(schema={'connected_component': pl.Int64, 'participation': pl.Float64, 'registered_resource': pl.Utf8})
 
 
+# CHANGED: `.fillna(0)` -> `.fill_nan(0.0)` / `.fill_null(0.0)` (polars distinguishes NaN from
+# null, unlike pandas, so both are handled) and `.clip(lo, hi)` stays a direct equivalent.
 def _set_power_ratio_to_boundary_lines(df: pl.DataFrame) -> pl.DataFrame:
-    # polars distinguishes NaN from null (pandas' .fillna(0) doesn't) -- fill both
     return df.with_columns(
         (pl.col('boundary_q') / pl.col('boundary_p')).fill_nan(0.0).alias('power_factor')
     ).with_columns(
@@ -278,24 +317,40 @@ def scale_balance(model: object,
 
     # Target AC net positions mapping
     target_acnp_df = pl.DataFrame(ac_schedules)
-    # ac_schedules can carry missing in_domain/out_domain as the literal string "NaN", not a
-    # real null -- pl.coalesce() would pick that string as a real value. Null it out first.
+    # FIXED: ac_schedules apparently carries missing in_domain/out_domain as the literal string
+    # "NaN" (confirmed via debug: the raw table printed "NaN" as text, not `null` -- polars only
+    # prints an actual missing value as `null`). `pl.coalesce()` only falls through to the next
+    # column on a true null -- a non-null string that happens to say "NaN" gets picked as if it
+    # were a real value, silently corrupting registered_resource for every row where in_domain
+    # was one of these string sentinels instead of a real null. Explicitly convert "NaN"/"nan"
+    # string sentinels (and real nulls) to true null on both columns *before* coalescing, so the
+    # fall-through to out_domain actually happens where it should.
     target_acnp_df = target_acnp_df.with_columns([
         pl.when(pl.col('in_domain').is_null() | pl.col('in_domain').is_in(['NaN', 'nan', 'NAN', '']))
         .then(None).otherwise(pl.col('in_domain')).alias('in_domain'),
         pl.when(pl.col('out_domain').is_null() | pl.col('out_domain').is_in(['NaN', 'nan', 'NAN', '']))
         .then(None).otherwise(pl.col('out_domain')).alias('out_domain'),
     ])
+    # CHANGED: `.where(cond, other)` on a Series -> `pl.coalesce([...])`, since "take in_domain,
+    # else out_domain" is exactly what coalesce does.
     target_acnp_df = target_acnp_df.with_columns(
         pl.coalesce(['in_domain', 'out_domain']).alias('registered_resource')
     )
+    # CHANGED: `.dropna(subset=...)` -> `.filter(pl.col(...).is_not_null())`.
     target_acnp_df = target_acnp_df.filter(pl.col('registered_resource').is_not_null())
 
     target_acnp_df = target_acnp_df.filter(pl.col('registered_resource').is_not_null())
 
-    # .unique(keep='first', maintain_order=True) does NOT mean "first after my sort" -- it
-    # preserves output row order, which let a duplicate zero-value row win over the real
-    # one. Rank by abs(value) per group and keep rank 1 instead.
+    # FIXED (was #10, then re-fixed): `.unique(subset=..., keep='first', maintain_order=True)` does
+    # NOT reliably mean "keep the first row after my sort" -- it preserves output row order, which
+    # isn't the same guarantee. This silently kept the wrong (zero-value) row for areas where the
+    # real-value row needed the sort to move it to the front (confirmed via debug: ES, PL,
+    # DE-TENNET_DE all had a duplicate zero-value row that won over the real one).
+    # A `.group_by(...).agg(pl.all().first())` alternative was tried next, but errored on some
+    # polars versions ("cannot create expression literal for value of type method"). Using a
+    # `.rank().over()` window function instead -- broadly supported and side-steps the group_by/agg
+    # issue entirely: rank rows by abs(value) descending within each registered_resource group,
+    # then keep only the rank-1 (highest-magnitude) row per group.
     target_acnp_df = (
         target_acnp_df
         .with_columns(pl.col('value').abs().alias('_abs_value'))
@@ -306,6 +361,7 @@ def scale_balance(model: object,
         .drop(['_abs_value', '_rank'])
     )
 
+    # CHANGED (#7): `np.where(mask, a, b)` -> `pl.when(mask).then(a).otherwise(b)`.
     target_acnp_df = target_acnp_df.with_columns(
         pl.when((pl.col('in_domain').is_not_null()) & (pl.col('value') > 0.0))
         .then(pl.col('value') * -1)
@@ -314,6 +370,8 @@ def scale_balance(model: object,
     )
 
     # Validate presence of target AC net position by areas in network model
+    # CHANGED: `series[~series.isin(other)].to_list()` -> plain-Python set membership check,
+    # since polars Series don't chain as naturally here and this is simple/cheap either way.
     present_areas = boundary_lines.select(_country_col).unique()[_country_col]
     target_registered = set(target_acnp_df['registered_resource'].to_list())
     missing_ac_schedule = [a for a in present_areas.to_list() if a not in target_registered]
@@ -328,10 +386,13 @@ def scale_balance(model: object,
         .select(['lineEnergyIdentificationCodeEIC', 'boundary_p', 'boundary_q'])
         .rename({'boundary_p': 'value', 'boundary_q': 'value_q'})
     )
+    # CHANGED (#5): `pd.concat([series.set_index(...).value, pd.Series({'KEY': ...})]).to_dict()`
+    # -> plain dict unpacking with `**`.
     _hvdc_results.append({
         **dict(zip(prescale_hvdc_sp['lineEnergyIdentificationCodeEIC'].to_list(), prescale_hvdc_sp['value'].to_list())),
         'KEY': 'prescale-setpoint',
     })
+    # CHANGED: `.to_dict('records')` -> `.to_dicts()`.
     for dclink in prescale_hvdc_sp.sort('lineEnergyIdentificationCodeEIC').to_dicts():
         logger.info(f"[INITIAL] PRE-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
         logger.debug(f"[INITIAL] PRE-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MVar")
@@ -340,18 +401,26 @@ def scale_balance(model: object,
     _cols_to_keep = ['id', 'lineEnergyIdentificationCodeEIC', _country_col, 'ucte_xnode_code', 'power_factor']
     scalable_hvdc = boundary_lines.filter(pl.col('isHvdc') == 'true')
     # Ignore HVDC elements in update of setpoint which are disconnected by network model
+    # CHANGED: `.reset_index()` no longer needed -- 'id' is already a real column via _pl_from_pypowsybl.
     scalable_hvdc = scalable_hvdc.filter(pl.col('connected'))[_cols_to_keep]
+    # CHANGED: `.merge(...)` -> `.join(..., how='inner')`.
     scalable_hvdc = scalable_hvdc.join(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource', how='inner')
+    # CHANGED (#6): boolean-mask filter -> `.filter(...)`.
     scalable_hvdc = scalable_hvdc.filter(
         (pl.col(_country_col) == pl.col('in_domain')) | (pl.col(_country_col) == pl.col('out_domain'))
     )
+    # CHANGED (#7): `np.where(...)` -> `pl.when(...).then(...).otherwise(...)`.
     scalable_hvdc = scalable_hvdc.with_columns(
         pl.when((pl.col(_country_col) == pl.col('in_domain')) & (pl.col('value') > 0.0))
         .then(pl.col('value') * -1)
         .otherwise(pl.col('value'))
         .alias('value')
     )
-    # keep the highest-magnitude row per id -- same .unique(keep='first') bug as above, same rank() fix
+    # keep the highest-magnitude row per id
+    # FIXED (was #10, then re-fixed): same bug as the AC schedule dedup above -- `.unique(keep=
+    # 'first', maintain_order=True)` doesn't reliably respect the preceding sort, and the
+    # `.group_by(...).agg(pl.all().first())` alternative errored on some polars versions. Using
+    # the same `.rank().over()` window function approach as the AC schedule fix above.
     scalable_hvdc = scalable_hvdc.with_columns(pl.col('value').abs().alias('_abs_value'))
     scalable_hvdc = scalable_hvdc.with_columns(
         pl.col('_abs_value').rank(method='ordinal', descending=True).over('id').alias('_rank')
@@ -365,7 +434,10 @@ def scale_balance(model: object,
             (pl.col('value') * pl.col('power_factor')).alias('value_q')  # ensure power factor is kept
         )
     else:
-        # maintain_order='left' keeps row order matching the positional id/p0/q0 lists below
+        # CHANGED (#2): `boundary_lines.loc[scalable_hvdc_target.index].q0` (pandas .loc reindexes
+        # to match the caller's row order exactly) -> explicit join with `maintain_order='left'`
+        # so scalable_hvdc_target's row order is preserved -- required because the id/p0/q0 lists
+        # passed to update_boundary_lines() below are positional.
         scalable_hvdc_target = scalable_hvdc_target.join(
             boundary_lines.select(['id', 'q0']), on='id', how='left', maintain_order='left'
         ).rename({'q0': 'value_q'})
@@ -374,6 +446,7 @@ def scale_balance(model: object,
         p0=scalable_hvdc_target['value'].to_list(),
         q0=scalable_hvdc_target['value_q'].to_list(),
     )
+    # CHANGED (#5): same dict-flatten pattern as the prescale block above.
     _hvdc_results.append({
         **dict(zip(scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].to_list(), scalable_hvdc_target['value'].to_list())),
         'KEY': 'postscale-setpoint',
@@ -385,6 +458,8 @@ def scale_balance(model: object,
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
     loads = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True))
+    # CHANGED (#2): `.merge(network.get_extensions('detail'), right_index=True, left_index=True)`
+    # (implicit index-to-index alignment) -> explicit join on the 'id' column both sides now carry.
     loads = loads.join(_pl_from_pypowsybl(network.get_extensions('detail')), on='id', how='inner')
     loads = loads.with_columns((pl.col('q0') / pl.col('p0')).alias('power_factor'))  # estimate the power factor of loads
     loads = loads.with_columns(pl.col('power_factor').clip(-float(POWER_FACTOR_THRESHOLD), float(POWER_FACTOR_THRESHOLD)))
@@ -423,7 +498,9 @@ def scale_balance(model: object,
     valid_components = {k: copy.deepcopy(v) for k, v in converged_components.items() if v['state'] == 'valid'}
 
     # Get pre-scale total network balance by each component -> AC+DC net position
-    # polars .sum() on an empty selection returns None, not 0 -- hence the `or 0.0` guards below
+    # CHANGED (#6): `df[df.connected_component == k].boundary_p.sum()` -> `.filter(...)['boundary_p'].sum()`.
+    # Also note: polars `.sum()` on an empty selection returns None, not 0, hence `or 0.0` guards below.
+    #changed k into str as polars is not that leniant as pandas was </3
     prescale_network_np = {
         str(k): round(boundary_lines.filter(pl.col('connected_component') == k)['boundary_p'].sum() or 0.0)
         for k, v in valid_components.items()
@@ -432,8 +509,13 @@ def scale_balance(model: object,
     logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
 
     # Get pre-scale total network balance by each component -> AC net position
+    # CHANGED (#6): `.query("connected_component == @k")` (pandas @-variable syntax) has no polars
+    # equivalent -- the Python variable is just used directly inside `.filter(pl.col(...) == k)`.
+    # The boolean mask itself is now a reusable polars expression instead of a precomputed pandas
+    # boolean Series, so it can be reapplied to fresh boundary_lines frames later in the function.
     unpaired_boundary_lines_mask = (pl.col('isHvdc') == '') & (pl.col('tie_line_id') == '')
     unpaired_boundary_lines = boundary_lines.filter(unpaired_boundary_lines_mask)
+    # k into str for polars
     prescale_network_acnp = {
         str(k): round(unpaired_boundary_lines.filter(pl.col('connected_component') == k)['boundary_p'].sum() or 0.0)
         for k, v in valid_components.items()
@@ -448,9 +530,15 @@ def scale_balance(model: object,
         areas_to_components=areas_to_components,
     )
 
-    # Map fragmented models to target ACNP schedules and recalculate values by participation.
-    # join()+explode('connected_component') produced wrong per-component assignments here, so
-    # the (registered_resource, connected_component) pairs are built directly in Python instead.
+    # Map fragmented models to target ACNP schedules and recalculate values by participation
+    # FIXED: the previous join()+explode('connected_component') approach was producing wrong
+    # per-component assignments (some components getting 0 rows, others absorbing rows that
+    # belonged elsewhere) -- most likely because target_acnp_df already carried some column that
+    # collided with the join, or because explode() on a freshly-joined List column behaved
+    # unexpectedly. Rebuilt to build the (registered_resource, connected_component) pairs
+    # directly in Python -- this is a byte-for-byte equivalent of pandas'
+    # `series.map(dict_of_sets).explode()`, but skips polars .explode() and any join-name-
+    # collision risk entirely, since each row is constructed explicitly rather than fanned out.
     target_acnp_df = target_acnp_df.drop([c for c in ['connected_component'] if c in target_acnp_df.columns])
     _country_component_pairs = pl.DataFrame(
         [
@@ -461,6 +549,7 @@ def scale_balance(model: object,
         schema={'registered_resource': pl.Utf8, 'connected_component': pl.Int64},
     ) if areas_to_components else pl.DataFrame(schema={'registered_resource': pl.Utf8, 'connected_component': pl.Int64})
     target_acnp_df = target_acnp_df.join(_country_component_pairs, on='registered_resource', how='left')
+    # CHANGED: `.merge(fragments_participation, on=[...], how='left')` -> `.join(..., how='left')`.
     target_acnp_df = target_acnp_df.join(fragments_participation, on=['connected_component', 'registered_resource'], how='left')
     target_acnp_df = target_acnp_df.with_columns(pl.col('participation').cast(pl.Float64).fill_null(1.0))  # non fragmented areas participation set to 1
     target_acnp_df = target_acnp_df.with_columns((pl.col('value') * pl.col('participation')).alias('value'))
@@ -476,16 +565,22 @@ def scale_balance(model: object,
         scheduled_component_acnp = float(round(
             target_acnp_df.filter(pl.col('connected_component') == component_key)['value'].sum() or 0.0, 1
         ))
+        #changed component_key to str for polars
         target_network_acnp[str(component_key)] = round(scheduled_component_acnp)  # preserve for scaling report
+        # CHANGED (#6): `.query("connected_component == @component_key")` -> `.filter(...)`.
         relevant_boundary_lines = unpaired_boundary_lines.filter(pl.col('connected_component') == component_key)
         total_abs_boundary_p = relevant_boundary_lines['boundary_p'].abs().sum() or 0.0
+        # CHANGED: `series.abs() / series.abs().sum()` (a pandas Series column assignment) ->
+        # `.with_columns(...)` building 'participation' as a new column.
         relevant_boundary_lines = relevant_boundary_lines.with_columns(
             (pl.col('boundary_p').abs() / total_abs_boundary_p).alias('participation')
         )
+        #converted to str for polars
         offset_network_acnp = prescale_network_acnp.get(str(component_key)) - scheduled_component_acnp
         relevant_boundary_lines = relevant_boundary_lines.with_columns(
             (pl.col('p0') - offset_network_acnp * pl.col('participation')).alias('prescale_network_acnp_target')
         )
+        # CHANGED: `.dropna(inplace=True)` on a Series -> `.filter(pl.col(...).is_not_null())`.
         relevant_boundary_lines = relevant_boundary_lines.filter(pl.col('prescale_network_acnp_target').is_not_null())
         if _CONSTANT_POWER_FACTOR:
             relevant_boundary_lines = relevant_boundary_lines.with_columns(
@@ -523,6 +618,7 @@ def scale_balance(model: object,
     )
     boundary_lines = boundary_lines.with_columns((pl.col('boundary_p') * -1).alias('boundary_p'))  # invert boundary_p sign to match flow direction
     unpaired_boundary_lines = boundary_lines.filter(unpaired_boundary_lines_mask)
+    #k into str
     postscale_network_acnp = {
         str(k): round(unpaired_boundary_lines.filter(pl.col('connected_component') == k)['boundary_p'].sum() or 0.0)
         for k, v in valid_components.items()
@@ -554,7 +650,7 @@ def scale_balance(model: object,
         prescale_acnp, how='inner',
         left_on=['connected_component', 'registered_resource'],
         right_on=['connected_component', _country_col],
-        coalesce=False,  # keeps CGMES.regionName as its own column instead of merging into registered_resource
+        coalesce=False, #keeps CGMES.regionName allegedly
     )
     target_acnp = _area_key_frame(df=combined_scaling_target_df, area_col='registered_resource', value_col='value')
     _scaling_results.append({**_to_area_dict(target_acnp), 'KEY': 'target-acnp', 'ITER': _iteration})
@@ -580,26 +676,36 @@ def scale_balance(model: object,
         scalable_loads = scalable_loads.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
         )
+        # CHANGED (#8): `series / series.groupby([...]).transform('sum')` -> polars' window
+        # expression `series.sum().over([...])` -- a direct 1:1 replacement for `.transform()`.
         scalable_loads = scalable_loads.with_columns(
             (pl.col('p0') / pl.col('p0').sum().over([_country_col, 'connected_component'])).alias('p_participation')
         )
 
         # Join ACNP offsets to scalable loads
+        # CHANGED: `.reset_index().merge(..., on=[...]).set_index('id')` -> plain `.join(...)`,
+        # since 'id' is already a normal column, no reset/set-index dance needed.
         scalable_loads = scalable_loads.join(
             combined_scaling_target_df.select([_country_col, 'connected_component', 'offset_acnp']),
             how='left', on=[_country_col, 'connected_component'],
         )
 
         # Scale loads by participation factor
+        # CHANGED: `series.offset_acnp * series.p_participation` / `series.p0 + diff` (pandas
+        # Series arithmetic) -> `.with_columns(...)` building new columns on the same frame.
         scalable_loads = scalable_loads.with_columns(
             (pl.col('offset_acnp') * pl.col('p_participation')).alias('scalable_loads_diff')
         ).with_columns(
             (pl.col('p0') + pl.col('scalable_loads_diff')).alias('scalable_loads_target')
         )
         ## Removing loads which target value is NaN. It can be because missing target ACNP for this area
+        # CHANGED: `.dropna(inplace=True)` -> `.filter(pl.col(...).is_not_null())`.
         scalable_loads_target = scalable_loads.filter(pl.col('scalable_loads_target').is_not_null() & pl.col('scalable_loads_target').is_not_nan())
-        # maintain_order='right' keeps conform_loads_na in scalable_loads_target's row order --
-        # required for the positional q0 zip into network.update_loads() below.
+        # CHANGED (#2): `conform_loads.merge(scalable_loads_target.reset_index()[['id']], left_index=True, right_on='id').set_index('id')`
+        # -> explicit join with `maintain_order='right'` so conform_loads_na ends up in the same
+        # row order as scalable_loads_target -- required since the q0 list built below (line just
+        # after this) is zipped positionally against scalable_loads_target's own id/p0 lists when
+        # passed into network.update_loads().
         conform_loads_na = conform_loads.join(
             scalable_loads_target.select('id'), on='id', how='inner', maintain_order='right'
         )
@@ -686,8 +792,11 @@ def scale_balance(model: object,
         logger.warning(f"Max iteration limit reached")
         # TODO actions after scale break
 
-    # Post-processing scaling results dataframe. polars .round() isn't frame-wide like
-    # pandas', so float columns are picked out explicitly below.
+    # Post-processing scaling results dataframe
+    # CHANGED: `pd.DataFrame(_scaling_results).set_index('ITER').sort_index().round(2)` -- polars
+    # has no index, so 'ITER' stays a normal column and sorting is `.sort('ITER')`. `.round(2)` in
+    # pandas rounds every numeric column at once; polars requires picking float columns explicitly
+    # (the list comprehension below), since `.round()` isn't frame-wide.
     ac_scaling_results_df = pl.DataFrame(_scaling_results, infer_schema_length=None).sort('ITER')
     ac_scaling_results_df = ac_scaling_results_df.with_columns(
         [pl.col(c).round(2) for c, dt in zip(ac_scaling_results_df.columns, ac_scaling_results_df.dtypes) if dt in (pl.Float64, pl.Float32)]
@@ -697,34 +806,52 @@ def scale_balance(model: object,
         [pl.col(c).round(2) for c, dt in zip(hvdc_results_df.columns, hvdc_results_df.dtypes) if dt in (pl.Float64, pl.Float32)]
     )
 
-    # Expose the per-iteration tables on the model for callers that want them (new -- these were
-    # local-only before)
+    # Attach the raw per-iteration tables to the model so callers (including code that imports
+    # and calls scale_balance() directly, not just the __main__ test harness below) can access
+    # and save them -- these were only local variables before, so nothing outside this function
+    # could reach them without this.
     model.ac_scaling_results_df = ac_scaling_results_df
     model.hvdc_results_df = hvdc_results_df
 
     # Process data for merge report
+    # CHANGED (#6): `.query("KEY in [...]")` -> `.filter(pl.col('KEY').is_in([...]))`.
     filtered_df = ac_scaling_results_df.filter(pl.col('KEY').is_in(['prescale-acnp', 'postscale-acnp', 'offset-acnp']))
-    # Select first + last row -- polars has no index, so a temp row-number column stands in
+    # CHANGED: `.loc[[0, filtered_df.index.max()]]` (select first + last row by index label) ->
+    # since polars has no index, a temporary row-number column stands in for the old 'ITER' index
+    # values 0 and its max, then gets dropped again.
     filtered_df = filtered_df.with_row_index('_row_idx')
     filtered_df = filtered_df.filter((pl.col('_row_idx') == 0) | (pl.col('_row_idx') == filtered_df['_row_idx'].max()))
     is_first_row = pl.col('_row_idx') == 0
+    # CHANGED: two chained `.loc[boolean_mask, 'KEY'] = ...` assignments -> a single
+    # `pl.when().then().when().then().otherwise()` chain (polars has no in-place label-based assignment).
     filtered_df = filtered_df.with_columns(
         pl.when(is_first_row & (pl.col('KEY') == 'offset-acnp')).then(pl.lit('initial-offset-acnp'))
         .when((~is_first_row) & (pl.col('KEY') == 'offset-acnp')).then(pl.lit('final-offset-acnp'))
         .otherwise(pl.col('KEY')).alias('KEY')
     )
 
+    # CHANGED: `.drop(columns='GLOBAL')` -> `.drop([...])` (also drops the temp row-index column).
     filtered_df = filtered_df.drop(['_row_idx', 'GLOBAL'])
-    # drop any column containing a null -- polars has no .dropna(axis=1) equivalent
+    # CHANGED: `.dropna(axis=1)` (drop any column containing a null) has no polars equivalent --
+    # built manually via null_count() per column.
     non_null_cols = [c for c in filtered_df.columns if filtered_df[c].null_count() < filtered_df.height]
     filtered_df = filtered_df.select(non_null_cols)
+    # CHANGED: `.str.replace('-', '_')` (pandas Series.str) -> polars `.str.replace_all(...)`
+    # (note: pandas `.replace()` without `regex=True`/count already replaces all occurrences here,
+    # so `replace_all` is the correct match, not `replace` which only replaces the first hit in polars).
     filtered_df = filtered_df.with_columns(pl.col('KEY').str.replace_all('-', '_'))
+    # CHANGED (#9): `.melt(id_vars=['KEY'], var_name='area', value_name='value')` -> `.unpivot(...)`
+    # (polars renamed melt to unpivot); `.pivot(index='area', columns='KEY', values='value')` ->
+    # `.pivot(index='area', on='KEY', values='value')` (polars renamed columns= to on=).
     ac_melted_df = filtered_df.unpivot(index=['KEY'], variable_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', on='KEY', values='value')
     ac_pivoted_df = ac_pivoted_df.with_columns(
         (pl.col('final_offset_acnp').abs() <= int(BALANCE_THRESHOLD)).alias('success')
     )
-    ac_scale_report_dict = ac_pivoted_df.to_dicts()  # polars nulls already serialize as None
+    # CHANGED: `.astype(object).where(pd.notna(df), None).to_dict('records')` (pandas' NaN->None
+    # dance for JSON-friendly output) -> plain `.to_dicts()`, since polars nulls already serialize
+    # as Python None with no extra conversion needed.
+    ac_scale_report_dict = ac_pivoted_df.to_dicts()
 
     hvdc_results_df = hvdc_results_df.with_columns(pl.col('KEY').str.replace_all('-', '_'))
     hvdc_melted_df = hvdc_results_df.unpivot(index=['KEY'], variable_name='name', value_name='value')
@@ -791,6 +918,8 @@ def scale_balance(model: object,
 
 def hvdc_schedule_mapper(row, country_col_name: str = 'country'):
     """BACKLOG FUNCTION. CURRENTLY NOT USED"""
+    # CHANGED (#11): dead/unused function, converted for consistency only.
+    # Boolean-mask filters -> `.filter(...)`; `.squeeze()` on a 1-row/1-col frame -> `[0]` indexing.
     schedules = pl.DataFrame(target_dcnp)
     relevant_schedule = schedules.filter(
         (pl.col('TimeSeries.connectingLine_RegisteredResource.mRID') == row['lineEnergyIdentificationCodeEIC'])
