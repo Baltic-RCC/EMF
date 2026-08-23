@@ -88,7 +88,7 @@ def set_merge_logging_context(task: dict):
     set_logging_context_token(job_id=task.get('@id'), process_id=task.get('process_id'),
                               run_id=task.get('run_id'), scenario_timestamp=task_properties['timestamp_utc'],
                               task_id=task.get('@task_id'), time_horizon=task_properties['time_horizon'],
-                              version=task_properties['version'])
+                              version=task_properties['version'], merge_type=task_properties['merge_type'])
 
 
 @dataclass

@@ -40,7 +40,8 @@ def set_logging_context_token(
         scenario_timestamp: str | None,     # the actual model timestamp
         task_id: str | None,                # ex: urn:uuid:..., shared by one timestamp's logs
         time_horizon: str | None,           # ex: ID, WK etc
-        version: str | None                 # merged model version, ex: 001
+        version: str | None,                # merged model version, ex: 001
+        merge_type: str | None              # ex: EU, BA
         ):
     """
     Sets the metadata of logs that will be present for all logs originating from the
@@ -54,7 +55,8 @@ def set_logging_context_token(
         "@scenario_timestamp": scenario_timestamp,
         "@task_id": task_id,
         "@time_horizon": time_horizon,
-        "@version": version
+        "@version": version,
+        "merge_type": merge_type
     })
     return token
 

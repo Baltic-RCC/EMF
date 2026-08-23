@@ -697,11 +697,6 @@ def scale_balance(model: object,
         [pl.col(c).round(2) for c, dt in zip(hvdc_results_df.columns, hvdc_results_df.dtypes) if dt in (pl.Float64, pl.Float32)]
     )
 
-    # Expose the per-iteration tables on the model for callers that want them (new -- these were
-    # local-only before)
-    model.ac_scaling_results_df = ac_scaling_results_df
-    model.hvdc_results_df = hvdc_results_df
-
     # Process data for merge report
     filtered_df = ac_scaling_results_df.filter(pl.col('KEY').is_in(['prescale-acnp', 'postscale-acnp', 'offset-acnp']))
     # Select first + last row -- polars has no index, so a temp row-number column stands in
