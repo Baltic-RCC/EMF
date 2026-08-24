@@ -9,6 +9,7 @@
     "task_initiator": "kristjan.vilgo",
     "task_priority": "normal",
     "task_creation_time": "2023-04-14T13:16:19.730930",
+    "task_update_time": "2023-04-14T13:16:19.730930",
     "task_status": "created",
     "task_status_trace": [
         {
@@ -26,8 +27,25 @@
     "job_period_end": "2023-04-15T06:00:00+00:00",
     "task_properties": {
         "timestamp_utc": "2023-04-14T22:30:00+00:00",
-        "merge_type": "CGM",
+        "merge_type": "EU",
         "time_horizon": "ID",
-        "debug": false
+        "merging_entity": "BALTICRCC",
+        "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
+        "version": "001",
+        "included": [],
+        "excluded": [],
+        "replace_tso": [],
+        "replacement": "False",
+        "replacement_local": "False",
+        "pre_temp_fixes": "True",
+        "post_temp_fixes": "True",
+        "outage_update": "True",
+        "force_outage_fix": "False",
+        "scaling": "False",
+        "upload_to_opdm": "True",
+        "upload_to_minio": "True",
+        "send_merge_report": "True",
+        "lvl8_reporting": "True",
+        "debug": "false"
     }
 }

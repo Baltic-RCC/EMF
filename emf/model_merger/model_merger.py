@@ -584,7 +584,8 @@ if __name__ == "__main__":
             "upload_to_opdm": "False",
             "upload_to_minio": "True",
             "send_merge_report": "True",
-            "lvl8_reporting": "False"
+            "lvl8_reporting": "False",
+            "debug": "True"
         }
     }
     class Properties(dict):

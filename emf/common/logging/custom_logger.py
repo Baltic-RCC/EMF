@@ -13,8 +13,16 @@ root_logger = logging.getLogger()
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
 
+# Root logger must let every record through -- the console and ELK handlers below each
+# apply their own level filter, so DEBUG-level records (e.g. verbose scaling detail) always
+# reach Elasticsearch even when the console handler is kept at INFO.
 root_logger.setLevel(logging.DEBUG)
 
+# urllib3 logs its own connection activity at DEBUG.
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+
+# Console handler: verbosity defaults to LOGGING_LEVEL (INFO) and is raised to DEBUG for the
+# duration of a task via set_console_log_level() below.
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(LOGGING_LEVEL)
 console_handler.setFormatter(logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT))
