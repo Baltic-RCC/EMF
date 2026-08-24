@@ -55,6 +55,7 @@ class HandlerMergeModels:
     @staticmethod
     def apply_pre_loadflow_corrections(merged_model):
         """Network-level fixes applied before the loadflow is solved"""
+        logger.info(f"Applying pre-loadflow corrections")
         # Various corrections from igmsshvscgmssh error
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
@@ -129,7 +130,6 @@ class HandlerMergeModels:
         # Convert task fields to bool where necessary
         task = convert_dict_str_to_bool(task)
 
-        # Console verbosity for this task; defaults to False (INFO) when task_properties
         debug = get_task_debug_flag(task)
         set_console_log_level(debug)
 
@@ -162,6 +162,7 @@ class HandlerMergeModels:
         if not schedule_start:
             schedule_start = scenario_datetime
 
+        logger.info("Querying AC and DC schedules for scaling and ACNP calculation")
         ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start,
                                             merged_model=merged_model)
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
@@ -171,7 +172,6 @@ class HandlerMergeModels:
         desired_tsos = merge_functions.filter_models(tsos=full_tso_list,
                                                    included_models=included_models,
                                                    excluded_models=excluded_models)
-        logger.info(f"Compiled the desired tsos list as {desired_tsos}")
 
         # Collect valid models from ObjectStorage (this is just the metadata of the models, not the actual zips)
         models = get_latest_models_and_download(time_horizon=time_horizon,
@@ -389,6 +389,7 @@ class HandlerMergeModels:
         # for merge report need to get the final uuid.
         merged_model.network_meta['fullModel_ID'] = opdm_object_meta['pmd:fullModel_ID']
         # Package both input models and exported CGM profiles to in memory zip files
+        logger.info("Exporting updated SSH and SV profiles")
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
         post_processing_end_time = datetime.datetime.now(datetime.UTC)
         logger.debug(f"Post processing took: {(post_processing_end_time - post_processing_start_time).total_seconds()} seconds")
@@ -428,11 +429,12 @@ class HandlerMergeModels:
                 merged_model_zip.writestr(item.name, item.getvalue())
 
             # Include original IGM files
+            logger.info("Including oringial IGM files to Bytes file object")
             for input_model in input_models:
                 for instance in input_model['opde:Component']:
                     if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD', 'EQ_BD', 'TP_BD']:
                         file_object = get_opdm_component_data_bytes(opdm_component=instance)
-                        logger.info(f"Adding file: {file_object.name}")
+                        logger.debug(f"Adding file: {file_object.name}")
                         merged_model_zip.writestr(file_object.name, file_object.getvalue())
         saved_horizon = str(task_properties["time_horizon"]).strip().upper()
         folder = f"{OUTPUT_MINIO_FOLDER}/{saved_horizon}"
@@ -538,6 +540,7 @@ class HandlerMergeModels:
 
 
 if __name__ == "__main__":
+    from emf.common.logging.custom_logger import initialize_custom_logger
     sample_task = {
         "@context": "https://example.com/task_context.jsonld",
         "@type": "Task",
@@ -584,14 +587,15 @@ if __name__ == "__main__":
             "upload_to_opdm": "False",
             "upload_to_minio": "True",
             "send_merge_report": "True",
-            "lvl8_reporting": "False",
-            "debug": "True"
+            "lvl8_reporting": "False"
         }
     }
     class Properties(dict):
         pass
     properties = Properties()
     properties.headers = {}
+
+    initialize_custom_logger(extra={'worker': 'model-merger', 'worker_uuid': str(uuid4())})  # ponytail: matches worker.py's own setup, so local runs get tagged too
 
     worker = HandlerMergeModels()
     finished_task = worker.handle(sample_task, properties)

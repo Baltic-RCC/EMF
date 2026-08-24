@@ -13,16 +13,21 @@ root_logger = logging.getLogger()
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
 
-# Root logger must let every record through -- the console and ELK handlers below each
-# apply their own level filter, so DEBUG-level records (e.g. verbose scaling detail) always
-# reach Elasticsearch even when the console handler is kept at INFO.
-root_logger.setLevel(logging.DEBUG)
+root_logger.setLevel(LOGGING_LEVEL)
 
-# urllib3 logs its own connection activity at DEBUG.
 logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('powsybl').setLevel(logging.ERROR)
 
-# Console handler: verbosity defaults to LOGGING_LEVEL (INFO) and is raised to DEBUG for the
-# duration of a task via set_console_log_level() below.
+# Modules whose logger.debug() calls carry detail we actually want in Elasticsearch
+INTERNAL_DEBUG_LOGGERS = (
+    "emf.model_merger.scaler",
+    "emf.model_merger.merge_functions",
+    "emf.model_merger.post_processing",
+    "emf.common.integrations.minio_api",
+)
+for _logger_name in INTERNAL_DEBUG_LOGGERS:
+    logging.getLogger(_logger_name).setLevel(logging.DEBUG)
+
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(LOGGING_LEVEL)
 console_handler.setFormatter(logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT))
@@ -165,7 +170,8 @@ class ElkLoggingHandler(logging.StreamHandler):
             logger.warning(f"ELK server {self.server} returned unknown error: {e}")
 
     def elk_formatter(self, record):
-        elk_record = record.__dict__
+        elk_record = dict(record.__dict__)
+        elk_record['msg'] = record.getMessage()
         if self.fields_filter:
             elk_record = {key: elk_record[key] for key in self.fields_filter if key in elk_record}
 

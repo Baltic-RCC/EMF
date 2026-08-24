@@ -57,6 +57,7 @@ def run_replacement(igm_models, model_replacement, local_import_models,
     Returns:
         igm_models with replacements applied.
     """
+    logger.info("Starting missing model replacement")
     # Build the flat, priority-ordered request list: forced first, then normal missing-model replacement
     requests = []
     if replace_tso:

@@ -264,7 +264,7 @@ def update_merged_model_sv(sv_data: bytes, opdm_object_meta: dict):
         if not is_valid_uuid(old_id):
             new_id = str(uuid.uuid4())
             updated_sv_id_map[old_id] = new_id
-            logger.warning(f"SV profile id {old_id} is not valid, assigning: {new_id}")
+            logger.info(f"SV profile id {old_id} is not valid, assigning: {new_id}")
     sv_data = sv_data.replace(updated_sv_id_map)
 
     return sv_data
@@ -370,7 +370,7 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
         if terminal_reference := \
         [column_name if ".Terminal" in column_name else None for column_name in source_data.columns][0]:
             source_data = source_data.merge(terminals, left_on=terminal_reference, right_on='ID')
-            logger.debug(f"Added Terminals to {update['from_class']}")
+            # logger.debug(f"Added Terminals to {update ['from_class']}")
 
         ssh_data = ssh_data.update_triplet_from_triplet(source_data.rename(columns={
             update['from_ID']: 'ID',
@@ -382,7 +382,7 @@ def create_updated_ssh(models_as_triplets: pd.DataFrame | list,
     for OLD_ID in ssh_data.query("KEY == 'Type' and VALUE == 'FullModel'").ID.unique():
         NEW_ID = str(uuid.uuid4())
         updated_ssh_id_map[OLD_ID] = NEW_ID
-        logger.info(f"Assigned new UUID for updated SSH: {OLD_ID} -> {NEW_ID}")
+        logger.debug(f"Assigned new UUID for updated SSH: {OLD_ID} -> {NEW_ID}")
 
     # Update SSH ID-s
     ssh_data = ssh_data.replace(updated_ssh_id_map)
