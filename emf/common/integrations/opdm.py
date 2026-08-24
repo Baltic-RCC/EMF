@@ -2,7 +2,6 @@ import OPDM as opdm_api
 import requests
 import pandas
 import logging
-import sys
 import base64
 import os
 import config
@@ -185,9 +184,8 @@ class OPDM(opdm_api.create_client):
             for model in latest_models.to_dict("records"):
                 try:
                     models_downloaded.append(self.download_object(opdm_object=model))
-                except:
-                    logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
-                    logger.error(sys.exc_info())
+                except Exception as error:
+                    logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}: {error}", exc_info=True)
         else:
             logger.warning(f"Models not available on OPDE")
 

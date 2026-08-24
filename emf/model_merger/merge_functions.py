@@ -416,7 +416,7 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
     boundary_lines = network.get_boundary_lines(all_attributes=True)
     paired_boundary_lines = boundary_lines[boundary_lines['paired'] == True]
     if paired_boundary_lines.empty:
-        logger.warning(f"No paired boundary lines found in network model")
+        logger.info(f"No paired boundary lines found in network model")
         return network
 
     # Set p0/q0 to 0 for all paired boundary lines
@@ -434,7 +434,7 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     boundary_lines['isTieflow'] = boundary_lines.index.isin(network.get_areas_boundaries()["element"])
     paired_boundary_lines = boundary_lines[boundary_lines['paired'] == True]
     if paired_boundary_lines.empty:
-        logger.warning(f"No paired boundary lines found in network model")
+        logger.info(f"No paired boundary lines found in network model")
         return network
 
     # Identify boundary lines pairs where the 'connected' status is inconsistent within each pairing_key group
@@ -456,9 +456,9 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     _connected = pd.Series(data=False, index=mismatched_boundary_lines.index)
     network.update_boundary_lines(id=mismatched_boundary_lines.index, connected=_connected)
 
-    # Log each change
+    # Log each change (aggregate counts/keys are already logged above)
     for i, row in mismatched_boundary_lines.iterrows():
-        logger.info(f"Changed status of boundary line {row['name']}: {row['connected']} -> False")
+        logger.debug(f"Changed status of boundary line {row['name']}: {row['connected']} -> False")
 
     return network
 
@@ -481,7 +481,7 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
                                                                  (all_generators["CGMES.RegulatingControl"] == ""))]
 
         if not all_generators_missing_reg_but_try_reg.empty:
-            logger.warning(
+            logger.info(
                 f"Generators with regulation control missing but voltage_control on {len(all_generators_missing_reg_but_try_reg)}")
             # setting generators to false that do not have regulation
             network_pre_instance.update_generators(id=all_generators_missing_reg_but_try_reg["id"].values.tolist(),
@@ -503,20 +503,20 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
                                             ((curve_generators['target_p'] > 0) &
                                              (curve_generators['target_p'] < curve_generators['curve_p_min']))]
         if not curve_generators.empty:
-            logger.warning(f"Found {len(curve_generators.index)} generators for "
-                           f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
+            logger.info(f"Found {len(curve_generators.index)} generators for "
+                        f"which p > max(reactive capacity curve(p)) or p < min(reactive capacity curve(p))")
 
             # Solution 1: set max_p from curve max, it should contain p on target-p. those generators are also removed from regulation control
             upper_limit_violated = curve_generators[(curve_generators['max_p'] > curve_generators['curve_p_max'])]
             if not upper_limit_violated.empty:
-                logger.warning(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
+                logger.info(f"Updating max p from curve for {len(upper_limit_violated.index)} generators")
                 upper_limit_violated['max_p'] = upper_limit_violated['curve_p_max']
                 network_pre_instance.update_generators(
                     upper_limit_violated[['id', 'max_p']].assign(voltage_regulator_on=False).set_index('id'))
 
             lower_limit_violated = curve_generators[(curve_generators['min_p'] < curve_generators['curve_p_min'])]
             if not lower_limit_violated.empty:
-                logger.warning(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
+                logger.info(f"Updating min p from curve for {len(lower_limit_violated.index)} generators")
                 lower_limit_violated.loc[:, 'min_p'] = lower_limit_violated['curve_p_min']
                 network_pre_instance.update_generators(
                     lower_limit_violated[['id', 'min_p']].assign(voltage_regulator_on=False).set_index('id'))
@@ -534,12 +534,12 @@ def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Netw
                                     & (abs(all_generators['target_p']) == 0)]
         # Fix condensers that have p not zero by setting their target_p to equal to p
         if not condensers.empty:
-            logger.warning(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
+            logger.info(f"Found {len(condensers.index)} condensers for which p ~= 0 & target_p = 0")
             condensers.loc[:, 'target_p'] = condensers['p'] * (-1)
             network_pre_instance.update_generators(condensers[['id', 'target_p']].set_index('id'))
         # Remove all not generators from active power distribution
         if not not_generators.empty:
-            logger.warning(f"Removing {len(not_generators.index)} machines from power distribution")
+            logger.info(f"Removing {len(not_generators.index)} machines from power distribution")
             extensions = network_pre_instance.get_extensions('activePowerControl')
             remove_not_generators = extensions.merge(not_generators[['id']], left_index=True, right_on='id')
             remove_not_generators['participate'] = False

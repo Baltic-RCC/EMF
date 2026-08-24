@@ -12,12 +12,23 @@ root_logger = logging.getLogger()
 # Local logger
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
-logging.basicConfig(
-    format=LOGGING_FORMAT,
-    datefmt=LOGGING_DATEFMT,
-    level=LOGGING_LEVEL,
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+
+root_logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(LOGGING_LEVEL)
+console_handler.setFormatter(logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT))
+root_logger.addHandler(console_handler)
+
+
+def set_console_log_level(debug: bool):
+    """
+    Raises or restores the console handler's verbosity, typically called once per task
+    based on that task's `task_properties.debug` flag. The ELK handler is untouched by
+    this call and always receives every record regardless -- Elasticsearch remains the
+    full log record even when the console is kept quiet.
+    """
+    console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
 
 from contextvars import ContextVar
 log_context = ContextVar("log_context", default={})
@@ -61,9 +72,6 @@ def set_logging_context_token(
     return token
 
 def initialize_custom_logger(
-        level: str = LOGGING_LEVEL,
-        format: str = LOGGING_FORMAT,
-        datefmt: str = LOGGING_DATEFMT,
         elk_server: str = elastic.ELK_SERVER,
         api_key: str = elastic.ELK_TOKEN,
         index: str = LOGGING_INDEX,
@@ -71,13 +79,9 @@ def initialize_custom_logger(
         fields_filter: None | list = None,
         ):
 
-    root_logger.setLevel(level)
-    root_logger.propagate = True
-
-    # Configure stream logging handler
-    # root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
-
-    # Configure Elk logging handler
+    # Configure Elk logging handler -- always captures everything (see ElkLoggingHandler),
+    # independent of the console handler's verbosity, which is set up at module import time
+    # above and adjusted per-task via set_console_log_level().
     elk_handler = ElkLoggingHandler(elk_server=elk_server, api_key=api_key, index=index, extra=extra, fields_filter=fields_filter)
 
     if elk_handler.connected:
@@ -100,14 +104,6 @@ def get_elk_logging_handler():
     root_logger.addHandler(handler)
 
     return handler
-
-
-class StreamHandler(logging.StreamHandler):
-    def __init__(self, level=LOGGING_LEVEL, logging_format=LOGGING_FORMAT, datetime_format=LOGGING_DATEFMT):
-        super().__init__(sys.stdout)
-        self.setLevel(level)
-        formatter = logging.Formatter(fmt=logging_format, datefmt=datetime_format)
-        self.setFormatter(formatter)
 
 
 class ElkLoggingHandler(logging.StreamHandler):
@@ -140,8 +136,9 @@ class ElkLoggingHandler(logging.StreamHandler):
         self.fields_filter = fields_filter
         self.connected = self.elk_connection()
 
-        # Set level and format from settings
-        self.setLevel(LOGGING_LEVEL)
+        # Always capture everything -- Elasticsearch must retain the full log record even
+        # when the console handler is kept quiet (see set_console_log_level).
+        self.setLevel(logging.DEBUG)
         formatter = logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT)
         self.setFormatter(formatter)
 

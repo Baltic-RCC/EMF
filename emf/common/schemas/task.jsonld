@@ -91,6 +91,10 @@
           "scenario_time": {
             "type": "string",
             "format": "date-time"
+          },
+          "debug": {
+            "type": "boolean",
+            "description": "Raises console log verbosity for this task to DEBUG. Defaults to false when omitted. Elasticsearch always receives every log record regardless of this flag."
           }
         },
         "required": ["merge_type", "time_horizon"]

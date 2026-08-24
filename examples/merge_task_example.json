@@ -27,6 +27,7 @@
     "task_properties": {
         "timestamp_utc": "2023-04-14T22:30:00+00:00",
         "merge_type": "CGM",
-        "time_horizon": "ID"
+        "time_horizon": "ID",
+        "debug": false
     }
 }

@@ -217,7 +217,7 @@ class ObjectStorage:
             return file_data.read()
 
         except minio.error.S3Error as err:
-            logger.error(err)
+            logger.error(f"Failed to download object '{object_name}' from bucket '{bucket_name}': {err}", exc_info=True)
 
     @renew_authentication_token
     def object_exists(self, object_name: str, bucket_name: str) -> bool:
@@ -363,7 +363,7 @@ class ObjectStorage:
                 with ZipFile(model_data) as source_zip:
 
                     for file_name in source_zip.namelist():
-                        logging.info(f"Adding file: {file_name}")
+                        logger.debug(f"Adding file: {file_name}")
 
                         metadata = {"pmd:content-reference": file_name,
                                     "pmd:fileName": file_name,

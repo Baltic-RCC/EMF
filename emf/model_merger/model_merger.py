@@ -18,14 +18,14 @@ from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
 from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes, DataSource
 from emf.common.helpers.loadflow import load_network_model
-from emf.common.helpers.tasks import update_task_status
+from emf.common.helpers.tasks import update_task_status, get_task_debug_flag
 from emf.model_merger import merge_functions
 from emf.model_merger import post_processing
 from emf.model_merger import scaler
 from emf.model_merger.merge_functions import filter_models_by_acnp, handle_igm_ssh_vs_cgm_ssh_error, \
     MergedModel, ModelEntity
 from emf.model_merger.replacement import run_replacement, get_tsos_available_in_storage
-from emf.common.logging.custom_logger import get_elk_logging_handler
+from emf.common.logging.custom_logger import get_elk_logging_handler, set_console_log_level
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 
@@ -128,6 +128,10 @@ class HandlerMergeModels:
 
         # Convert task fields to bool where necessary
         task = convert_dict_str_to_bool(task)
+
+        # Console verbosity for this task; defaults to False (INFO) when task_properties
+        debug = get_task_debug_flag(task)
+        set_console_log_level(debug)
 
         # Retrieve the list of all TSOs from the configuration file
         config_areas_mapping = config.paths.cgm_worker.config_areas_mapping
@@ -332,9 +336,10 @@ class HandlerMergeModels:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
                                                         dc_schedules=dc_schedules,
-                                                        lf_settings=pp_loadflow_parameters)
+                                                        lf_settings=pp_loadflow_parameters,
+                                                        debug=debug)
                 except Exception as e:
-                    logger.error(e)
+                    logger.error(f"Model scaling failed: {e}", exc_info=True)
                     merged_model.scaled = False
             else:
                 logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")

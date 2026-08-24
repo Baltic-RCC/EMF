@@ -8,6 +8,14 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.task_generator.task_generator)
 
 
+def get_task_debug_flag(task: dict) -> bool:
+    """Returns the task's debug flag from task_properties; defaults to False when the task
+    config doesn't define one. Intended to drive console log verbosity for the task via
+    custom_logger.set_console_log_level() -- Elasticsearch always receives every log record
+    regardless of this flag."""
+    return bool(task.get('task_properties', {}).get('debug', False))
+
+
 def update_task_status(task: dict, status_text: str, publish: bool = True):
     """Update task status
     Will update task_update_time

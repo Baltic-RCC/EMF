@@ -226,16 +226,23 @@ def _set_power_ratio_to_boundary_lines(df: pl.DataFrame) -> pl.DataFrame:
 def scale_balance(model: object,
                   ac_schedules: List[Dict[str, Union[str, float, None]]],
                   dc_schedules: List[Dict[str, Union[str, float, None]]],
+                  *,
+                  debug: bool,
                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
-                  debug=json.loads(DEBUG.lower()),
                   ):
     """
     Main method to scale each CGM area to target balance
     :param network: pypowsybl network object
     :param ac_schedules: target AC net positions in list of dict format
     :param dc_schedules: target DC net positions in list of dict format
+    :param debug: when True, also computes extra generation/consumption/losses diagnostics
+        included in the scaling report. Required (no default) -- the caller must source it
+        from the task's task_properties.debug (see get_task_debug_flag), not from a local or
+        properties-file default, so this can never silently diverge from the task config.
+        Does not affect logging -- verbose scaling detail is always logged at DEBUG level and
+        always reaches Elasticsearch regardless; this flag only controls whether the console
+        shows it (see custom_logger.set_console_log_level)
     :param lf_settings: loadflow settings
-    :param debug: debug flag
     :return: scaled pypowsybl network object
     """
     logger.info(f"Network scaling initialized")
@@ -249,12 +256,6 @@ def scale_balance(model: object,
     _scaling_results = []
     _hvdc_results = []
     _iteration = 0
-
-    # Defining logging level
-    if debug:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
 
     # Get entire network elements mapping to areas
     _elements_to_areas_map = get_network_elements_map_to_areas(network=network)  # polars: columns include 'id', _country_col
@@ -333,7 +334,7 @@ def scale_balance(model: object,
         'KEY': 'prescale-setpoint',
     })
     for dclink in prescale_hvdc_sp.sort('lineEnergyIdentificationCodeEIC').to_dicts():
-        logger.info(f"[INITIAL] PRE-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+        logger.debug(f"[INITIAL] PRE-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
         logger.debug(f"[INITIAL] PRE-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MVar")
 
     # Mapping HVDC schedules to network
@@ -380,7 +381,7 @@ def scale_balance(model: object,
     })
     logger.info(f"[INITIAL] HVDC elements updated to target values: {scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].to_list()}")
     for dclink in scalable_hvdc_target.sort('lineEnergyIdentificationCodeEIC').to_dicts():
-        logger.info(f"[INITIAL] POST-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
+        logger.debug(f"[INITIAL] POST-SCALE HVDC active power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value'], 2)} MW")
         logger.debug(f"[INITIAL] POST-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {round(dclink['value_q'], 2)} MVar")
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
@@ -429,7 +430,7 @@ def scale_balance(model: object,
         for k, v in valid_components.items()
     }
     _scaling_results.append({'KEY': 'prescale-network-np', 'GLOBAL': prescale_network_np, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
+    logger.debug(f"[ITER {_iteration}] PRE-SCALE NETWORK NP by component: {prescale_network_np}")
 
     # Get pre-scale total network balance by each component -> AC net position
     unpaired_boundary_lines_mask = (pl.col('isHvdc') == '') & (pl.col('tie_line_id') == '')
@@ -439,7 +440,7 @@ def scale_balance(model: object,
         for k, v in valid_components.items()
     }
     _scaling_results.append({'KEY': 'prescale-network-acnp', 'GLOBAL': prescale_network_acnp, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP by component: {prescale_network_acnp}")
+    logger.debug(f"[ITER {_iteration}] PRE-SCALE NETWORK ACNP by component: {prescale_network_acnp}")
 
     # Identify fragmented IGMs - where some part of network model with boundary belongs other component
     areas_to_components = get_countries_to_components(components=valid_components)
@@ -528,7 +529,7 @@ def scale_balance(model: object,
         for k, v in valid_components.items()
     }
     _scaling_results.append({'KEY': 'postscale-network-acnp', 'GLOBAL': postscale_network_acnp, 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP by component: {postscale_network_acnp}")
+    logger.debug(f"[ITER {_iteration}] POST-SCALE NETWORK ACNP by component: {postscale_network_acnp}")
 
     # Get pre-scale generation and consumption
     if debug:
@@ -547,7 +548,7 @@ def scale_balance(model: object,
     prescale_acnp = prescale_acnp.with_columns(pl.col('connected_component').cast(pl.Int64))
     _pre_scale_acnp_frame = _area_key_frame(df=prescale_acnp, value_col='boundary_p')
     _scaling_results.append({**_to_area_dict(_pre_scale_acnp_frame), 'KEY': 'prescale-acnp', 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP: {_to_area_dict(_pre_scale_acnp_frame)}")
+    logger.debug(f"[ITER {_iteration}] PRE-SCALE ACNP: {_to_area_dict(_pre_scale_acnp_frame)}")
 
     # Filtering target AC net positions series by present regions in network
     combined_scaling_target_df = target_acnp_df.join(
@@ -558,7 +559,7 @@ def scale_balance(model: object,
     )
     target_acnp = _area_key_frame(df=combined_scaling_target_df, area_col='registered_resource', value_col='value')
     _scaling_results.append({**_to_area_dict(target_acnp), 'KEY': 'target-acnp', 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] TARGET ACNP: {_to_area_dict(target_acnp)}")
+    logger.debug(f"[ITER {_iteration}] TARGET ACNP: {_to_area_dict(target_acnp)}")
 
     # Get offsets between target and pre-scale AC net positions for each control area
     combined_scaling_target_df = combined_scaling_target_df.with_columns(
@@ -566,7 +567,7 @@ def scale_balance(model: object,
     )
     offset_acnp = _area_key_frame(df=combined_scaling_target_df, area_col='registered_resource', value_col='offset_acnp')
     _scaling_results.append({**_to_area_dict(offset_acnp), 'KEY': 'offset-acnp', 'ITER': _iteration})
-    logger.info(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {_to_area_dict(offset_acnp)}")
+    logger.debug(f"[ITER {_iteration}] PRE-SCALE ACNP offset: {_to_area_dict(offset_acnp)}")
 
     # Perform scaling of AC part schedule of the network model with loop
     logger.info(f"Scaling AC network part")
@@ -658,11 +659,11 @@ def scale_balance(model: object,
         postscale_acnp = postscale_acnp.with_columns(pl.col('connected_component').cast(pl.Int64))
         _post_scale_acnp_frame = _area_key_frame(df=postscale_acnp, value_col='boundary_p')
         _scaling_results.append({**_to_area_dict(_post_scale_acnp_frame), 'KEY': 'postscale-acnp', 'ITER': _iteration})
-        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP: {_to_area_dict(_post_scale_acnp_frame)}")
+        logger.debug(f"[ITER {_iteration}] POST-SCALE ACNP: {_to_area_dict(_post_scale_acnp_frame)}")
 
         # Get post-scale total network balance
         prescale_total_np = boundary_lines.filter(pl.col('paired') == False)['boundary_p'].sum() or 0.0
-        logger.info(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
+        logger.debug(f"[ITER {_iteration}] POST-SCALE TOTAL NP: {round(prescale_total_np, 2)}")
 
         # Get offset between target and post-scale AC net position
         ## Drop values of boundary_p and offset from first iteration
@@ -676,7 +677,7 @@ def scale_balance(model: object,
         )
         offset_acnp = _area_key_frame(df=combined_scaling_target_df, area_col='registered_resource', value_col='offset_acnp')
         _scaling_results.append({**_to_area_dict(offset_acnp), 'KEY': 'offset-acnp', 'ITER': _iteration})
-        logger.info(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {_to_area_dict(offset_acnp)}")
+        logger.debug(f"[ITER {_iteration}] POST-SCALE ACNP offsets: {_to_area_dict(offset_acnp)}")
 
         # Breaking scaling loop if target ac net position for all areas is reached
         if all(abs(v) <= int(BALANCE_THRESHOLD) for v in offset_acnp['value'].to_list()):
