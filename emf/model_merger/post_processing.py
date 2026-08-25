@@ -34,7 +34,7 @@ def remove_equivalent_shunt_section(sv_data: pd.DataFrame, models_as_triplets: p
                                                                                         right_on="ID", how='inner',
                                                                                         suffixes=('', '_EQVShunt')).ID)
         if len(shunts_to_remove) > 0:
-            logger.warning(f'Removing invalid SvShuntCompensatorSections for EquivalentShunt')
+            logger.info(f'Removing invalid SvShuntCompensatorSections for EquivalentShunt')
             sv_data = triplets.rdf_parser.remove_triplet_from_triplet(sv_data, shunts_to_remove)
 
     return sv_data
@@ -55,9 +55,11 @@ def add_missing_sv_tap_steps(sv_data: pd.DataFrame, ssh_data: pd.DataFrame):
 
     tap_steps_to_be_added = []
     SV_INSTANCE_ID = sv_data.INSTANCE_ID.iloc[0]
+    if not missing_sv_tap_steps.empty:
+        logger.info(f"Adding {len(missing_sv_tap_steps.index)} missing SvTapStep(s), taking tap value from SSH")
     for tap_changer in missing_sv_tap_steps.itertuples():
         ID = str(uuid.uuid4())
-        logger.warning(
+        logger.debug(
             f'Missing SvTapStep for {tap_changer.ID}, adding SvTapStep {ID} and taking tap value {tap_changer.VALUE} from SSH')
         tap_steps_to_be_added.extend([
             (ID, 'Type', 'SvTapStep', SV_INSTANCE_ID),
@@ -110,7 +112,7 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
         cgm_sv_data = triplets.rdf_parser.remove_triplet_from_triplet(cgm_sv_data, existing_dependencies)
         full_model_id = cgm_sv_data[(cgm_sv_data['KEY'] == 'Type') & (cgm_sv_data['VALUE'] == 'FullModel')]
         dependencies_to_update = dependency_difference.query('_merge != "left_only"')
-        logger.warning(
+        logger.info(
             f"Mismatch of dependencies. Inserting {len(dependencies_to_update.index)} dependencies to SV profile")
         new_dependencies = dependencies_to_update[['VALUE']].copy().reset_index(drop=True)
         new_dependencies.loc[:, 'KEY'] = 'Model.DependentOn'
@@ -406,8 +408,8 @@ def check_non_regulating_rotating_machine_q(cgm_ssh_data, original_models, fix_e
 
     ineligible_q = original_q[~original_q['ID'].isin(eligible_machines['ID'])].copy()
     if not ineligible_q.empty:
-        logger.warning(f"Found {len(ineligible_q.index)} RotatingMachine(s) without an eligible regulating "
-                       f"control - restoring their SSH q to the original IGM values")
+        logger.info(f"Found {len(ineligible_q.index)} RotatingMachine(s) without an eligible regulating "
+                    f"control - restoring their SSH q to the original IGM values")
         if fix_errors:
             ineligible_q.loc[:, 'KEY'] = 'RotatingMachine.q'
             cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(ineligible_q[['ID', 'KEY', 'VALUE']],
@@ -468,8 +470,8 @@ def check_rotating_machine_q_outside_p_limits(cgm_ssh_data, original_models, fix
     outside_limits = limits[(limits['pgen'] < limits['p_min']) | (limits['pgen'] > limits['p_max'])]
     ineligible_q = original_q[original_q['ID'].isin(outside_limits['ID'])].copy()
     if not ineligible_q.empty:
-        logger.warning(f"Found {len(ineligible_q.index)} RotatingMachine(s) with Pgen outside [Pmin, Pmax] - "
-                       f"restoring their SSH q to the original IGM values")
+        logger.info(f"Found {len(ineligible_q.index)} RotatingMachine(s) with Pgen outside [Pmin, Pmax] - "
+                    f"restoring their SSH q to the original IGM values")
         if fix_errors:
             ineligible_q.loc[:, 'KEY'] = 'RotatingMachine.q'
             cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(ineligible_q[['ID', 'KEY', 'VALUE']],
@@ -502,8 +504,8 @@ def check_non_ltc_tap_changer_step(cgm_ssh_data, cgm_sv_data, original_models, f
 
     ineligible_step = original_step[~original_step['ID'].isin(eligible_taps['ID'])].copy()
     if not ineligible_step.empty:
-        logger.warning(f"Found {len(ineligible_step.index)} TapChanger(s) without an eligible LTC control - "
-                       f"restoring their SSH step and SV position to the IGM values")
+        logger.info(f"Found {len(ineligible_step.index)} TapChanger(s) without an eligible LTC control - "
+                    f"restoring their SSH step and SV position to the IGM values")
         if fix_errors:
             ssh_update = ineligible_step.copy()
             ssh_update.loc[:, 'KEY'] = 'TapChanger.step'
@@ -583,7 +585,7 @@ def check_net_interchanges(cgm_sv_data, cgm_ssh_data, original_models):
 
     if not net_interchange_errors.empty:
         # Apply modification
-        logger.warning(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
+        logger.info(f"Updating {len(net_interchange_errors.index)} interchanges to new values")
         new_areas = cgm_ssh_data.type_tableview('ControlArea').reset_index()[['ID',
                                                                               'ControlArea.pTolerance', 'Type']]
         new_areas = new_areas.merge(net_interchange_errors[['ControlArea', 'SvPowerFlow.p_post']]
