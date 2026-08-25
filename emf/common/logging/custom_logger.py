@@ -12,18 +12,79 @@ root_logger = logging.getLogger()
 # Local logger
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.logging.custom_logger)
-logging.basicConfig(
-    format=LOGGING_FORMAT,
-    datefmt=LOGGING_DATEFMT,
-    level=LOGGING_LEVEL,
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
 
+root_logger.setLevel(LOGGING_LEVEL)
+
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('powsybl').setLevel(logging.ERROR)
+
+# Modules whose logger.debug() calls carry detail we actually want in Elasticsearch
+INTERNAL_DEBUG_LOGGERS = (
+    "emf.model_merger.scaler",
+    "emf.model_merger.merge_functions",
+    "emf.model_merger.post_processing",
+    "emf.common.integrations.minio_api",
+)
+for _logger_name in INTERNAL_DEBUG_LOGGERS:
+    logging.getLogger(_logger_name).setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(LOGGING_LEVEL)
+console_handler.setFormatter(logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT))
+root_logger.addHandler(console_handler)
+
+
+def set_console_log_level(debug: bool):
+    """
+    Raises or restores the console handler's verbosity, typically called once per task
+    based on that task's `task_properties.debug` flag. The ELK handler is untouched by
+    this call and always receives every record regardless -- Elasticsearch remains the
+    full log record even when the console is kept quiet.
+    """
+    console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+
+from contextvars import ContextVar
+log_context = ContextVar("log_context", default={})
+old_factory = logging.getLogRecordFactory()
+
+def record_factory(*args, **kwargs):
+    record = old_factory(*args, **kwargs)
+    ctx = log_context.get()
+    if ctx:
+        for k, v in ctx.items():
+            record.__dict__[k] = v
+
+    return record
+logging.setLogRecordFactory(record_factory)
+
+def set_logging_context_token(
+        job_id: str | None,                 # ex: urn:uuid:..., shared by entire time horizon's merge logs
+        process_id: str | None,             # ex: .../RMM_CREATION
+        run_id: str | None,                 # ex: runs/DayAheadRMM
+        scenario_timestamp: str | None,     # the actual model timestamp
+        task_id: str | None,                # ex: urn:uuid:..., shared by one timestamp's logs
+        time_horizon: str | None,           # ex: ID, WK etc
+        version: str | None,                # merged model version, ex: 001
+        merge_type: str | None              # ex: EU, BA
+        ):
+    """
+    Sets the metadata of logs that will be present for all logs originating from the
+    module where this is used, currently works best for model_merger module.
+    In this setup if any of these log metadata items are missing they will not show up in log at all
+    """
+    token = log_context.set({
+        "@job_id": job_id,
+        "@process_id": process_id,
+        "@run_id": run_id,
+        "@scenario_timestamp": scenario_timestamp,
+        "@task_id": task_id,
+        "@time_horizon": time_horizon,
+        "@version": version,
+        "merge_type": merge_type
+    })
+    return token
 
 def initialize_custom_logger(
-        level: str = LOGGING_LEVEL,
-        format: str = LOGGING_FORMAT,
-        datefmt: str = LOGGING_DATEFMT,
         elk_server: str = elastic.ELK_SERVER,
         api_key: str = elastic.ELK_TOKEN,
         index: str = LOGGING_INDEX,
@@ -31,13 +92,9 @@ def initialize_custom_logger(
         fields_filter: None | list = None,
         ):
 
-    root_logger.setLevel(level)
-    root_logger.propagate = True
-
-    # Configure stream logging handler
-    # root_logger.addHandler(StreamHandler(level=level, logging_format=format, datetime_format=datefmt))
-
-    # Configure Elk logging handler
+    # Configure Elk logging handler -- always captures everything (see ElkLoggingHandler),
+    # independent of the console handler's verbosity, which is set up at module import time
+    # above and adjusted per-task via set_console_log_level().
     elk_handler = ElkLoggingHandler(elk_server=elk_server, api_key=api_key, index=index, extra=extra, fields_filter=fields_filter)
 
     if elk_handler.connected:
@@ -60,14 +117,6 @@ def get_elk_logging_handler():
     root_logger.addHandler(handler)
 
     return handler
-
-
-class StreamHandler(logging.StreamHandler):
-    def __init__(self, level=LOGGING_LEVEL, logging_format=LOGGING_FORMAT, datetime_format=LOGGING_DATEFMT):
-        super().__init__(sys.stdout)
-        self.setLevel(level)
-        formatter = logging.Formatter(fmt=logging_format, datefmt=datetime_format)
-        self.setFormatter(formatter)
 
 
 class ElkLoggingHandler(logging.StreamHandler):
@@ -100,8 +149,9 @@ class ElkLoggingHandler(logging.StreamHandler):
         self.fields_filter = fields_filter
         self.connected = self.elk_connection()
 
-        # Set level and format from settings
-        self.setLevel(LOGGING_LEVEL)
+        # Always capture everything -- Elasticsearch must retain the full log record even
+        # when the console handler is kept quiet (see set_console_log_level).
+        self.setLevel(logging.DEBUG)
         formatter = logging.Formatter(fmt=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT)
         self.setFormatter(formatter)
 
@@ -120,7 +170,8 @@ class ElkLoggingHandler(logging.StreamHandler):
             logger.warning(f"ELK server {self.server} returned unknown error: {e}")
 
     def elk_formatter(self, record):
-        elk_record = record.__dict__
+        elk_record = dict(record.__dict__)
+        elk_record['msg'] = record.getMessage()
         if self.fields_filter:
             elk_record = {key: elk_record[key] for key in self.fields_filter if key in elk_record}
 

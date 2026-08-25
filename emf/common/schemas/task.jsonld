@@ -13,15 +13,22 @@
         "task_initiator",
         "task_priority",
         "task_creation_time",
+        "task_update_time",
+        "task_status",
+        "task_status_trace",
         "task_dependencies",
         "task_tags",
         "task_retry_count",
         "task_timeout",
+        "task_gate_open",
+        "task_gate_close",
+        "job_period_start",
+        "job_period_end",
         "task_properties"],
     "properties": {
       "@context": {
         "type": "string",
-        "const": "https://example.com/task.jsonld"
+        "const": "https://example.com/task_context.jsonld"
       },
       "@type": {
         "type": "string",
@@ -41,7 +48,8 @@
       },
       "job_id": {
         "type": "string",
-        "format": "uri"
+        "format": "uri",
+        "description": "Shared by every task generated for one run instance (see task_generator.py); distinct from the per-task '@id'."
       },
       "task_type": {
         "type": "string",
@@ -52,11 +60,31 @@
       },
       "task_priority": {
         "type": "string",
-        "enum": ["high", "medium", "low"]
+        "enum": ["low", "normal", "high"],
+        "description": "'normal' is the default and the only value ever produced today (config/task_generator/process_conf.json never overrides it)."
       },
       "task_creation_time": {
         "type": "string",
         "format": "date-time"
+      },
+      "task_update_time": {
+        "type": "string",
+        "description": "Set to \"\" at task creation; updated to an ISO timestamp each time update_task_status() records a status change."
+      },
+      "task_status": {
+        "type": "string",
+        "description": "Set to \"\" at task creation. Observed values in the current pipeline: \"created\", \"started\", \"finished\" -- there is currently no failure/error status, even on exception paths."
+      },
+      "task_status_trace": {
+        "type": "array",
+        "description": "Appended to by update_task_status() on every status change. model_merger requires this key to already exist as a list (KeyError otherwise), so it must always be present, even as [].",
+        "items": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string"},
+            "timestamp": {"type": "string", "format": "date-time"}
+          }
+        }
       },
       "task_dependencies": {
         "type": "array",
@@ -79,22 +107,149 @@
         "type": "string",
         "pattern": "^PT\\d+[HMS]$"
       },
+      "task_gate_open": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Set by task_generator; not currently read back by any consumer."
+      },
+      "task_gate_close": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Set by task_generator; not currently read back by any consumer."
+      },
+      "job_period_start": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Set by task_generator; not currently read back by any consumer."
+      },
+      "job_period_end": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Set by task_generator; not currently read back by any consumer."
+      },
       "task_properties": {
         "type": "object",
         "properties": {
           "merge_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Real values in production config today: \"EU\", \"BA\" (determines whether the output model is labelled CGM or RMM). \"CGM\" is not itself a merge_type value."
           },
           "time_horizon": {
             "type": "string"
           },
-          "scenario_time": {
+          "timestamp_utc": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Replaces this schema's old 'scenario_time' field, which no code ever read or wrote. The scenario timestamp of the model being merged. Note: task_generator.py writes this without seconds/offset (e.g. \"2023-04-14T22:30\"), while the checked-in example and model_merger.py's embedded sample both use full-precision offset-qualified values -- both forms are seen in practice."
+          },
+          "debug": {
+            "type": "boolean",
+            "description": "Raises console log verbosity for this task to DEBUG. Defaults to false when omitted. Elasticsearch always receives every log record regardless of this flag."
+          },
+          "merging_entity": {
+            "type": "string",
+            "description": "e.g. \"BALTICRCC\""
+          },
+          "mas": {
+            "type": "string",
+            "format": "uri",
+            "description": "Modelling Authority Set URI, e.g. \"http://www.baltic-rsc.eu/OperationalPlanning/CGM\"."
+          },
+          "version": {
+            "type": "string",
+            "description": "Zero-padded merge version, e.g. \"001\". The case-insensitive sentinel \"AUTO\" requests auto-increment against the latest version already recorded in Elasticsearch (see task_generator.set_task_version)."
+          },
+          "replacement": {
+            "type": ["boolean", "string"],
+            "description": "Enables IGM replacement for missing/invalid models. Written as the literal strings \"True\"/\"False\" in process_conf.json; coerced to a real bool by convert_dict_str_to_bool() before use -- same convention on every boolean-ish task_properties key below."
+          },
+          "scaling": {
+            "type": ["boolean", "string"],
+            "description": "Enables post-merge scaling (scaler.scale_balance)."
+          },
+          "outage_update": {
+            "type": ["boolean", "string"],
+            "description": "Required by TaskConfig.from_task (bracket access) -- a task missing this key raises KeyError inside the merger. NOTE: the YearAheadCGM run template in config/task_generator/process_conf.json currently omits this key, so that run would fail if it ever fires."
+          },
+          "force_outage_fix": {
+            "type": ["boolean", "string"]
+          },
+          "upload_to_opdm": {
+            "type": ["boolean", "string"]
+          },
+          "upload_to_minio": {
+            "type": ["boolean", "string"]
+          },
+          "send_merge_report": {
+            "type": ["boolean", "string"]
+          },
+          "post_temp_fixes": {
+            "type": ["boolean", "string"],
+            "description": "Read as TaskConfig.additional_processing."
+          },
+          "lvl8_reporting": {
+            "type": ["boolean", "string"]
+          },
+          "included": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "TSO codes to include in the merge. Optional, defaults to []."
+          },
+          "excluded": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "TSO codes to exclude from the merge. Optional, defaults to []."
+          },
+          "local_import": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "TSO codes to source from local/PDN import instead of OPDM. Optional, defaults to []."
+          },
+          "replace_tso": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional, defaults to []."
+          },
+          "reference_schedule_start_utc": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optional; when absent, model_merger falls back to timestamp_utc."
+          },
+          "reference_schedule_end_utc": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optional."
+          },
+          "reference_schedule_time_horizon": {
+            "type": "string",
+            "description": "Optional. The sentinel \"AUTO\" means \"fall back to task_properties.time_horizon\"."
+          },
+          "replacement_local": {
+            "type": ["boolean", "string"],
+            "description": "Present on every real task produced by task_generator today, but not currently read by any consumer."
+          },
+          "pre_temp_fixes": {
+            "type": ["boolean", "string"],
+            "description": "Not currently read by any consumer (compare 'post_temp_fixes', which is)."
           }
         },
-        "required": ["merge_type", "time_horizon"]
+        "required": [
+          "merge_type",
+          "time_horizon",
+          "timestamp_utc",
+          "merging_entity",
+          "mas",
+          "version",
+          "replacement",
+          "scaling",
+          "outage_update",
+          "force_outage_fix",
+          "upload_to_opdm",
+          "upload_to_minio",
+          "send_merge_report",
+          "post_temp_fixes",
+          "lvl8_reporting"
+        ]
       }
     }
   }
-  

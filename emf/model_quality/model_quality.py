@@ -42,8 +42,8 @@ class HandlerModelQuality:
             try:
                 for opdm_object in model_data:
                     network = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
-            except:
-                logger.error("Failed to load IGM data")
+            except Exception as error:
+                logger.error(f"Failed to load IGM data: {error}", exc_info=True)
                 network = pd.DataFrame
         else:
             logger.error("Object type metadata is incorrect")
@@ -58,12 +58,12 @@ class HandlerModelQuality:
                                                     model_metadata=model_metadata, rule_sets=rule_sets,
                                                     tieflow_data=tieflow_data)
             except Exception as e:
-                logger.error(f"Failed to generate quality report: {e}")
+                logger.error(f"Failed to generate quality report: {e}", exc_info=True)
             try:
                 model_statistics = get_system_metrics(network, tieflow_data=tieflow_data)
             except Exception as e:
                 model_statistics = {}
-                logger.error(f"Failed to get model statistics: {e}")
+                logger.error(f"Failed to get model statistics: {e}", exc_info=True)
         else:
             model_statistics = {}
             qa_report = {}
@@ -74,7 +74,7 @@ class HandlerModelQuality:
             try:
                 response = self.elastic_service.send_to_elastic(index=ELK_STATISTICS_INDEX, json_message=model_statistics)
             except Exception as error:
-                logger.error(f"Statistics report sending to Elastic failed: {error}")
+                logger.error(f"Statistics report sending to Elastic failed: {error}", exc_info=True)
 
             logger.info(f"Statistics report sent to elastic index: '{ELK_STATISTICS_INDEX}'")
         else:
@@ -86,7 +86,7 @@ class HandlerModelQuality:
             try:
                 response = self.elastic_service.send_to_elastic(index=ELK_QUALITY_INDEX, json_message=qa_report)
             except Exception as error:
-                logger.error(f"Validation report sending to Elastic failed: {error}")
+                logger.error(f"Validation report sending to Elastic failed: {error}", exc_info=True)
 
             logger.info(f"Quality report sent to elastic index: '{ELK_QUALITY_INDEX}'")
         else:

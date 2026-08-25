@@ -42,6 +42,7 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
     :param parameters: dictionary of desired parameters for loading models to pypowsybl
     :param skip_default_parameters: skip the default parameters
     """
+    logger.info("Loading models into merged model")
     default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
     if not skip_default_parameters:
         if not parameters:
@@ -62,7 +63,7 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
     )
 
     logger.info(f"Loaded: {network}")
-    logger.debug(f"{import_report}")
+    # logger.debug(f"{import_report}")
 
     return network
 

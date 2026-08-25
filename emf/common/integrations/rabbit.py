@@ -3,7 +3,6 @@ import time
 import logging
 import pika
 import config
-import traceback
 import signal
 from typing import List, Optional
 from emf.common.config_parser import parse_app_properties
@@ -252,7 +251,7 @@ class SingleMessageConsumer:
                     properties.content_type = content_type
                 logger.info("Message converted")
             except Exception as error:
-                logger.error(f"Message conversion failed: {error}\n{traceback.format_exc()}")
+                logger.error(f"Message conversion failed: {error}", exc_info=True)
                 ack = False
                 err = error
 
@@ -262,12 +261,12 @@ class SingleMessageConsumer:
                 try:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=None)
-                    if not properties.headers.get('success', True): # stop processing next handlers if message success was set to false
+                    if not properties.headers.get('success',
+                                                  True):  # stop processing next handlers if message success was set to false
                         break
 
                 except Exception as error:
-                    logger.error(f"Message handling failed: {error}\n{traceback.format_exc()}")
-                    logger.exception("Message handling failed, see traceback in document")
+                    logger.error(f"Message handling failed: {error}", exc_info=True)
                     ack = False
                     err = error
                     break
@@ -295,7 +294,8 @@ class SingleMessageConsumer:
                 return 0
 
             delivery_tag = method.delivery_tag
-            logger.info(f"Received message #{delivery_tag} from {getattr(properties,'app_id',None)} meta: {getattr(properties,'headers',None)}")
+            logger.info(
+                f"Received message #{delivery_tag} from {getattr(properties, 'app_id', None)} meta: {getattr(properties, 'headers', None)}")
             if self.log_body:
                 logger.debug(f"Message body: {body!r}")
 
@@ -582,14 +582,15 @@ class RMQConsumer:
                 for message_handler in self.message_handlers:
                     logger.info(f"Handling message with handler: {message_handler.__class__.__name__}")
                     body, properties = message_handler.handle(body, properties=properties, channel=self._channel)
-                    if not properties.headers.get('success', True): # stop processing next handlers if message success was set to false
+                    if not properties.headers.get('success',
+                                                  True):  # stop processing next handlers if message success was set to false
                         break
             except Exception as error:
                 logger.error(f"Message handling failed: {error}", exc_info=True)
                 ack = False
                 self._channel.basic_reject(basic_deliver.delivery_tag, requeue=True)
                 logger.error(f"Message rejected due to handler error")
-                
+
                 # self.connection.close()
                 # self.stop()
 
