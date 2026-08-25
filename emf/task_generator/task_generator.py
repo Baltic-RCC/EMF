@@ -10,7 +10,7 @@ import pandas as pd
 from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, \
     utcnow
 from emf.common.helpers.tasks import update_task_status
-from emf.common.integrations.elastic import Elastic
+from emf.task_generator.task_versioning import set_task_version
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,8 @@ def generate_tasks(task_window_duration: str,
                    timeframe_conf: dict,
                    timetravel_now: str | None = None,
                    process_time_shift: str | None = None,
+                   task_type: str = "automatic",
+                   task_initiator: str | None = None,
                    ):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
@@ -36,6 +38,14 @@ def generate_tasks(task_window_duration: str,
             documentation.
         timeframe_conf (dict): JSON file specifying the time frame definitions, as described in the
             documentation.
+        timetravel_now (str, optional): ISO-8601 datetime string to use instead of the actual current
+            time, e.g. to reconstruct a specific past or manually-triggered run.
+        process_time_shift (str, optional): ISO-8601 duration string to shift the computed reference
+            time by, applied before the time frame's period_start/period_end offsets.
+        task_type (str): value of the task's `task_type` field, per the task schema's
+            `["automatic", "manual"]` enum.
+        task_initiator (str, optional): value of the task's `task_initiator` field. Falls back to the
+            `USER`/`USERNAME` environment variables, then `"unknown"`, if not provided.
 
     Yields:
         dict: A dictionary representing a task instance, as described in the documentation.
