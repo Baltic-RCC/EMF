@@ -94,10 +94,10 @@
         "@id": "https://example.com/timeHorizons/W-1",
         "@type": "https://example.com/timeHorizon",
         "description": "Process that runs in current week for next week",
-        "reference_time_start": "currentWeekStart",
-        "reference_time_end": "currentWeekStart",
-        "period_start": "P5D",
-        "period_end": "P14D"
+        "reference_time_start": "currentDayStart",
+        "reference_time_end": "currentDayStart",
+        "period_start": "P3D",
+        "period_end": "P12D"
     },
     {
         "@context": "https://example.com/timeHorizon_context.jsonld",

@@ -7,10 +7,9 @@ import json
 import logging
 import os
 import pandas as pd
-from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, \
-    utcnow
+from emf.common.helpers.time import parse_duration, convert_to_utc, convert_to_timezone, timezone, reference_times, utcnow
 from emf.common.helpers.tasks import update_task_status
-from emf.task_generator.task_versioning import set_task_version
+from emf.common.integrations.elastic import Elastic
 from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
@@ -23,8 +22,6 @@ def generate_tasks(task_window_duration: str,
                    timeframe_conf: dict,
                    timetravel_now: str | None = None,
                    process_time_shift: str | None = None,
-                   task_type: str = "automatic",
-                   task_initiator: str | None = None,
                    ):
     """
     Generates a sequence of tasks based on the given process configuration and time frame definitions.
@@ -38,14 +35,6 @@ def generate_tasks(task_window_duration: str,
             documentation.
         timeframe_conf (dict): JSON file specifying the time frame definitions, as described in the
             documentation.
-        timetravel_now (str, optional): ISO-8601 datetime string to use instead of the actual current
-            time, e.g. to reconstruct a specific past or manually-triggered run.
-        process_time_shift (str, optional): ISO-8601 duration string to shift the computed reference
-            time by, applied before the time frame's period_start/period_end offsets.
-        task_type (str): value of the task's `task_type` field, per the task schema's
-            `["automatic", "manual"]` enum.
-        task_initiator (str, optional): value of the task's `task_initiator` field. Falls back to the
-            `USER`/`USERNAME` environment variables, then `"unknown"`, if not provided.
 
     Yields:
         dict: A dictionary representing a task instance, as described in the documentation.
@@ -134,16 +123,15 @@ def generate_tasks(task_window_duration: str,
 
                 # Loop through each data timestamp in the current period.
                 while timestamp_utc < job_period_end_utc:
+
                     # Shift must be applied in local time, due to daylight saving
-                    schedule_start_utc = convert_to_utc(
-                        convert_to_timezone(timestamp_utc) + parse_duration(TASK_SCHEDULE_SHIFT))
+                    schedule_start_utc = convert_to_utc(convert_to_timezone(timestamp_utc) + parse_duration(TASK_SCHEDULE_SHIFT))
                     schedule_end_utc = schedule_start_utc + parse_duration("PT15M")
 
                     task_id = str(uuid4())
                     task_timestamp = utcnow().isoformat()
 
-                    logger.info(
-                        f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] for job: {job_id}")
+                    logger.info(f"Task {timestamp_utc} in window [{job_period_start_utc}/{job_period_end_utc}] for job: {job_id}")
 
                     task = {
                         "@context": "https://example.com/task_context.jsonld",
@@ -154,8 +142,7 @@ def generate_tasks(task_window_duration: str,
                         "job_id": f"urn:uuid:{job_id}",
                         "task_type": "automatic",
                         "task_initiator": os.environ.get("USERNAME", "unknown"),
-                        "task_priority": run.get("priority", process.get("priority", "normal")),
-                        # "low", "normal", "high"
+                        "task_priority": run.get("priority", process.get("priority", "normal")),  # "low", "normal", "high"
                         "task_creation_time": task_timestamp,
                         "task_update_time": "",
                         "task_status": "",
@@ -203,6 +190,7 @@ def generate_tasks(task_window_duration: str,
 
 
 def set_task_version(task: dict):
+
     task_version = task['task_properties']['version']
 
     # Set versioning mode
@@ -256,7 +244,7 @@ def set_task_version(task: dict):
         logger.info(f"Version set to: '{set_version}'")
 
     except Exception as e:
-        logger.warning(f"Exception traceback: {e}", exc_info=True)
+        logger.warning(f"Exception traceback: {e}")
         if auto_versioning_enabled:
             task['task_properties']['version'] = None
             logger.error("Elastic query for task versioning unsuccessful, version not set")
@@ -267,7 +255,6 @@ def set_task_version(task: dict):
 if __name__ == "__main__":
     import sys
     import pandas
-
     logging.basicConfig(
         stream=sys.stdout,
         format='%(levelname) -10s %(asctime)s %(name) -30s %(funcName) -35s %(lineno) -5d: %(message)s',
@@ -282,8 +269,7 @@ if __name__ == "__main__":
     timeframe_config_json = json.load(timeframe_conf)
     process_config_json = json.load(process_conf)
 
-    tasks = list(
-        generate_tasks(task_window_duration, task_window_reference, process_config_json, timeframe_config_json))
+    tasks = list(generate_tasks(task_window_duration, task_window_reference, process_config_json, timeframe_config_json))
 
     tasks_table = pandas.json_normalize(tasks)
     print(tasks_table["process_id"].value_counts())
