@@ -289,9 +289,12 @@ class HandlerModelsValidator:
                 logger.info("Updating OPDM metadata in Elastic with model valid status")
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
                 opdm_object["valid"] = valid
-                opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
-                opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,
-                                                                   parameter_name='ConformLoad')
+                try:
+                    opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
+                    opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,
+                                                                       parameter_name='ConformLoad')
+                except Exception as error:
+                    logger.error(f"Failed to calculate AC net position / sum of loads: {error}", exc_info=True)
                 self.elastic_service.send_to_elastic_bulk(
                     index=METADATA_ELK_INDEX,
                     json_message_list=[opdm_object],

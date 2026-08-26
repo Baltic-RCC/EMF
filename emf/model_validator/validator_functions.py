@@ -4,7 +4,7 @@ import triplets
 import xml.etree.ElementTree as ET
 import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
-from emf.common.helpers.statistics import get_tieflow_data, sum_on_KEY
+from emf.common.helpers.statistics import sum_on_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -114,24 +114,52 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
     return original_data, violated_switches
 
 
+# ponytail: DC-carrying CIM equipment classes. A tie point is treated as AC unless its
+# own equipment is one of these - extend the set if another DC class shows up in practice.
+DC_EQUIPMENT_TYPES = {"DCLineSegment", "ACDCConverter", "CsConverter", "VsConverter"}
+
+
 def get_ac_net_position(models_as_triplets: pandas.DataFrame):
     """
-    Taken from model_quality/statistics.py. Finds sum of EquivalentInjection on the borders
+    Sum of EquivalentInjection.p at this model's AC boundary points.
+
+    Only Interchange-type control areas are considered; a tie point is excluded when either
+    its own equipment (the TieFlow terminal's ConductingEquipment) is a DC/HVDC CIM class,
+    or its boundary node is tagged with the legacy "HVDC ..." description convention (some
+    TSOs model their converter's grid-side connection as plain AC equipment and only flag
+    the link this way).
 
     :param models_as_triplets: input dataframe of model as triplets
     """
+    control_areas = models_as_triplets.type_tableview('ControlArea')
+    tie_flows = models_as_triplets.type_tableview('TieFlow')
+    terminals = models_as_triplets.type_tableview('Terminal')
+    equivalent_injections = models_as_triplets.type_tableview('EquivalentInjection')
+    if control_areas is None or tie_flows is None or terminals is None or equivalent_injections is None:
+        return None
+    terminals = terminals.reset_index()
+
+    node_col = 'Terminal.ConnectivityNode' if 'Terminal.ConnectivityNode' in terminals else 'Terminal.TopologicalNode'
+
     # Use only Interchange Control Area Tieflows
-    tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
-    tieflow_data = get_tieflow_data(models_as_triplets)
-    tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
-    # AC was needed?
-    try:
-        tieflow_data = tieflow_data[tieflow_data['BoundaryPoint.isDirectCurrent'] == False]
-    except KeyError:
-        pass
-    data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
-    tieflow_values = tieflow_data[data_columns].sum().to_dict()
-    return tieflow_values.get("EquivalentInjection.p", None)
+    interchange_areas = control_areas[control_areas['ControlArea.type'].str.endswith('Interchange')]
+    tie_flows = tie_flows[tie_flows['TieFlow.ControlArea'].isin(interchange_areas.index)]
+
+    tie_terminals = terminals.merge(tie_flows, left_on='ID', right_on='TieFlow.Terminal')
+    equipment_type = models_as_triplets.query("KEY == 'Type'").drop_duplicates('ID').set_index('ID')['VALUE']
+    is_dc_equipment = tie_terminals['Terminal.ConductingEquipment'].map(equipment_type).isin(DC_EQUIPMENT_TYPES)
+
+    node_description = (models_as_triplets.query("KEY == 'IdentifiedObject.description'")
+                        .drop_duplicates('ID').set_index('ID')['VALUE'])
+    is_dc_description = tie_terminals[node_col].map(node_description).fillna('').str.startswith('HVDC')
+
+    ac_nodes = tie_terminals.loc[~(is_dc_equipment | is_dc_description), node_col]
+
+    injection_terminals = terminals[terminals['Terminal.ConductingEquipment'].isin(equivalent_injections.index)]
+    ac_injection_terminals = injection_terminals[injection_terminals[node_col].isin(ac_nodes)]
+
+    p = equivalent_injections.loc[ac_injection_terminals['Terminal.ConductingEquipment'], 'EquivalentInjection.p']
+    return round(p.astype(float).sum(), 1) if not p.empty else 0.0
 
 
 def get_sum_of_loads(models_as_triplets: pandas.DataFrame, parameter_name: str = 'ConformLoad'):
