@@ -371,7 +371,7 @@ def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: b
     flows_on_powerflows = disconnected_powerflows[(abs(disconnected_powerflows['SvPowerFlow.p'].astype('float')) > 0) |
                                                   (abs(disconnected_powerflows['SvPowerFlow.q'].astype('float')) > 0)]
     if not flows_on_powerflows.empty:
-        logger.warning(f"Found {len(flows_on_powerflows.index)} disconnected terminals which have flows set")
+        logger.info(f"Found {len(flows_on_powerflows.index)} disconnected terminals which have flows set")
         if fix_errors:
             logger.info(f"Setting flows on disconnected terminals to zero")
             flows_on_powerflows.loc[:, 'SvPowerFlow.p'] = 0

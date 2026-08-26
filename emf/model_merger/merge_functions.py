@@ -711,7 +711,7 @@ def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold,
     def is_within_acnp_deadband(model):
         tso = model.get('pmd:TSO')
         if not tso or tso not in acnp_dict:
-            logger.error(f"TSO '{tso}' not found in acnp dict, skipping filtering")
+            logger.warning(f"TSO '{tso}' not found in acnp dict, skipping filtering")
             return True
         acnp = acnp_dict[tso]
         return abs(float(model['ac_net_position']) - float(acnp)) <= float(acnp_threshold)
@@ -719,7 +719,7 @@ def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold,
     def is_within_conformload_deadband(model):
         tso = model.get('pmd:TSO')
         if not tso or tso not in acnp_dict:
-            logger.error(f"TSO '{tso}' not found in acnp dict, skipping filtering")
+            logger.warning(f"TSO '{tso}' not found in acnp dict, skipping filtering")
             return True
         acnp = acnp_dict[tso]
         expected_load = model['sum_conform_load'] * float(conform_load_factor)

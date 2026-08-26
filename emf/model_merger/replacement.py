@@ -423,7 +423,7 @@ def find_replacement_models(tso_list: list[str],
             replacement_df = _exclude_existing_models(replacement_df, existing_models)
 
         if replacement_df.is_empty():
-            logger.error("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
+            logger.warning("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
             return []
 
         selected_models = _select_best_replacement_models(replacement_df,
@@ -501,9 +501,6 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     """
     list_hour_priority, list_time_priority, list_business_priority = make_lists_priority(target_timestamp, target_timehorizon, conf) #make list of relevant Timestamps
 
-    # Bucket intraday hour codes ('01'..'24') under 'ID' for matching only, into
-    # normalized_time_horizon -- pmd:timeHorizon itself stays untouched since it's
-    # returned as-is on the replacement model.
     id_horizons = [f'{i:02}' for i in range(1, 25)]
     valid_models_df = valid_models_df.with_columns(
         pl.when(pl.col("pmd:timeHorizon").is_null())
@@ -519,20 +516,12 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
         pl.lit(target_timehorizon).alias("target_time_horizon")
     )
 
-    # "value -> its index" lookup table joined in, instead of a per-row .index() call.
-    # .unique(keep="first") guards against a duplicate value fanning out the join.
     business_priority_df = pl.DataFrame({
         "normalized_time_horizon": list_business_priority,
         "priority_business": list(range(len(list_business_priority))),
     }, schema={"normalized_time_horizon": pl.Utf8, "priority_business": pl.Int64}).unique(subset=["normalized_time_horizon"], keep="first")
     valid_models_df = valid_models_df.join(business_priority_df, on="normalized_time_horizon", how="left")
 
-    # dateutil (not polars' native parser) for format parity; parsed once here into a
-    # pl.Datetime column and reused via .dt accessors everywhere else. Null-guarded since
-    # a nulled/missing value would otherwise raise TypeError and abort the whole batch.
-    # tzinfo stripped so mixed tz-aware/naive records don't crash column construction --
-    # matches the original's wall-clock-only strftime behavior (it never actually
-    # normalized to UTC either).
     valid_models_df = valid_models_df.with_columns(
         pl.col("pmd:scenarioDate").map_elements(
             lambda x: parser.parse(x).replace(tzinfo=None) if x is not None else None,
@@ -556,8 +545,6 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
         pl.col("pmd:scenarioDate").dt.strftime("%Y-%m-%d").alias("__day_str")
     ).join(day_priority_df, on="__day_str", how="left").drop("__day_str")
 
-    # pmd:TSO included here too: otherwise a null-TSO'd malformed record (see
-    # _normalize_es_scalar) wins its own null-keyed group below instead of getting dropped.
     valid_models_df = valid_models_df.drop_nulls(subset=["pmd:TSO", "priority_hour", "priority_day", "priority_business"])
 
     return valid_models_df

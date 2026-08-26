@@ -249,7 +249,7 @@ def get_latest_models_and_download(time_horizon: str,
                 logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
                 logger.error(sys.exc_info())
     else:
-        logger.warning(f"Models not available on Object Storage")
+        logger.info(f"Models not available on Object Storage")
 
     return models_downloaded
 

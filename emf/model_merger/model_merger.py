@@ -94,7 +94,7 @@ class HandlerMergeModels:
             if result[0].status_text == 'Converged':
                 break
             else:
-                logger.warning(f"Failed to solve loadflow with settings: {settings_keyword}")
+                logger.info(f"Failed to solve loadflow with settings: {settings_keyword}")
 
         result_dict = [attr_to_dict(island) for island in result]
         # Modify all nested objects to native data types
@@ -587,7 +587,8 @@ if __name__ == "__main__":
             "upload_to_opdm": "False",
             "upload_to_minio": "True",
             "send_merge_report": "True",
-            "lvl8_reporting": "False"
+            "lvl8_reporting": "False",
+            "debug": "False"
         }
     }
     class Properties(dict):
