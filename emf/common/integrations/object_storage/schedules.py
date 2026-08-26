@@ -71,9 +71,11 @@ def query_hvdc_schedules(time_horizon: str,
     # Map HVDC names
     schedules_df["hvdc_name"] = schedules_df["TimeSeries.connectingLine_RegisteredResource.mRID"].map(hvdc_eic_map)
 
-    # Filter to the latest revision number
+    # Filter to the latest revision number per source document (mRID).
     schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
-    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+    schedules_df = schedules_df[
+        schedules_df.revisionNumber == schedules_df.groupby('mRID').revisionNumber.transform('max')
+    ]
 
     # Get relevant structure and convert to dictionary
     _cols = ["value", "in_domain", "out_domain", "TimeSeries.connectingLine_RegisteredResource.mRID", "hvdc_name"]
@@ -131,17 +133,26 @@ def _fetch_acnp_schedules(service, time_horizon: str, scenario_timestamp: str, a
     schedules_df["TimeSeries.in_Domain.party"] = schedules_df["in_domain"].map(area_name_map)
     schedules_df["TimeSeries.out_Domain.party"] = schedules_df["out_domain"].map(area_name_map)
 
-    # Filter to the latest revision number
+    # Filter to the latest revision number per source document (mRID).
     schedules_df.revisionNumber = schedules_df.revisionNumber.astype(int)
-    schedules_df = schedules_df[schedules_df.revisionNumber == schedules_df.revisionNumber.max()]
+    schedules_df = schedules_df[
+        schedules_df.revisionNumber == schedules_df.groupby('mRID').revisionNumber.transform('max')
+    ]
 
     return schedules_df
 
 
-def _missing_acnp_tsos(schedules_df: pd.DataFrame, tso_list: list) -> tuple:
-    """Return the TSOs from tso_list that have no in_Domain / out_Domain schedule entry."""
+def _missing_acnp_tsos(schedules_df: pd.DataFrame, tso_list: list, time_horizon: str) -> tuple:
+    """
+    Return the TSOs from tso_list missing in_Domain / out_Domain schedule entries.
+    """
     present_in = set(schedules_df["TimeSeries.in_Domain.party"].dropna())
     present_out = set(schedules_df["TimeSeries.out_Domain.party"].dropna())
+
+    if time_horizon == "2D":
+        present = present_in | present_out
+        missing = [tso for tso in tso_list if tso not in present]
+        return missing, missing
 
     missing_in = [tso for tso in tso_list if tso not in present_in]
     missing_out = [tso for tso in tso_list if tso not in present_out]
@@ -202,7 +213,7 @@ def replace_missing_acnp_schedules(schedules_df: pd.DataFrame,
     Horizons with no defined chain are returned unchanged.
     """
     tso_list = list(set(area_name_map.values()))
-    missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list)
+    missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list, time_horizon)
     replaced_entity = []
 
     for step in _acnp_replacement_steps(time_horizon):
@@ -234,7 +245,7 @@ def replace_missing_acnp_schedules(schedules_df: pd.DataFrame,
                                      "day_offset": step["day_offset"], "status_field": step["status_field"],
                                      "status_value": step["status_value"]} for tso in replaced_tsos])
             schedules_df = pd.concat([schedules_df, replacements], ignore_index=True)
-            missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list)
+            missing_in, missing_out = _missing_acnp_tsos(schedules_df, tso_list, time_horizon)
 
     missing_tsos = sorted(set(missing_in) | set(missing_out))
     if missing_tsos:
