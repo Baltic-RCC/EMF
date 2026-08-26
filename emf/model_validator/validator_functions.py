@@ -121,7 +121,7 @@ def get_ac_net_position(models_as_triplets: pandas.DataFrame):
     :param models_as_triplets: input dataframe of model as triplets
     """
     # Use only Interchange Control Area Tieflows
-    tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
+    tieflow_type = "ControlAreaTypeKind.Interchange"
     tieflow_data = get_tieflow_data(models_as_triplets)
     tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
     # AC was needed?
@@ -179,7 +179,7 @@ def get_lvl8_report_igm(report: dict):
             'Message': "Power flow could not be calculated for IGM with default settings."
         },
     ]
-    
+
     # Later possible to add violation conditions and checks
     violations = list()
     if report["loadflow"]["status_text"] == 'Converged':
