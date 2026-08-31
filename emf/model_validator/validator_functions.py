@@ -204,7 +204,7 @@ def get_ac_net_position(models_as_triplets):
     :param models_as_triplets: input dataframe of model as triplets
     """
     # Use only Interchange Control Area Tieflows
-    tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
+    tieflow_type = "ControlAreaTypeKind.Interchange"
     tieflow_data = _as_polars(get_tieflow_data(models_as_triplets))
 
     tieflow_data = tieflow_data.filter(pl.col('ControlArea.type') == tieflow_type)

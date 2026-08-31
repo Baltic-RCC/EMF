@@ -171,7 +171,7 @@ def get_system_metrics(data, tieflow_data=None, load_and_generation=None):
 
     if tieflow_data is None or tieflow_data.empty:
         # Use only Interchange Control Area Tieflows
-        tieflow_type = "http://iec.ch/TC57/2013/CIM-schema-cim16#ControlAreaTypeKind.Interchange"
+        tieflow_type = "ControlAreaTypeKind.Interchange"
         tieflow_data = get_tieflow_data(data)
         tieflow_data = tieflow_data[tieflow_data['ControlArea.type'] == tieflow_type]
 
