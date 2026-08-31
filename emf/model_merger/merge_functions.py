@@ -1056,20 +1056,14 @@ def lvl8_report_cgm(merge_report: dict):
             'ruleId': "CGMConvergence",
             'validationLevel': "8",
             'severity': "WARNING",
-            'Message': "Power flow could not be calculated for CGM with default settings."
+            'Message': "Power flow could not be calculated for CGM with required settings. Check diagnostic messages."
         },
         {
             'ruleId': "CGMConvergenceRelaxed",
             'validationLevel': "8",
             'severity': "ERROR",
-            'Message': "Power flow could not be calculated for CGM with EU_RELAXED settings."
+            'Message': "Power flow could not be calculated for CGM with relaxed Q limits. Check diagnostic messages."
         },
-        {
-            'ruleId': "CGMConvergenceRelaxed",
-            'validationLevel': "8",
-            'severity': "ERROR",
-            'Message': "Error on Scaling"
-        }
     ]
     # TODO:pick the correct setting based on retruned LF setting and convergance from model. Set model quality indicator based on violations
     violations = list()
@@ -1084,10 +1078,32 @@ def lvl8_report_cgm(merge_report: dict):
         violations.append(violations_list[1])
         quality_indicator_cgm = "Invalid - inconsistent data"
 
-    # if scaling is failed then set error from error list
+    # if scaling is failed then set error or warning from error list
     if not merge_report['scaled']:
-        violations.append(violations_list[2])
-        quality_indicator_cgm = "Invalid - inconsistent data"
+        failed_areas = [a for a in (merge_report.get('scaled_entity') or []) if not a.get('success', True)]
+        if failed_areas:
+            for area in failed_areas:
+                violations.append({
+                    'ruleId': "CGMTieFlowImbalance",
+                    'validationLevel': "8",
+                    'severity': "WARNING",
+                    'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
+                               "cim:ControlArea interchange tolerance INTERCH_IMBALANCE_EMF MW.",
+                    'ruleTargets': [{
+                        'objectType': "ControlArea",
+                        'objectId': str(area.get('area')),
+                        'attributeName': "final_offset_acnp",
+                        'attributeValue': str(area.get('final_offset_acnp')),
+                    }],
+                })
+            if quality_indicator_cgm == "Valid":
+                quality_indicator_cgm = "Warning - non fatal inconsistencies"
+        else:
+            # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
+            # could not be solved with relaxed Q limits") -- skip if already reported.
+            if violations_list[1] not in violations:
+                violations.append(violations_list[1])
+            quality_indicator_cgm = "Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {
@@ -1112,6 +1128,8 @@ def lvl8_report_cgm(merge_report: dict):
             })
             msg = ET.SubElement(rv, "Message")
             msg.text = v['Message']
+            for target in v.get('ruleTargets', []):
+                ET.SubElement(rv, "ruleTarget", {k: str(val) for k, val in target.items()})
     except:
         logger.info(f"No violations present in merge")
 

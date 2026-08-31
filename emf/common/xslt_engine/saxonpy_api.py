@@ -102,7 +102,7 @@ if __name__ == '__main__':
         xml_bytes = file.read()
     with open('IGM_entsoeQAReport_Level_8.xsl', 'rb') as file:
         xsl_bytes = file.read()
-    with open(Path(__file__).parent.parent.joinpath('schemas/QAR_v2.6.1.xsd'), 'rb') as file:
+    with open(Path(__file__).parent.parent.joinpath('schemas/QAR_v2.12.0.xsd'), 'rb') as file:
         xsd_bytes = file.read()
 
     data = {"XML": xml_bytes.decode(), "XSL": xsl_bytes.decode(), "XSD": xsd_bytes.decode()}

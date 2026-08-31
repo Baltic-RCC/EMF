@@ -278,7 +278,7 @@ def get_lvl8_report_igm(report: dict):
             'ruleId': "IGMConvergence",
             'validationLevel': "8",
             'severity': "ERROR",
-            'Message': "Power flow could not be calculated for IGM with default settings."
+            'Message': "Power flow could not be calculated for IGM with required settings. Check diagnostic messages."
         },
     ]
 
