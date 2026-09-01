@@ -617,25 +617,25 @@ def check_non_boundary_equivalent_injections(cgm_sv_data,
                                                                                       'Terminal.ConductingEquipment',
                                                                                       '_merge']]
     terminals = terminals[terminals['_merge'] == 'left_only'][['SvPowerFlow.Terminal', 'Terminal.ConductingEquipment']]
-    return check_all_kind_of_injections(cgm_sv_data=cgm_sv_data,
-                                        cgm_ssh_data=cgm_ssh_data,
-                                        original_models=original_models,
-                                        injection_name='EquivalentInjection',
-                                        fields_to_check={'SvPowerFlow.p': 'EquivalentInjection.p'},
-                                        threshold=threshold,
-                                        terminals=terminals,
-                                        fix_errors=fix_errors)
+    return check_injection_type_vs_powerflow(cgm_sv_data=cgm_sv_data,
+                                             cgm_ssh_data=cgm_ssh_data,
+                                             original_models=original_models,
+                                             injection_name='EquivalentInjection',
+                                             fields_to_check={'SvPowerFlow.p': 'EquivalentInjection.p'},
+                                             threshold=threshold,
+                                             terminals=terminals,
+                                             fix_errors=fix_errors)
 
 
-def check_all_kind_of_injections(cgm_sv_data,
-                                 cgm_ssh_data,
-                                 original_models,
-                                 injection_name: str = 'ExternalNetworkInjection',
-                                 fields_to_check: dict = None,
-                                 fix_errors: bool = False,
-                                 threshold: float = 0,
-                                 terminals: pd.DataFrame = None,
-                                 report_sum: bool = True):
+def check_injection_type_vs_powerflow(cgm_sv_data,
+                                      cgm_ssh_data,
+                                      original_models,
+                                      injection_name: str = 'ExternalNetworkInjection',
+                                      fields_to_check: dict = None,
+                                      fix_errors: bool = False,
+                                      threshold: float = 0,
+                                      terminals: pd.DataFrame = None,
+                                      report_sum: bool = True):
     """
     Compares the given cgm ssh injection values to the corresponding sv powerflow values in cgm sv
     :param cgm_sv_data: merged SV profile
@@ -757,20 +757,18 @@ def run_post_merge_processing(input_models: list,
     injection_threshold = float(INJECTION_THRESHOLD)
     fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
 
-    ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
-                                            cgm_sv_data=sv_data,
-                                            original_models=input_models_triplets,
-                                            injection_name='EnergySource',
-                                            threshold=injection_threshold,
-                                            fields_to_check={'SvPowerFlow.p': 'EnergySource.activePower'},
-                                            fix_errors=fix_injection_errors)
-    ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data,
-                                            cgm_sv_data=sv_data,
-                                            original_models=input_models_triplets,
-                                            injection_name='ExternalNetworkInjection',
-                                            fields_to_check={'SvPowerFlow.p': 'ExternalNetworkInjection.p'},
-                                            threshold=injection_threshold,
-                                            fix_errors=fix_injection_errors)
+    injection_types_to_check = {
+        'EnergySource': 'EnergySource.activePower',
+        'ExternalNetworkInjection': 'ExternalNetworkInjection.p',
+    }
+    for injection_name, injection_field in injection_types_to_check.items():
+        ssh_data = check_injection_type_vs_powerflow(cgm_ssh_data=ssh_data,
+                                                      cgm_sv_data=sv_data,
+                                                      original_models=input_models_triplets,
+                                                      injection_name=injection_name,
+                                                      fields_to_check={'SvPowerFlow.p': injection_field},
+                                                      threshold=injection_threshold,
+                                                      fix_errors=fix_injection_errors)
     ssh_data = check_non_boundary_equivalent_injections(cgm_sv_data=sv_data,
                                                         cgm_ssh_data=ssh_data,
                                                         original_models=input_models_triplets,
