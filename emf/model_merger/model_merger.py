@@ -16,8 +16,9 @@ from emf.common.integrations.object_storage.schedules import query_acnp_schedule
 from emf.common.loadflow_tool import settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
-from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes, DataSource
-from emf.common.helpers.loadflow import load_network_model
+from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes, clean_profile_data_from_opdm_objects, \
+    DataSource
+from emf.common.helpers.loadflow import load_network_model, get_network_elements
 from emf.common.helpers.tasks import update_task_status, get_task_debug_flag
 from emf.model_merger import merge_functions
 from emf.model_merger import post_processing
@@ -376,6 +377,11 @@ class HandlerMergeModels:
                                                              profiles=["SV"],
                                                              cgm_convention=False)
 
+        # Precompute the bus-per-component summary that generate_merge_report needs later
+        buses = get_network_elements(merged_model.network, pypowsybl.network.ElementType.BUS)
+        merged_model.network_buses_by_component = buses.connected_component.value_counts().to_dict()
+        merged_model.network = None
+
         # Run post-processing
         post_processing_start_time = datetime.datetime.now(datetime.UTC)
         logger.info(f"Starting merged model post-processing")
@@ -385,12 +391,16 @@ class HandlerMergeModels:
                                                                                         opdm_object_meta=opdm_object_meta,
                                                                                         additional_processing=additional_processing,
                                                                                         )
+        # Release SSH/SV bytes of the original input IGMs that aren't needed again afterwar
+        clean_profile_data_from_opdm_objects(input_models, profiles={'SSH', 'SV'})
+        del exported_model  # only needed once, inside run_post_merge_processing
 
         # for merge report need to get the final uuid.
         merged_model.network_meta['fullModel_ID'] = opdm_object_meta['pmd:fullModel_ID']
         # Package both input models and exported CGM profiles to in memory zip files
         logger.info("Exporting updated SSH and SV profiles")
         serialized_data = export_to_cgmes_zip([ssh_data, sv_data])
+        del ssh_data, sv_data  # only needed for export_to_cgmes_zip above
         post_processing_end_time = datetime.datetime.now(datetime.UTC)
         logger.debug(f"Post processing took: {(post_processing_end_time - post_processing_start_time).total_seconds()} seconds")
         logger.debug(f"Merging took: {(merge_end_time - merge_start_time).total_seconds()} seconds")
@@ -433,9 +443,9 @@ class HandlerMergeModels:
             for input_model in input_models:
                 for instance in input_model['opde:Component']:
                     if instance['opdm:Profile']['pmd:cgmesProfile'] in ['EQ', 'TP', 'EQBD', 'TPBD', 'EQ_BD', 'TP_BD']:
-                        file_object = get_opdm_component_data_bytes(opdm_component=instance)
-                        logger.debug(f"Adding file: {file_object.name}")
-                        merged_model_zip.writestr(file_object.name, file_object.getvalue())
+                        profile = instance['opdm:Profile']
+                        logger.debug(f"Adding file: {profile['pmd:fileName']}")
+                        merged_model_zip.writestr(profile['pmd:fileName'], profile['DATA'])
         saved_horizon = str(task_properties["time_horizon"]).strip().upper()
         folder = f"{OUTPUT_MINIO_FOLDER}/{saved_horizon}"
         merged_model_object.name = f"{folder}/{merged_model.name}.zip"

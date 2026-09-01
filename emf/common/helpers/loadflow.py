@@ -22,7 +22,7 @@ def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
         output_object = f"{uuid.uuid4()}.zip"
         logger.info(f"Adding files to {output_object}")
 
-    with ZipFile(output_object, "w") as global_zip:
+    with ZipFile(output_object, "w", ZIP_DEFLATED) as global_zip:
         for opdm_components in opdm_objects:
             for instance in opdm_components['opde:Component']:
                 with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:

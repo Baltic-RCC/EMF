@@ -714,7 +714,6 @@ def run_post_merge_processing(input_models: list,
 
     # Create update SSH
     sv_data, ssh_data, opdm_object_meta = merge_functions.create_updated_ssh(models_as_triplets=input_models_triplets,
-                                                             input_models=input_models,
                                                              sv_data=sv_data,
                                                              opdm_object_meta=opdm_object_meta)
     # --- SV cleanup: remove invalid/redundant entries ---

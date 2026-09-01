@@ -26,6 +26,17 @@ def clean_data_from_opdm_objects(opdm_objects: list) -> list:
     return opdm_objects
 
 
+def clean_profile_data_from_opdm_objects(opdm_objects: list, profiles: set[str]) -> list:
+    """Like clean_data_from_opdm_objects, but only for the given CGMES profile types (e.g. {'SSH', 'SV'}),
+    leaving other profiles (e.g. EQ/TP/boundary) untouched for callers that still need their bytes."""
+    for opdm_object in opdm_objects:
+        for component in opdm_object['opde:Component']:
+            if component['opdm:Profile'].get('pmd:cgmesProfile') in profiles:
+                component['opdm:Profile']['DATA'] = None
+
+    return opdm_objects
+
+
 def save_opdm_objects(opdm_objects: dict) -> list:
     """
     Function save OPDM objects on to local filesystem

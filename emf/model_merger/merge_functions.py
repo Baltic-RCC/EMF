@@ -95,6 +95,7 @@ def set_merge_logging_context(task: dict):
 class MergedModel:
     network: pypowsybl.network = None
     network_meta: dict | None = None
+    network_buses_by_component: dict | None = None
     time_horizon: str = None
     time_horizon_id: str = field(default_factory=str)
     name: str = None
@@ -579,8 +580,9 @@ def generate_merge_report(merged_model: object, task: dict):
     """
     report = merged_model.__dict__
 
-    # Pop out pypowsybl network
-    network = report.pop('network')
+    # The pypowsybl network released once it's no longer needed
+    report.pop('network', None)
+    buses_by_component = report.pop('network_buses_by_component', None) or {}
 
     # Include task data
     report.update({'@timestamp': task.get('@timestamp'),
@@ -596,10 +598,8 @@ def generate_merge_report(merged_model: object, task: dict):
                    })
 
     # Include buses count in each component
-    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
-    buses_by_component = buses.connected_component.value_counts()
     for component in report['loadflow']:
-        component['buses'] = buses_by_component.to_dict().get(component['connected_component_num'])
+        component['buses'] = buses_by_component.get(component['connected_component_num'])
 
     # Count network components/islands
     report['component_count'] = len(report['loadflow'])
