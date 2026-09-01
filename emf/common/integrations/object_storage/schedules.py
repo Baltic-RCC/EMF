@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 DOC_STATUS_FIELD = "docStatus.value"
 DOC_STATUS_PRELIMINARY = "A01"  # "Intermediate"
 DOC_STATUS_FINAL = "A02"  # "Final"
+YEAR_AHEAD_TIME_HORIZON_VALUES = ["YR", "A33"]
 
 
 def query_hvdc_schedules(time_horizon: str,
@@ -48,7 +49,7 @@ def query_hvdc_schedules(time_horizon: str,
 
     # Define metadata dictionary
     metadata = {
-        "@time_horizon": time_horizon,
+        "@time_horizon": YEAR_AHEAD_TIME_HORIZON_VALUES if time_horizon == "YR" else time_horizon,
         "TimeSeries.businessType": business_type,
     }
 
@@ -100,7 +101,7 @@ def _fetch_acnp_schedules(service, time_horizon: str, scenario_timestamp: str, a
 
     # Define metadata dictionary
     metadata = {
-        "@time_horizon": time_horizon,
+        "@time_horizon": YEAR_AHEAD_TIME_HORIZON_VALUES if time_horizon == "YR" else time_horizon,
         "TimeSeries.businessType": "B64",
     }
     if status_field and status_value:

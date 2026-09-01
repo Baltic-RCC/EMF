@@ -228,7 +228,13 @@ class Elastic:
             _query_match_list.append({"range": {"utc_end": {"lte": utc_end}}})
 
         for key, val in metadata.items():
-            _query_match_list.append({"match": {key: val}})
+            if isinstance(val, list):
+                # Accept any one of several values for this field - e.g. a field that's labeled
+                # inconsistently upstream depending on source/version.
+                _query_match_list.append(
+                    {"bool": {"should": [{"match": {key: v}} for v in val], "minimum_should_match": 1}})
+            else:
+                _query_match_list.append({"match": {key: val}})
 
         query = {"bool": {"must": _query_match_list}}
 
