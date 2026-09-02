@@ -428,7 +428,9 @@ def find_replacement_models(tso_list: list[str],
             replacement_df = _exclude_existing_models(replacement_df, existing_models)
 
         if replacement_df.is_empty():
-            logger.error("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
+            logger.warning(
+                f"Replacement models for TSO(s){tso_list} were all filtered out, possibly due to incorrect schedules"
+            )
             return []
 
         selected_models = _select_best_replacement_models(replacement_df,

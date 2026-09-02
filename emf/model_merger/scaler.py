@@ -199,7 +199,7 @@ def get_fragmented_areas_participation(unpaired_boundary_lines: pl.DataFrame, ar
     fragmented_areas = []
     for area, comps in areas_to_components.items():
         if len(comps) > 1:
-            logger.warning(f"Fragmented area identified: {area} in components {list(comps)}")
+            logger.debug(f"Fragmented area identified: {area} in components {list(comps)}")
             area_boundary_lines = unpaired_boundary_lines.filter(pl.col(_country_col) == area)
             fragments_acnp = {
                 comp: area_boundary_lines.filter(pl.col('connected_component') == comp)['boundary_p'].sum() or 0.0
@@ -528,7 +528,7 @@ def scale_balance(model: object,
     # TODO need to consider how to evaluate it in case of multiple islands. For example if one of the island diverges but not the main
     if not validate_loadflow_status(results=pf_results, components=valid_components):
         model.scaled = False
-        logger.warning(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
+        logger.debug(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
         return model
 
     # Validate total network AC net position alignment
