@@ -343,6 +343,9 @@ def scale_balance(model: object,
     # Ignore HVDC elements in update of setpoint which are disconnected by network model
     scalable_hvdc = scalable_hvdc.filter(pl.col('connected'))[_cols_to_keep]
     scalable_hvdc = scalable_hvdc.join(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource', how='inner')
+    missing_hvdc_target = scalable_hvdc.filter(pl.col('value').is_null())['lineEnergyIdentificationCodeEIC'].to_list()
+    if missing_hvdc_target:
+        raise ValueError(f"Missing target DC schedule value for HVDC links present in network model: {missing_hvdc_target}")
     scalable_hvdc = scalable_hvdc.filter(
         (pl.col(_country_col) == pl.col('in_domain')) | (pl.col(_country_col) == pl.col('out_domain'))
     )
@@ -406,7 +409,7 @@ def scale_balance(model: object,
             converged_components[result.connected_component_num] = _components[result.connected_component_num]
     else:
         if pf_results[0].status.value:
-            logger.error(f"Terminating network scaling due to divergence in main island")
+            logger.debug(f"Terminating network scaling due to divergence in main island")
             return model
 
     # Get dangling lines after HVDC scaling and loadflow

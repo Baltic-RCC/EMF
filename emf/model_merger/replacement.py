@@ -138,11 +138,16 @@ def run_replacement(igm_models, model_replacement, local_import_models,
             logger.error(f"{label} replacement failed for {request.tso}: {error}", exc_info=True)
             outcome["errored"].append(request.tso)
 
-    # One consolidated line per replacement type, listing the TSOs behind each outcome
+    # One line per outcome type per replacement label, at a severity matching that outcome
     for label, outcome in results_by_label.items():
-        summary = ", ".join(f"{key}={value}" for key, value in outcome.items() if value)
-        log = logger.warning if (outcome["no_replacement"] or outcome["errored"]) else logger.info
-        log(f"{label} replacement: {summary}")
+        if outcome["succeeded"]:
+            logger.info(f"{label} replacement succeeded: {outcome['succeeded']}")
+        if outcome["skipped"]:
+            logger.info(f"{label} replacement skipped (already replaced): {outcome['skipped']}")
+        if outcome["no_replacement"]:
+            logger.warning(f"{label} replacement found no replacement: {outcome['no_replacement']}")
+        if outcome["errored"]:
+            logger.warning(f"{label} replacement errored: {outcome['errored']}")
 
     if any_success:
         merged_model.replaced = True
@@ -423,7 +428,7 @@ def find_replacement_models(tso_list: list[str],
             replacement_df = _exclude_existing_models(replacement_df, existing_models)
 
         if replacement_df.is_empty():
-            logger.warning("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
+            logger.error("No replacement models found, replacement list is empty, possibly due to incorrect schedules")
             return []
 
         selected_models = _select_best_replacement_models(replacement_df,
