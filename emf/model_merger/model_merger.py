@@ -16,8 +16,7 @@ from emf.common.integrations.object_storage.schedules import query_acnp_schedule
 from emf.common.loadflow_tool import settings_manager
 from emf.common.helpers.utils import attr_to_dict, convert_dict_str_to_bool
 from emf.common.helpers.cgmes import export_to_cgmes_zip
-from emf.common.helpers.opdm_objects import get_opdm_component_data_bytes, clean_profile_data_from_opdm_objects, \
-    DataSource
+from emf.common.helpers.opdm_objects import clean_profile_data_from_opdm_objects, DataSource
 from emf.common.helpers.loadflow import load_network_model, get_network_elements
 from emf.common.helpers.tasks import update_task_status, get_task_debug_flag
 from emf.model_merger import merge_functions
