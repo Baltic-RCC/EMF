@@ -20,8 +20,8 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'simulateAutomationSystems': 'False',
     'dcApproximationType': 'IGNORE_R',
     'alwaysUpdateNetwork': 'False',
-    'debugDir': '',
-    'actionableSwitchesIds': '',
+    # 'debugDir': '',
+    # 'actionableSwitchesIds': '',
     'actionableTransformersIds': '',
     'networkCacheEnabled': 'False',
     'disableInconsistentVoltageControls': 'False',
@@ -63,7 +63,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'transformerReactivePowerControl': 'False',
     'referenceBusSelectionMode': 'FIRST_SLACK',
     'writeReferenceTerminals': 'True',
-    'reportedFeatures': '',
+    # 'reportedFeatures': '',
     'shuntVoltageControlMode': 'WITH_GENERATOR_VOLTAGE_CONTROL',
     'areaInterchangeControl': 'False',
     'areaInterchangeControlAreaType': 'ControlArea',
@@ -72,7 +72,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
     'maxSlackBusCount': '1',
     'mostMeshedSlackBusSelectorMaxNominalVoltagePercentile': '95.0',
     'plausibleActivePowerLimit': '5000.0',
-    'slackBusCountryFilter': '',
+    # 'slackBusCountryFilter': '',
     'slackBusPMaxMismatch': '1.0',
     'slackBusSelectionMode': 'MOST_MESHED',
     'slackBusesIds': '',
@@ -94,7 +94,7 @@ OPENLOADFLOW_DEFAULT_PROVIDER = {
 }
 
 OPENLOADFLOW_DEFAULT = pypowsybl.loadflow.Parameters(
-    voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
+    #voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart
     transformer_voltage_control_on=False,  # cim:PowerFlowSettings.transformerRatioTapControlPriority
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits
     phase_shifter_regulation_on=False,  # cim:PowerFlowSettings.transformerPhaseTapControlPriority
