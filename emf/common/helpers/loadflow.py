@@ -3,7 +3,7 @@ import uuid
 import re
 import pandas as pd
 from io import BytesIO
-from zipfile import ZipFile, ZIP_DEFLATED
+from zipfile import ZipFile
 import pypowsybl
 from typing import List
 
@@ -22,7 +22,7 @@ def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
         output_object = f"{uuid.uuid4()}.zip"
         logger.info(f"Adding files to {output_object}")
 
-    with ZipFile(output_object, "w", ZIP_DEFLATED) as global_zip:
+    with ZipFile(output_object, "w") as global_zip:
         for opdm_components in opdm_objects:
             for instance in opdm_components['opde:Component']:
                 with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
@@ -72,11 +72,22 @@ def get_network_elements(network: pypowsybl.network,
                          element_type: pypowsybl.network.ElementType,
                          all_attributes: bool = True,
                          attributes: List[str] = None,
+                         voltage_levels: pd.DataFrame = None,
+                         substations: pd.DataFrame = None,
                          **kwargs
                          ):
+    """
+    :param voltage_levels: optional pre-fetched network.get_voltage_levels(all_attributes=True).
+        Lets a caller that already fetched it once reuse it across repeated calls
+        instead of re-deriving it every time - useful when the caller knows network topology hasn't
+        changed between calls
+    :param substations: same, for network.get_substations(all_attributes=True)
+    """
 
-    _voltage_levels = network.get_voltage_levels(all_attributes=True).rename(columns={"name": "voltage_level_name"})
-    _substations = network.get_substations(all_attributes=True).rename(columns={"name": "substation_name"})
+    _voltage_levels = voltage_levels if voltage_levels is not None else network.get_voltage_levels(all_attributes=True)
+    _voltage_levels = _voltage_levels.rename(columns={"name": "voltage_level_name"})
+    _substations = substations if substations is not None else network.get_substations(all_attributes=True)
+    _substations = _substations.rename(columns={"name": "substation_name"})
 
     elements = network.get_elements(element_type=element_type, all_attributes=all_attributes, attributes=attributes, **kwargs)
     elements = elements.merge(_voltage_levels, left_on='voltage_level_id', right_index=True, suffixes=(None, '_voltage_level'))
@@ -102,8 +113,11 @@ def get_slack_generators(network: pypowsybl.network):
 
 def get_connected_components_data(network: pypowsybl.network,
                                   bus_count_threshold: int | None = None,
-                                  country_col_name: str = 'country'):
-    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS)
+                                  country_col_name: str = 'country',
+                                  voltage_levels: pd.DataFrame = None,
+                                  substations: pd.DataFrame = None):
+    buses = get_network_elements(network, pypowsybl.network.ElementType.BUS,
+                                 voltage_levels=voltage_levels, substations=substations)
     data = buses.groupby('connected_component').agg(countries=(country_col_name, lambda x: list(x.unique())),
                                                     bus_count=('name', 'size'))
     if bus_count_threshold:

@@ -214,7 +214,13 @@ class ObjectStorage:
         try:
             object_name = object_name.replace("//", "/")
             file_data = self.client.get_object(bucket_name, object_name)
-            return file_data.read()
+            try:
+                return file_data.read()
+            finally:
+                # get_object returns a raw urllib3 response; release it back to the pool explicitly,
+                # otherwise it outlives its usefulness for the rest of this (potentially long-lived) process
+                file_data.close()
+                file_data.release_conn()
 
         except minio.error.S3Error as err:
             logger.error(f"Failed to download object '{object_name}' from bucket '{bucket_name}': {err}", exc_info=True)

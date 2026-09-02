@@ -96,9 +96,11 @@ def validate_loadflow_status(results: List, components: Dict):
         return False
 
 
-def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, components: Dict) -> pl.DataFrame:
+def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, components: Dict,
+                     voltage_levels: pd.DataFrame = None, substations: pd.DataFrame = None) -> pl.DataFrame:
     # Calculate ACNP with losses (from cross-border lines)
-    boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE, all_attributes=True))
+    boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE, all_attributes=True,
+                                                              voltage_levels=voltage_levels, substations=substations))
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}),
         on='bus_id', how='left'
@@ -111,8 +113,10 @@ def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, component
     acnp_with_losses = _area_key_frame(df=ac_boundary_lines, value_col='boundary_p')
 
     # Calculate ACNP without losses (from generation and consumption)
-    generation = get_areas_metrics(network=network, buses=buses, components=components, metric='GENERATOR')
-    consumption = get_areas_metrics(network=network, buses=buses, components=components, metric='LOAD')
+    generation = get_areas_metrics(network=network, buses=buses, components=components, metric='GENERATOR',
+                                   voltage_levels=voltage_levels, substations=substations)
+    consumption = get_areas_metrics(network=network, buses=buses, components=components, metric='LOAD',
+                                    voltage_levels=voltage_levels, substations=substations)
     dcnp = _area_key_frame(df=dc_boundary_lines, value_col='boundary_p')
 
     # full join replaces pandas' index-alignment subtraction. Only dcnp gets fill_null(0)
@@ -135,8 +139,10 @@ def get_areas_losses(network: pp.network.Network, buses: pl.DataFrame, component
     return losses
 
 
-def get_areas_metrics(network: pp.network.Network, buses: pl.DataFrame, components: Dict, metric: str) -> pl.DataFrame:
-    df = _pl_from_pypowsybl(get_network_elements(network, getattr(pp.network.ElementType, metric), all_attributes=True))
+def get_areas_metrics(network: pp.network.Network, buses: pl.DataFrame, components: Dict, metric: str,
+                      voltage_levels: pd.DataFrame = None, substations: pd.DataFrame = None) -> pl.DataFrame:
+    df = _pl_from_pypowsybl(get_network_elements(network, getattr(pp.network.ElementType, metric), all_attributes=True,
+                                                 voltage_levels=voltage_levels, substations=substations))
     df = df.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}),
         on='bus_id', how='left'
@@ -250,9 +256,16 @@ def scale_balance(model: object,
     # Get pypowsybl network
     network = model.network
 
+    # Topology (voltage levels/substations) is static for the whole scaling run - only element
+    # setpoints change below via update_boundary_lines/update_loads, never topology. Fetch both
+    # once and reuse them everywhere get_network_elements()
+    _voltage_levels_cache = network.get_voltage_levels(all_attributes=True)
+    _substations_cache = network.get_substations(all_attributes=True)
+
     # Define general variables to be used in scaling algorithm
     _CONSTANT_POWER_FACTOR = json.loads(CONSTANT_POWER_FACTOR.lower())
-    _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col)
+    _components = get_connected_components_data(network=network, bus_count_threshold=5, country_col_name=_country_col,
+                                                 voltage_levels=_voltage_levels_cache, substations=_substations_cache)
     _scaling_results = []
     _hvdc_results = []
     _iteration = 0
@@ -290,8 +303,6 @@ def scale_balance(model: object,
     target_acnp_df = target_acnp_df.with_columns(
         pl.coalesce(['in_domain', 'out_domain']).alias('registered_resource')
     )
-    target_acnp_df = target_acnp_df.filter(pl.col('registered_resource').is_not_null())
-
     target_acnp_df = target_acnp_df.filter(pl.col('registered_resource').is_not_null())
 
     # .unique(keep='first', maintain_order=True) does NOT mean "first after my sort" -- it
@@ -388,7 +399,8 @@ def scale_balance(model: object,
         logger.debug(f"[INITIAL] POST-SCALE HVDC reactive power setpoint of {dclink['lineEnergyIdentificationCodeEIC']}: {dclink['value_q']} MVar")
 
     # Get AC net positions scaling perimeter -> non-negative ConformLoads
-    loads = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True))
+    loads = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True,
+                                                     voltage_levels=_voltage_levels_cache, substations=_substations_cache))
     loads = loads.join(_pl_from_pypowsybl(network.get_extensions('detail')), on='id', how='inner')
     loads = loads.with_columns((pl.col('q0') / pl.col('p0')).alias('power_factor'))  # estimate the power factor of loads
     loads = loads.with_columns(pl.col('power_factor').clip(-float(POWER_FACTOR_THRESHOLD), float(POWER_FACTOR_THRESHOLD)))
@@ -536,8 +548,10 @@ def scale_balance(model: object,
 
     # Get pre-scale generation and consumption
     if debug:
-        prescale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR')
-        prescale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD')
+        prescale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR',
+                                                 voltage_levels=_voltage_levels_cache, substations=_substations_cache)
+        prescale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD',
+                                                 voltage_levels=_voltage_levels_cache, substations=_substations_cache)
         _scaling_results.append({**_to_area_dict(prescale_generation), 'KEY': 'generation', 'ITER': _iteration})
         _scaling_results.append({**_to_area_dict(prescale_consumption), 'KEY': 'consumption', 'ITER': _iteration})
 
@@ -579,7 +593,8 @@ def scale_balance(model: object,
 
         # Get scaling area loads participation factors
         scalable_loads = _pl_from_pypowsybl(
-            get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads['id'].to_list())
+            get_network_elements(network, pp.network.ElementType.LOAD, all_attributes=True, id=conform_loads['id'].to_list(),
+                                 voltage_levels=_voltage_levels_cache, substations=_substations_cache)
         )
         scalable_loads = scalable_loads.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -632,14 +647,17 @@ def scale_balance(model: object,
 
         # Get post-scale generation, consumption and losses
         if debug:
-            postscale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR')
-            postscale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD')
+            postscale_generation = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='GENERATOR',
+                                                      voltage_levels=_voltage_levels_cache, substations=_substations_cache)
+            postscale_consumption = get_areas_metrics(network=network, buses=buses, components=valid_components, metric='LOAD',
+                                                       voltage_levels=_voltage_levels_cache, substations=_substations_cache)
             _scaling_results.append({**_to_area_dict(postscale_generation), 'KEY': 'generation', 'ITER': _iteration})
             _scaling_results.append({**_to_area_dict(postscale_consumption), 'KEY': 'consumption', 'ITER': _iteration})
 
             # Get post-scale network losses by regions
             ## It is needed to estimate when loadflow engine balances entire network schedule with distributed slack enabled
-            postscale_losses = get_areas_losses(network=network, buses=buses, components=valid_components)
+            postscale_losses = get_areas_losses(network=network, buses=buses, components=valid_components,
+                                                voltage_levels=_voltage_levels_cache, substations=_substations_cache)
             total_network_losses = postscale_losses['value'].sum() or 0.0
             _scaling_results.append({
                 **_to_area_dict(postscale_losses), 'GLOBAL': total_network_losses, 'KEY': 'losses', 'ITER': _iteration

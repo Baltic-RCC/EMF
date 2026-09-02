@@ -54,6 +54,8 @@ class OPDM(opdm_api.create_client):
             logger.warning("Part of model content not present on local storage, executing get-content from OPDM")
             content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
             for pos, model_part in enumerate(model_meta['opde:Component']):
+                if model_part['opdm:Profile'].get("DATA"):
+                    continue  # already retrieved from local storage above, no need to fetch it twice
                 content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
                 if content_data:
                     opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
