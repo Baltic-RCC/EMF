@@ -339,7 +339,7 @@ class HandlerMergeModels:
                                                         lf_settings=pp_loadflow_parameters,
                                                         debug=debug)
                 except Exception as e:
-                    logger.error(f"Model scaling failed: {e}", exc_info=True)
+                    logger.error(f"Model scaling failed: {type(e).__name__}: {e}", exc_info=True)
                     merged_model.scaled = False
             else:
                 logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")
