@@ -1,15 +1,18 @@
+import polars as pl
 import pandas as pd
 from datetime import datetime, timedelta
 from isodate import parse_duration
 import logging
 import config
 import json
+from dataclasses import dataclass
 from dateutil import parser
 from pathlib import Path
 from emf.common.integrations.object_storage.models import query_data, get_content, fetch_unique_values
 from emf.common.integrations.minio_api import *
 from emf.common.config_parser import parse_app_properties
-from emf.model_merger.merge_functions import filter_replacements_by_acnp
+from emf.common.helpers.opdm_objects import DataSource
+from emf.model_merger.merge_functions import filter_replacements_by_acnp, ModelEntity
 
 logger = logging.getLogger(__name__)
 
@@ -17,181 +20,141 @@ parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.repl
 replacement_config = json.load(config.paths.cgm_worker.replacement_conf)
 
 
-def run_replacement(models, additional_models, model_replacement, local_import_models,
+@dataclass
+class ReplacementRequest:
+    """A single 'this TSO's IGM needs a same-source, different-timeframe substitute' request."""
+    tso: str
+    data_source: str
+    forced: bool = False
+
+
+def run_replacement(igm_models, model_replacement, local_import_models,
                     missing_local_import, missing_models, replace_tso, time_horizon,
                     scenario_datetime, merged_model, acnp_dict=None, acnp_threshold=None,
                     conform_load_factor=None):
     """
-    Execute consolidated model replacement logic with priority order: FORCED → OPDM → PDN
-    Forced replacement intelligently detects which source (OPDM or PDN) each TSO should be replaced in,
-    regardless of whether models currently exist (it's FORCED replacement).
+    Execute model replacement (the ENTSO-E EMF requirements STEP1-4 historical fallback) in a
+    single pass over a flat, priority-ordered list of replacement requests, dispatched by
+    data-source.
+
+    Priority order: forced (replace_tso) first, then normal missing-model replacement. A TSO
+    already satisfied by a higher-priority request is skipped by later ones.
 
     Args:
-        models: List of OPDM models
-        additional_models: List of PDN models
-        model_replacement: Boolean flag for normal replacement
-        local_import_models: List of TSOs to import from local (PDN)
-        missing_local_import: List of missing TSOs in local import
-        missing_models: List of missing TSOs in main models
-        replace_tso: List of TSOs to force replacement for (highest priority, ignores existing models)
-        time_horizon: Time horizon for replacement query
-        scenario_datetime: Scenario datetime for replacement query
-        merged_model: MergedModel instance to update
-        acnp_dict: AC Net Position dictionary (optional)
-        acnp_threshold: ACNP threshold (optional)
-        conform_load_factor: Conform load factor (optional)
+        igm_models: Unified list of OPDM/PDN model dicts, each carrying its own 'data-source'.
+        model_replacement: Boolean flag for normal (non-forced) replacement.
+        local_import_models: List of TSOs configured for local (PDN) import.
+        missing_local_import: List of TSOs missing from PDN.
+        missing_models: List of TSOs missing from OPDM.
+        replace_tso: List of TSOs to force replacement for (highest priority, ignores existing models).
+        time_horizon: Time horizon for replacement query.
+        scenario_datetime: Scenario datetime for replacement query.
+        merged_model: MergedModel instance to update (replaced_entity, replaced).
+        acnp_dict: AC Net Position dictionary (optional).
+        acnp_threshold: ACNP threshold (optional).
+        conform_load_factor: Conform load factor (optional).
 
     Returns:
-        Tuple of (models, additional_models) with replacements applied
+        igm_models with replacements applied.
     """
-    from emf.model_merger.model_merger import ModelEntity
-
-    # Define all replacement scenarios upfront (in priority order: FORCED → OPDM → PDN)
-    replacement_scenarios = []
-    replaced_tsos_tracker = set()  # Track TSOs already replaced to avoid duplicates
-
-    # Scenario 1: Forced Replacement for specific TSOs - HIGHEST PRIORITY (overrides replacement flag)
-    # FORCED replacement happens regardless of whether models currently exist
+    logger.info("Starting missing model replacement")
+    # Build the flat, priority-ordered request list: forced first, then normal missing-model replacement
+    requests = []
     if replace_tso:
-        # For FORCED replacement, we replace TSOs based on their assignment:
-        # - If TSO is in local_import_models, force replace from PDN
-        # - Otherwise, force replace from OPDM (default)
+        forced_by_source = {}
+        for tso in replace_tso:
+            data_source = DataSource.PDN if tso in local_import_models else DataSource.OPDM
+            forced_by_source.setdefault(data_source, []).append(tso)
+            requests.append(ReplacementRequest(tso=tso, data_source=data_source, forced=True))
+        for data_source, tsos in forced_by_source.items():
+            logger.info(f"Forced {data_source} replacement requested (ignoring current models) for: {tsos}")
 
-        forced_replace_in_opdm = [tso for tso in replace_tso if tso not in local_import_models]
-        forced_replace_in_pdn = [tso for tso in replace_tso if tso in local_import_models]
+    if model_replacement:
+        for tso in missing_models:
+            requests.append(ReplacementRequest(tso=tso, data_source=DataSource.OPDM))
+        if local_import_models:
+            for tso in missing_local_import:
+                requests.append(ReplacementRequest(tso=tso, data_source=DataSource.PDN))
 
-        # Create scenarios for forced replacements from OPDM
-        if forced_replace_in_opdm:
-            logger.info(
-                f"Forced replacement requested for OPDM TSO(s) (ignoring current models): {forced_replace_in_opdm}")
-            replacement_scenarios.append({
-                'name': 'FORCED-OPDM',
-                'tso_list': forced_replace_in_opdm,
-                'model_list': models,  # Add to OPDM models only
-                'data_source': 'OPDM',
-            })
+    replaced_tsos_tracker = set()
+    any_success = False
+    results_by_label = {}
 
-        # Create scenarios for forced replacements from PDN
-        if forced_replace_in_pdn:
-            logger.info(
-                f"Forced replacement requested for PDN TSO(s) (ignoring current models): {forced_replace_in_pdn}")
-            replacement_scenarios.append({
-                'name': 'FORCED-PDN',
-                'tso_list': forced_replace_in_pdn,
-                'model_list': additional_models,  # Add to PDN models only
-                'data_source': 'PDN',
-            })
+    for request in requests:
+        label = f"{'forced ' if request.forced else ''}{request.data_source}"
+        outcome = results_by_label.setdefault(
+            label, {"succeeded": [], "no_replacement": [], "skipped": [], "errored": []})
 
-    # Scenario 2: OPDM (Main) Replacement - MEDIUM PRIORITY (OPDM models only)
-    if model_replacement and missing_models:
-        replacement_scenarios.append({
-            'name': 'OPDM',
-            'tso_list': missing_models,
-            'model_list': models,  # Add ONLY to OPDM models
-            'data_source': 'OPDM',
-        })
-
-    # Scenario 3: PDN (Local Import) Replacement - LOWEST PRIORITY (PDN models only)
-    if local_import_models and model_replacement and missing_local_import:
-        replacement_scenarios.append({
-            'name': 'PDN',
-            'tso_list': missing_local_import,
-            'model_list': additional_models,  # Add ONLY to PDN models
-            'data_source': 'PDN',
-        })
-
-    # Execute all replacement scenarios with unified logic (priority order maintained)
-    for scenario in replacement_scenarios:
-        # Filter out TSOs already replaced in previous scenarios (respects priority)
-        tsos_to_replace = [tso for tso in scenario['tso_list'] if tso not in replaced_tsos_tracker]
-
-        if not tsos_to_replace:
-            logger.info(
-                f"{scenario['name']} replacement skipped - all TSOs already replaced in higher priority scenarios: {scenario['tso_list']}")
+        if request.tso in replaced_tsos_tracker:
+            outcome["skipped"].append(request.tso)
             continue
 
-        logger.info(f"Attempting {scenario['name']} replacement for: {tsos_to_replace}")
-
         try:
-            # Get existing models for this scenario to avoid duplicates
-            # For forced replacement, we only exclude models from the same TSO to avoid exact duplicates
-            if scenario['name'] in ['FORCED-OPDM', 'FORCED-PDN']:
-                existing_models_for_scenario = [
-                    model for model in scenario['model_list']
-                    if model.get('pmd:TSO') in tsos_to_replace
+            # Forced replacement excludes only the TSO's own existing model (it replaces regardless
+            # of whether one exists); normal replacement excludes against the whole data-source
+            if request.forced:
+                existing_models_for_request = [
+                    model for model in igm_models
+                    if model.get('pmd:TSO') == request.tso and model.get('data-source') == request.data_source
                 ]
             else:
-                existing_models_for_scenario = scenario['model_list']
+                existing_models_for_request = [
+                    model for model in igm_models if model.get('data-source') == request.data_source
+                ]
 
             replacement_models = find_replacement_models(
-                tso_list=tsos_to_replace,
+                tso_list=[request.tso],
                 time_horizon=time_horizon,
                 scenario_date=scenario_datetime,
-                data_source=scenario['data_source'],
+                data_source=request.data_source,
                 acnp_dict=acnp_dict,
                 acnp_threshold=acnp_threshold,
                 conform_load_factor=conform_load_factor,
-                existing_models=existing_models_for_scenario
+                existing_models=existing_models_for_request
             ) or []
 
             if replacement_models:
-                replaced_tsos_list = [m['pmd:TSO'] for m in replacement_models]
-                logger.info(
-                    f"{scenario['name']} replacement succeeded for TSO(s): {replaced_tsos_list} "
-                    f"({[m['pmd:fileName'] for m in replacement_models]})"
-                )
+                outcome["succeeded"].append(request.tso)
+                replaced_tsos_tracker.add(request.tso)
+                any_success = True
 
-                # Track replaced TSOs
-                replaced_tsos_tracker.update(replaced_tsos_list)
-
-                # Create entity records
-                replaced_entities = [
-                    ModelEntity(
-                        data_source=scenario['data_source'],
-                        quality_indicator='Substituted',
-                        **model
-                    ).__dict__
+                merged_model.replaced_entity.extend([
+                    ModelEntity(quality_indicator='Substituted', **model).__dict__
                     for model in replacement_models
-                ]
-                merged_model.replaced_entity.extend(replaced_entities)
+                ])
 
-                # Add to appropriate model list based on scenario type
-                # For FORCED replacements, we might need to remove old models first
-                if scenario['name'] in ['FORCED-OPDM', 'FORCED-PDN']:
-                    # Remove old models for these TSOs from the appropriate list
-                    model_list = scenario['model_list']
-                    old_tsos_to_remove = replaced_tsos_list
-                    model_list[:] = [m for m in model_list if m.get('pmd:TSO') not in old_tsos_to_remove]
-                    logger.debug(f"{scenario['name']}: Removed old models for TSO(s): {old_tsos_to_remove}")
-
-                scenario['model_list'].extend(replacement_models)
-
-                # Set replaced flag for main scenarios (OPDM-based)
-                if scenario['name'] in ['OPDM', 'FORCED-OPDM']:
-                    merged_model.replaced = True
+                if request.forced:
+                    # Remove the TSO's old model of this data-source before adding its replacement
+                    igm_models[:] = [
+                        model for model in igm_models
+                        if not (model.get('pmd:TSO') == request.tso
+                                and model.get('data-source') == request.data_source)
+                    ]
+                igm_models.extend(replacement_models)
             else:
-                logger.warning(f"No {scenario['name']} replacements available for: {tsos_to_replace}")
-                # Only set replaced=False if this is OPDM/FORCED-OPDM and no replacements found
-                # and no other main scenario has succeeded yet
-                if scenario['name'] in ['OPDM', 'FORCED-OPDM'] and scenario['name'] not in [s['name'] for s in
-                                                                                            replacement_scenarios[
-                                                                                                :replacement_scenarios.index(
-                                                                                                    scenario)] if
-                                                                                            s['name'] in ['OPDM',
-                                                                                                          'FORCED-OPDM']]:
-                    merged_model.replaced = False
+                outcome["no_replacement"].append(request.tso)
 
         except Exception as error:
-            logger.error(f"{scenario['name']} replacement failed for TSO(s) {tsos_to_replace}: {error}")
-            if scenario['name'] in ['OPDM', 'FORCED-OPDM'] and scenario['name'] not in [s['name'] for s in
-                                                                                        replacement_scenarios[
-                                                                                            :replacement_scenarios.index(
-                                                                                                scenario)] if
-                                                                                        s['name'] in ['OPDM',
-                                                                                                      'FORCED-OPDM']]:
-                merged_model.replaced = False
+            logger.error(f"{label} replacement failed for {request.tso}: {error}", exc_info=True)
+            outcome["errored"].append(request.tso)
 
-    return models, additional_models
+    # One line per outcome type per replacement label, at a severity matching that outcome
+    for label, outcome in results_by_label.items():
+        if outcome["succeeded"]:
+            logger.info(f"{label} replacement succeeded: {outcome['succeeded']}")
+        if outcome["skipped"]:
+            logger.info(f"{label} replacement skipped (already replaced): {outcome['skipped']}")
+        if outcome["no_replacement"]:
+            logger.warning(f"{label} replacement found no replacement: {outcome['no_replacement']}")
+        if outcome["errored"]:
+            logger.warning(f"{label} replacement errored: {outcome['errored']}")
+
+    if any_success:
+        merged_model.replaced = True
+    elif requests:
+        merged_model.replaced = False
+
+    return igm_models
 
 
 def _build_replacement_query(tso_list: list, data_source: str, config: dict, time_horizon: str) -> tuple:
@@ -203,83 +166,122 @@ def _build_replacement_query(tso_list: list, data_source: str, config: dict, tim
     return query, query_filter
 
 
-def _select_best_replacement_models(replacement_df: pd.DataFrame, target_time_horizon, target_date,
-                                    config) -> pd.DataFrame:
-    """Select the best replacement model for each TSO based on 4-step priority rules."""
-    if replacement_df.empty:
+_REPLACEMENT_QUERY_FIELDS = [
+    "pmd:TSO",
+    "pmd:scenarioDate",
+    "pmd:timeHorizon",
+    "pmd:versionNumber",
+    "pmd:creationDate",
+    "ac_net_position",
+    "sum_conform_load",
+]
+
+
+def _normalize_es_scalar(value, field_name: str = None, record_idx: int = None):
+    """ES "multi-value" fields sometimes return a list instead of a scalar. Null it out
+    (don't unwrap to value[0]) so the record fails matching and gets dropped, same as
+    pandas did implicitly for this case -- unwrapping would rescue records pandas
+    would have excluded."""
+    if isinstance(value, list):
+        logger.warning(
+            f"Field '{field_name}' on ES record #{record_idx} is a list ({value!r}) where "
+            f"a scalar was expected; treating as unmatched/invalid to match pandas' "
+            f"original (implicit) behavior for this case."
+        )
+        return None
+    return value
+
+
+def _select_best_replacement_models(replacement_df: pl.DataFrame, target_time_horizon, target_date, config) -> pl.DataFrame:
+    """Select the best replacement model per TSO via the 4-step priority cascade,
+    vectorized with .over("pmd:TSO") instead of a per-TSO Python loop."""
+    if replacement_df.is_empty():
         return replacement_df
 
-    def apply_priority_selection(candidates):
-        """Apply priority-based selection to candidate models."""
-        return (
-            candidates[candidates["priority_business"] == candidates["priority_business"].min()]
-            .pipe(lambda df: df[df["priority_hour"] == df["priority_hour"].min()])
-            .pipe(lambda df: df[df["priority_day"] == df["priority_day"].min()])
-            .pipe(lambda df: df[df["pmd:versionNumber"] == df["pmd:versionNumber"].max()])
-            .pipe(lambda df: df[df["pmd:creationDate"] == df["pmd:creationDate"].max()])
-        )
-
-    # Convert target_date to datetime if it's a string
     if isinstance(target_date, str):
         target_date = parser.parse(target_date)
     target_date_only = target_date.date()
 
-    selected_models = []
+    # Step candidacy per row (cond3 is a superset of cond1 -- fine, what matters is which
+    # step ends up chosen per TSO below, not whether a row matches more than one in isolation)
+    cond1 = (pl.col("normalized_time_horizon") == target_time_horizon) & \
+            (pl.col("pmd:scenarioDate").dt.date() == target_date_only)
+    cond2 = (pl.col("pmd:scenarioDate").dt.date() == target_date_only) & \
+            (pl.col("normalized_time_horizon") != target_time_horizon)
+    cond3 = (pl.col("normalized_time_horizon") == target_time_horizon)
 
-    for tso in replacement_df["pmd:TSO"].unique():
-        tso_models = replacement_df[replacement_df["pmd:TSO"] == tso].copy()
-        best_model = None
+    df = replacement_df.with_columns([
+        cond1.alias("__cond1"),
+        cond2.alias("__cond2"),
+        cond3.alias("__cond3"),
+    ])
 
-        # STEP 1: Use an IGM of the same time horizon of the same energy delivery day
-        step1_candidates = tso_models[
-            (tso_models["normalized_time_horizon"] == target_time_horizon) &
-            (tso_models["pmd:scenarioDate"].apply(lambda x: parser.parse(x).date() == target_date_only))]
-        if not step1_candidates.empty:
-            best_model = apply_priority_selection(step1_candidates)
-            logger.debug(f"STEP 1: Found same time horizon and same day replacement for {tso}")
+    # Per-TSO "does step N have ANY candidate at all"
+    df = df.with_columns([
+        pl.col("__cond1").any().over("pmd:TSO").alias("__has1"),
+        pl.col("__cond2").any().over("pmd:TSO").alias("__has2"),
+        pl.col("__cond3").any().over("pmd:TSO").alias("__has3"),
+    ])
 
-        # STEP 2: If not available, use an IGM from the same energy delivery day (other time horizon)
-        if best_model is None or best_model.empty:
-            step2_candidates = tso_models[
-                (tso_models["pmd:scenarioDate"].apply(lambda x: parser.parse(x).date() == target_date_only)) &
-                (tso_models["normalized_time_horizon"] != target_time_horizon)
-                ]
-            if not step2_candidates.empty:
-                best_model = apply_priority_selection(step2_candidates)
-                logger.debug(f"STEP 2: Found same day (different time horizon) replacement for {tso}")
+    # step1 -> step2 -> step3 -> step4 fallback per TSO
+    df = df.with_columns(
+        pl.when(pl.col("__has1")).then(1)
+          .when(pl.col("__has2")).then(2)
+          .when(pl.col("__has3")).then(3)
+          .otherwise(4)
+          .alias("__chosen_step")
+    )
 
-        # STEP 3: If not available, use an IGM from the same time horizon of older models of the same day type
-        if best_model is None or best_model.empty:
-            step3_candidates = tso_models[
-                (tso_models["normalized_time_horizon"] == target_time_horizon)
-            ]
-            if not step3_candidates.empty:
-                best_model = apply_priority_selection(step3_candidates)
-                logger.debug(f"STEP 3: Found same time horizon, same day type replacement for {tso}")
+    if logger.isEnabledFor(logging.DEBUG):
+        step_messages = {
+            1: "STEP 1: Found same time horizon and same day replacement for {tso}",
+            2: "STEP 2: Found same day (different time horizon) replacement for {tso}",
+            3: "STEP 3: Found same time horizon, same day type replacement for {tso}",
+            4: "STEP 4: Used priority-based selection for {tso}",
+        }
+        for row in df.select(["pmd:TSO", "__chosen_step"]).unique().iter_rows(named=True):
+            logger.debug(step_messages[row["__chosen_step"]].format(tso=row["pmd:TSO"]))
 
-        # STEP 4: If not available, use older files of a different day type (original logic)
-        if best_model is None or best_model.empty:
-            best_model = apply_priority_selection(tso_models)
-            logger.debug(f"STEP 4: Used priority-based selection for {tso}")
+    # Keep only each TSO's chosen-step candidate set
+    df = df.filter(
+        ((pl.col("__chosen_step") == 1) & pl.col("__cond1")) |
+        ((pl.col("__chosen_step") == 2) & pl.col("__cond2")) |
+        ((pl.col("__chosen_step") == 3) & pl.col("__cond3")) |
+        (pl.col("__chosen_step") == 4)
+    )
 
-        if len(best_model) > 1:
-            logger.warning(f"Replacement filtering unreliable for: '{tso}'")
-            best_model = best_model.iloc[:1]
+    # Tie-break cascade: each filter must narrow against the PREVIOUS step's survivors,
+    # so min()/max().over() is recomputed after each one, not just once up front.
+    df = df.filter(pl.col("priority_business") == pl.col("priority_business").min().over("pmd:TSO"))
+    df = df.filter(pl.col("priority_hour") == pl.col("priority_hour").min().over("pmd:TSO"))
+    df = df.filter(pl.col("priority_day") == pl.col("priority_day").min().over("pmd:TSO"))
+    df = df.filter(pl.col("pmd:versionNumber") == pl.col("pmd:versionNumber").max().over("pmd:TSO"))
+    df = df.filter(pl.col("pmd:creationDate") == pl.col("pmd:creationDate").max().over("pmd:TSO"))
 
-        selected_models.append(best_model)
+    # Still tied on every priority field -> warn and keep the first remaining row per TSO
+    dup_counts = df.group_by("pmd:TSO").len()
+    dup_tsos = dup_counts.filter(pl.col("len") > 1)["pmd:TSO"].to_list()
+    for tso in dup_tsos:
+        logger.warning(f"Replacement filtering unreliable for: '{tso}'")
 
-    result = pd.concat(selected_models, ignore_index=True) if selected_models else pd.DataFrame()
-    # Drop the matching-only helper column so it doesn't leak into the returned replacement model dicts
-    return result.drop(columns=["normalized_time_horizon"], errors="ignore")
+    df = df.with_columns(pl.int_range(pl.len()).over("pmd:TSO").alias("__group_rank"))
+    df = df.filter(pl.col("__group_rank") == 0)
+
+    result = df.drop(["__cond1", "__cond2", "__cond3", "__has1", "__has2", "__has3",
+                      "__chosen_step", "__group_rank"])
+
+    if "normalized_time_horizon" in result.columns:
+        result = result.drop("normalized_time_horizon")
+    return result
 
 
-def _exclude_existing_models(replacement_df: pd.DataFrame, existing_models: list) -> pd.DataFrame:
+def _exclude_existing_models(replacement_df: pl.DataFrame, existing_models: list) -> pl.DataFrame:
     """Exclude replacement models that match existing models exactly (same TSO, timestamp, time horizon)."""
-    if replacement_df.empty or not existing_models:
+    if replacement_df.is_empty() or not existing_models:
         return replacement_df
 
-    # Create a set of existing model identifiers (TSO, scenarioDate, timeHorizon)
-    existing_identifiers = set()
+    # Existing-model identifiers (TSO, scenarioDate, timeHorizon) as the right side of an anti-join
+    existing_rows = []
     for model in existing_models:
         tso = model.get('pmd:TSO')
         scenario_date = model.get('pmd:scenarioDate')
@@ -290,43 +292,57 @@ def _exclude_existing_models(replacement_df: pd.DataFrame, existing_models: list
             if isinstance(scenario_date, str):
                 try:
                     scenario_date = parser.parse(scenario_date).strftime("%Y-%m-%dT%H:%M:%SZ")
-                except:
+                except Exception:
                     pass
-            existing_identifiers.add((tso, scenario_date, time_horizon))
+            existing_rows.append({
+                "pmd:TSO": tso,
+                "__existing_scenarioDate_str": scenario_date,
+                "pmd:timeHorizon": time_horizon,
+            })
 
-    if not existing_identifiers:
+    if not existing_rows:
         return replacement_df
 
-    # Filter out replacement models that match existing ones
-    mask = ~replacement_df.apply(
-        lambda row: (
-                        row['pmd:TSO'],
-                        row['pmd:scenarioDate'],
-                        row['pmd:timeHorizon']
-                    ) in existing_identifiers,
-        axis=1
+    existing_df = pl.DataFrame(existing_rows).unique()
+
+    # Anti-join instead of a per-row membership check. scenarioDate is reformatted back to
+    # its original string form so the match is exact string equality, not datetime equality
+    # (which could differ on sub-second precision that wouldn't have matched originally).
+    joined = replacement_df.with_columns(
+        pl.col("pmd:scenarioDate").dt.strftime("%Y-%m-%dT%H:%M:%SZ").alias("__scenarioDate_str")
     )
+    filtered_df = joined.join(
+        existing_df.rename({"__existing_scenarioDate_str": "__scenarioDate_str"}),
+        on=["pmd:TSO", "__scenarioDate_str", "pmd:timeHorizon"],
+        how="anti",
+    ).drop("__scenarioDate_str")
 
-    filtered_df = replacement_df[mask]
-
-    # Log if any models were excluded
-    excluded_count = len(replacement_df) - len(filtered_df)
+    excluded_count = replacement_df.height - filtered_df.height
     if excluded_count > 0:
         logger.info(f"Excluded {excluded_count} replacement models that match existing models")
 
     return filtered_df
 
 
-def _log_replacement_results(replacement_df: pd.DataFrame, original_tso_list: list) -> None:
+def _log_replacement_results(replacement_df: pl.DataFrame, original_tso_list: list) -> None:
     """Log warnings for missing and unreplaced TSOs."""
-    if replacement_df.empty:
+    if replacement_df.is_empty():
         return
 
-    unique_tsos = replacement_df["pmd:TSO"].unique().tolist()
+    unique_tsos = replacement_df["pmd:TSO"].unique().to_list()
 
     tso_missing = [tso for tso in original_tso_list if tso not in unique_tsos]
     if tso_missing:
         logger.warning(f"No replacement models found for TSO(s): {tso_missing}")
+
+
+def _tso_row_counts(df: pl.DataFrame, tso_list: list) -> dict:
+    """{tso: row_count} for every TSO in tso_list, 0 if absent -- for diagnostic logging."""
+    if df.is_empty() or "pmd:TSO" not in df.columns:
+        return {tso: 0 for tso in tso_list}
+    counts = df.group_by("pmd:TSO").len().to_dicts()
+    counts_by_tso = {row["pmd:TSO"]: row["len"] for row in counts}
+    return {tso: counts_by_tso.get(tso, 0) for tso in tso_list}
 
 
 def find_replacement_models(tso_list: list[str],
@@ -365,55 +381,77 @@ def find_replacement_models(tso_list: list[str],
         logger.error(f"Error finding replacement models for TSOs {tso_list}: {e}")
         return []
 
-    selected_models_per_tso = []
+    all_raw_records: list = []
+    columns: dict[str, list] = {"__row_idx": []}
+    for field in _REPLACEMENT_QUERY_FIELDS:
+        columns[field] = []
 
     for tso in tso_list:
         try:
             # Build and execute query for a single TSO at a time
             query, query_filter = _build_replacement_query([tso], data_source, config, time_horizon)
-            model_df = pd.DataFrame(query_data(query, query_filter))
+            raw_records = query_data(query, query_filter)
 
-            if model_df.empty:
+            if not raw_records:
                 logger.warning(f"No replacement models found in Elastic for TSO: {tso}")
                 continue
 
-            # Process replacement candidates
-            replacement_df = create_replacement_table(scenario_date_utc, time_horizon, model_df, config)
-
-            # Apply ACNP filtering if provided
-            if acnp_dict:
-                replacement_df = filter_replacements_by_acnp(replacement_df, acnp_dict, acnp_threshold, conform_load_factor)
-
-            # Exclude models that already exist
-            if existing_models:
-                replacement_df = _exclude_existing_models(replacement_df, existing_models)
-
-            if replacement_df.empty:
-                logger.error(f"No replacement models found, replacement list is empty for TSO: {tso}, possibly due to incorrect schedules")
-                continue
-
-            # Select best model for this TSO
-            selected_model = _select_best_replacement_models(replacement_df,
-                                                              target_time_horizon=time_horizon,
-                                                              target_date=scenario_date_utc,
-                                                              config=config)
-            if not selected_model.empty:
-                selected_models_per_tso.append(selected_model)
+            for record in raw_records:
+                idx = len(all_raw_records)
+                columns["__row_idx"].append(idx)
+                for field in _REPLACEMENT_QUERY_FIELDS:
+                    columns[field].append(_normalize_es_scalar(record.get(field), field_name=field, record_idx=idx))
+                all_raw_records.append(record)
 
         except Exception as e:
             logger.error(f"Error finding replacement models for TSO {tso}: {e}")
             continue
 
-    if not selected_models_per_tso:
+    if not all_raw_records:
+        logger.warning(f"No replacement models found in Elastic for TSO(s): {tso_list}")
         return []
 
-    selected_models = pd.concat(selected_models_per_tso, ignore_index=True)
-    _log_replacement_results(selected_models, tso_list)
+    try:
+        model_df = pl.DataFrame(columns)
 
-    # Load content for each model
-    replacement_models = selected_models.to_dict(orient='records')
-    for i, model in enumerate(replacement_models):
-        replacement_models[i] = get_content(model)
+        replacement_df = create_replacement_table(scenario_date_utc, time_horizon, model_df, config)
+
+        # filter_replacements_by_acnp is pandas-native, hence the round trip
+        if acnp_dict:
+            filtered_pdf = filter_replacements_by_acnp(
+                replacement_df.to_pandas(), acnp_dict, acnp_threshold, conform_load_factor
+            )
+            replacement_df = pl.from_pandas(filtered_pdf)
+
+        # Exclude models that already exist (single call across all TSOs)
+        if existing_models:
+            replacement_df = _exclude_existing_models(replacement_df, existing_models)
+
+        if replacement_df.is_empty():
+            logger.warning(
+                f"Replacement models for TSO(s){tso_list} were all filtered out, possibly due to incorrect schedules"
+            )
+            return []
+
+        selected_models = _select_best_replacement_models(replacement_df,
+                                                          target_time_horizon=time_horizon,
+                                                          target_date=scenario_date_utc,
+                                                          config=config)
+
+        _log_replacement_results(selected_models, tso_list)
+
+        if selected_models.is_empty():
+            return []
+
+    except Exception as e:
+        logger.error(f"Error finding replacement models for TSOs {tso_list}: {e}")
+        return []
+
+    # Map winning rows back to their untouched original ES documents via __row_idx, so
+    # get_content() gets every field exactly as Elasticsearch returned it.
+    selected_indices = selected_models["__row_idx"].to_list()
+    replacement_models = [all_raw_records[i] for i in selected_indices]
+    replacement_models = [get_content(model) for model in replacement_models]
 
     return replacement_models
 
@@ -456,7 +494,7 @@ def make_lists_priority(timestamp, target_timehorizon, conf):
     return hour_list_final, day_list_final, business_list_final
 
 
-def create_replacement_table(target_timestamp, target_timehorizon, valid_models_df, conf):
+def create_replacement_table(target_timestamp, target_timehorizon, valid_models_df: pl.DataFrame, conf) -> pl.DataFrame:
     """
 
     Args:
@@ -468,39 +506,53 @@ def create_replacement_table(target_timestamp, target_timehorizon, valid_models_
     Returns: replacement table with priorities for the matching timestamps
 
     """
-    list_hour_priority, list_time_priority, list_business_priority = make_lists_priority(target_timestamp,
-                                                                                         target_timehorizon,
-                                                                                         conf)  # make list of relevant Timestamps
+    list_hour_priority, list_time_priority, list_business_priority = make_lists_priority(target_timestamp, target_timehorizon, conf) #make list of relevant Timestamps
 
-    # Bucket intraday hour codes ('01'..'24') under 'ID' for priority/selection matching only.
-    # Keep the original pmd:timeHorizon untouched, since it is returned as-is on the replacement model.
-    valid_models_df['normalized_time_horizon'] = valid_models_df['pmd:timeHorizon'].apply(
-        lambda x: 'ID' if x in [f'{i:02}' for i in range(1, 25)] else x)
+    id_horizons = [f'{i:02}' for i in range(1, 25)]
+    valid_models_df = valid_models_df.with_columns(
+        pl.when(pl.col("pmd:timeHorizon").is_null())
+          .then(pl.lit(None, dtype=pl.Utf8))
+          .when(pl.col("pmd:timeHorizon").is_in(id_horizons))
+          .then(pl.lit("ID"))
+          .otherwise(pl.col("pmd:timeHorizon"))
+          .alias("normalized_time_horizon")
+    )
 
     # Add target time horizon for reference in selection logic
-    valid_models_df['target_time_horizon'] = target_timehorizon
+    valid_models_df = valid_models_df.with_columns(
+        pl.lit(target_timehorizon).alias("target_time_horizon")
+    )
 
-    valid_models_df["priority_business"] = valid_models_df["normalized_time_horizon"].apply(
-        lambda x: list_business_priority.index(x) if x in list_business_priority else None)
-    valid_models_df["pmd:scenarioDate"] = valid_models_df["pmd:scenarioDate"].apply(
-        lambda x: parser.parse(x).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    valid_models_df["priority_hour"] = valid_models_df["pmd:scenarioDate"].apply(lambda x:
-                                                                                 list_hour_priority.index(
-                                                                                     datetime.strptime(x,
-                                                                                                       "%Y-%m-%dT%H:%M:%SZ").strftime(
-                                                                                         "%H:%M"))
-                                                                                 if datetime.strptime(x,
-                                                                                                      "%Y-%m-%dT%H:%M:%SZ").strftime(
-                                                                                     "%H:%M") in list_hour_priority else None)
-    valid_models_df["priority_day"] = valid_models_df["pmd:scenarioDate"].apply(lambda x:
-                                                                                list_time_priority.index(
-                                                                                    datetime.strptime(x,
-                                                                                                      "%Y-%m-%dT%H:%M:%SZ").strftime(
-                                                                                        "%Y-%m-%d"))
-                                                                                if datetime.strptime(x,
-                                                                                                     "%Y-%m-%dT%H:%M:%SZ").strftime(
-                                                                                    "%Y-%m-%d") in list_time_priority else None)
-    valid_models_df = valid_models_df.dropna(subset=["priority_hour", "priority_day", "priority_business"])
+    business_priority_df = pl.DataFrame({
+        "normalized_time_horizon": list_business_priority,
+        "priority_business": list(range(len(list_business_priority))),
+    }, schema={"normalized_time_horizon": pl.Utf8, "priority_business": pl.Int64}).unique(subset=["normalized_time_horizon"], keep="first")
+    valid_models_df = valid_models_df.join(business_priority_df, on="normalized_time_horizon", how="left")
+
+    valid_models_df = valid_models_df.with_columns(
+        pl.col("pmd:scenarioDate").map_elements(
+            lambda x: parser.parse(x).replace(tzinfo=None) if x is not None else None,
+            return_dtype=pl.Datetime
+        ).alias("pmd:scenarioDate")
+    )
+
+    hour_priority_df = pl.DataFrame({
+        "__hour_str": list_hour_priority,
+        "priority_hour": list(range(len(list_hour_priority))),
+    }, schema={"__hour_str": pl.Utf8, "priority_hour": pl.Int64}).unique(subset=["__hour_str"], keep="first")
+    valid_models_df = valid_models_df.with_columns(
+        pl.col("pmd:scenarioDate").dt.strftime("%H:%M").alias("__hour_str")
+    ).join(hour_priority_df, on="__hour_str", how="left").drop("__hour_str")
+
+    day_priority_df = pl.DataFrame({
+        "__day_str": list_time_priority,
+        "priority_day": list(range(len(list_time_priority))),
+    }, schema={"__day_str": pl.Utf8, "priority_day": pl.Int64}).unique(subset=["__day_str"], keep="first")
+    valid_models_df = valid_models_df.with_columns(
+        pl.col("pmd:scenarioDate").dt.strftime("%Y-%m-%d").alias("__day_str")
+    ).join(day_priority_df, on="__day_str", how="left").drop("__day_str")
+
+    valid_models_df = valid_models_df.drop_nulls(subset=["pmd:TSO", "priority_hour", "priority_day", "priority_business"])
 
     return valid_models_df
 

@@ -498,7 +498,7 @@
         "send_merge_report": "True",
         "lvl8_reporting" : "True"
        }
-      },   
+      },
       {
        "@context": "https://example.com/schemas/run.jsonld",
        "@id": "https://example.com/runs/YearAheadCGM",
@@ -532,7 +532,7 @@
         "send_merge_report": "True",
         "lvl8_reporting" : "True"
        }
-      },         
+      },
       {
        "@context": "https://example.com/schemas/run.jsonld",
        "@id": "https://example.com/runs/WeekAheadRMM",
@@ -542,7 +542,7 @@
        "valid_to": "",
        "gate_open": "P1DT5H",
        "gate_close": "P1DT4H",
-       "run_at": "00 18 * * 3", 
+       "run_at": "00 18 * * 3",
        "time_frame": "W-1",
        "data_timestamps": "30 9 * * *",
        "data_resolution": "PT1H",

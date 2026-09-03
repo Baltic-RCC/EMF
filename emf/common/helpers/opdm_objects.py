@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from io import BytesIO
 import pandas as pd
 import triplets
@@ -11,10 +12,27 @@ from emf.common.helpers.cgmes import get_metadata_from_rdfxml
 logger = logging.getLogger(__name__)
 
 
+class DataSource(str, Enum):
+    """Where an opdm_object's data originates from, per its 'data-source' key."""
+    OPDM = "OPDM"
+    PDN = "PDN"
+
+
 def clean_data_from_opdm_objects(opdm_objects: list) -> list:
     for opdm_object in opdm_objects:
         for component in opdm_object['opde:Component']:
             component['opdm:Profile']['DATA'] = None
+
+    return opdm_objects
+
+
+def clean_profile_data_from_opdm_objects(opdm_objects: list, profiles: set[str]) -> list:
+    """Like clean_data_from_opdm_objects, but only for the given CGMES profile types (e.g. {'SSH', 'SV'}),
+    leaving other profiles (e.g. EQ/TP/boundary) untouched for callers that still need their bytes."""
+    for opdm_object in opdm_objects:
+        for component in opdm_object['opde:Component']:
+            if component['opdm:Profile'].get('pmd:cgmesProfile') in profiles:
+                component['opdm:Profile']['DATA'] = None
 
     return opdm_objects
 
@@ -45,8 +63,22 @@ def get_opdm_component_data_bytes(opdm_component: dict):
 
 def load_opdm_objects_to_triplets(opdm_objects: list[dict], profile: str | None = None):
     if profile:
-        return pd.read_RDF([get_opdm_component_data_bytes(instance) for model in opdm_objects for instance in model['opde:Component'] if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
-    return pd.read_RDF([get_opdm_component_data_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
+        return pd.read_RDF(
+            [get_opdm_component_data_bytes(instance) for model in opdm_objects for instance in model['opde:Component']
+             if instance['opdm:Profile']['pmd:cgmesProfile'] == profile])
+    return pd.read_RDF(
+        [get_opdm_component_data_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
+
+
+def get_opdm_data_from_models(model_data: list | pd.DataFrame):
+    """
+    Check if input is already parsed to triplets. Do it otherwise
+    :param model_data: input models
+    :return triplets
+    """
+    if not isinstance(model_data, pd.DataFrame):
+        model_data = load_opdm_objects_to_triplets(model_data)
+    return model_data
 
 
 def get_metadata_from_file_name(file_name: str, meta_separator: str = "_"):
@@ -93,9 +125,11 @@ def get_metadata_from_file_name(file_name: str, meta_separator: str = "_"):
         metadata[VALID_FROM], model_authority, metadata[CGMES_PROFILE], metadata[VERSION_NUMBER] = meta_list
         metadata[TIME_HORIZON] = ""
     elif len(meta_list) == 5:
-        metadata[VALID_FROM], metadata[TIME_HORIZON], model_authority, metadata[CGMES_PROFILE], metadata[VERSION_NUMBER] = meta_list
+        metadata[VALID_FROM], metadata[TIME_HORIZON], model_authority, metadata[CGMES_PROFILE], metadata[
+            VERSION_NUMBER] = meta_list
     else:
-        logger.warning(f"Parsing error, number of allowed meta in filename is 4 or 5 separated by {meta_separator}: {file_name}")
+        logger.warning(
+            f"Parsing error, number of allowed meta in filename is 4 or 5 separated by {meta_separator}: {file_name}")
         return metadata
 
     # Parse model authority components
@@ -180,7 +214,8 @@ def create_opdm_objects(models: list, metadata: dict | None = None, key_profile:
             opdm_profile = get_metadata_from_file_name(profile_instance.name)
             opdm_profile.update(get_opdm_metadata_from_rdfxml(get_xml_from_zip(profile_instance)))
             opdm_profile['pmd:fileName'] = profile_instance.name
-            opdm_profile["pmd:content-reference"] = generate_opdm_object_content_reference_from_filename(profile_instance.name)
+            opdm_profile["pmd:content-reference"] = generate_opdm_object_content_reference_from_filename(
+                profile_instance.name)
 
             # Check if key profile and add to main object metadata
             if opdm_profile.get('pmd:cgmesProfile') == key_profile:
@@ -192,13 +227,13 @@ def create_opdm_objects(models: list, metadata: dict | None = None, key_profile:
 
             # Add DATA
             opdm_profile['DATA'] = profile_instance.getvalue()
-            
+
             # Allowed IGM profiles
             igm_profiles = {'SV', 'SSH', 'EQ', 'TP'}
             # Skip BD files if IGM has them
             if opdm_object['opde:Object-Type'] == "IGM" and opdm_profile.get('pmd:cgmesProfile') not in igm_profiles:
                 continue
-                
+
             # Add component to main object
             opdm_object['opde:Component'].append({'opdm:Profile': opdm_profile})
 

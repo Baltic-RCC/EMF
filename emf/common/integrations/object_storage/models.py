@@ -7,6 +7,16 @@ from emf.common.integrations import opdm
 
 logger = logging.getLogger(__name__)
 
+_opdm_service = None
+
+
+def _get_opdm_service() -> opdm.OPDM:
+    """Reuses one OPDM client across fallback calls instead of constructing a fresh one each time."""
+    global _opdm_service
+    if _opdm_service is None:
+        _opdm_service = opdm.OPDM()
+    return _opdm_service
+
 
 def compile_query(metadata: dict, filter: str | None):
 
@@ -174,7 +184,7 @@ def get_content(metadata: dict):
 
     if not all(components_received):  # at least one is False
         logger.warning(f"[FALLBACK] At least some content did not exist in MinIO storage, requesting from OPDM...")
-        metadata = opdm.OPDM().download_object(metadata)  # TODO maybe to make OPDM connection instance globally
+        metadata = _get_opdm_service().download_object(metadata)
 
     return metadata
 
@@ -249,7 +259,7 @@ def get_latest_models_and_download(time_horizon: str,
                 logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
                 logger.error(sys.exc_info())
     else:
-        logger.warning(f"Models not available on Object Storage")
+        logger.info(f"Models not available on Object Storage")
 
     return models_downloaded
 

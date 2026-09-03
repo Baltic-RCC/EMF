@@ -2,7 +2,6 @@ import OPDM as opdm_api
 import requests
 import pandas
 import logging
-import sys
 import base64
 import os
 import config
@@ -55,6 +54,8 @@ class OPDM(opdm_api.create_client):
             logger.warning("Part of model content not present on local storage, executing get-content from OPDM")
             content_meta = self.get_content(model_meta['opde:Id'], object_type="model")
             for pos, model_part in enumerate(model_meta['opde:Component']):
+                if model_part['opdm:Profile'].get("DATA"):
+                    continue  # already retrieved from local storage above, no need to fetch it twice
                 content_data = self.get_file(model_part['opdm:Profile']['pmd:fileName'])
                 if content_data:
                     opdm_object['opde:Component'][pos]['opdm:Profile']["DATA"] = content_data
@@ -185,9 +186,8 @@ class OPDM(opdm_api.create_client):
             for model in latest_models.to_dict("records"):
                 try:
                     models_downloaded.append(self.download_object(opdm_object=model))
-                except:
-                    logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}")
-                    logger.error(sys.exc_info())
+                except Exception as error:
+                    logger.error(f"Could not download model for {time_horizon} {scenario_date} {model['pmd:TSO']}: {error}", exc_info=True)
         else:
             logger.warning(f"Models not available on OPDE")
 

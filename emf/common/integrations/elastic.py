@@ -13,6 +13,9 @@ from emf.common.config_parser import parse_app_properties
 
 logger = logging.getLogger(__name__)
 
+# Disabling elasticsearch client's per-request logging (e.g. "POST https://... [status:200]") at INFO level
+logging.getLogger('elastic_transport').setLevel(logging.WARNING)
+
 parse_app_properties(caller_globals=globals(), path=config.paths.integrations.elastic)
 
 
@@ -236,7 +239,7 @@ class Elastic:
         try:
             schedules_df = self.get_docs_by_query(index=index, size=10000, query=query)
             if schedules_df.empty:
-                logger.warning(f"No schedules retrieved on query: {query}")
+                logger.debug(f"No schedules retrieved on query: {query}")
                 return None
         except Exception as e:
             logger.warning(f"Query returned error: {e}")
