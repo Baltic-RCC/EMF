@@ -752,8 +752,10 @@ def scale_balance(model: object,
     model.scaled_entity = ac_scale_report_dict
     model.scaled_hvdc = hvdc_scale_report_dict
 
-    # Set the common scaling status flag
-    model.scaled = all(ac_pivoted_df['success'].to_list())
+    # Set the common scaling status flag -- True whenever scaling ran to completion, even if some areas
+    # overshoot BALANCE_THRESHOLD. Per-area pass/fail is in scaled_entity['success']; only a diverged,
+    # failed or skipped scaling (scaled_entity left empty) should read as unscaled downstream.
+    model.scaled = True
 
     return model
 
