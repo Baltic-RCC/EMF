@@ -1078,32 +1078,34 @@ def lvl8_report_cgm(merge_report: dict):
         violations.append(violations_list[1])
         quality_indicator_cgm = "Invalid - inconsistent data"
 
-    # if scaling is failed then set error or warning from error list
-    if not merge_report['scaled']:
-        failed_areas = [a for a in (merge_report.get('scaled_entity') or []) if not a.get('success', True)]
-        if failed_areas:
-            for area in failed_areas:
-                violations.append({
-                    'ruleId': "CGMTieFlowImbalance",
-                    'validationLevel': "8",
-                    'severity': "WARNING",
-                    'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
-                               "cim:ControlArea interchange tolerance INTERCH_IMBALANCE_EMF MW.",
-                    'ruleTargets': [{
-                        'objectType': "ControlArea",
-                        'objectId': str(area.get('area')),
-                        'attributeName': "final_offset_acnp",
-                        'attributeValue': str(area.get('final_offset_acnp')),
-                    }],
-                })
-            if quality_indicator_cgm == "Valid":
-                quality_indicator_cgm = "Warning - non fatal inconsistencies"
-        else:
-            # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
-            # could not be solved with relaxed Q limits") -- skip if already reported.
-            if violations_list[1] not in violations:
-                violations.append(violations_list[1])
-            quality_indicator_cgm = "Invalid - inconsistent data"
+    # Scaling detail lives in scaled_entity regardless of the top-level 'scaled' flag (which just means
+    # "scaling ran to completion", see scaler.py) -- empty means it diverged/failed/never ran, non-empty
+    # with a miss means it completed outside BALANCE_THRESHOLD.
+    scaled_entity = merge_report.get('scaled_entity') or []
+    failed_areas = [a for a in scaled_entity if not a.get('success', True)]
+    if failed_areas:
+        for area in failed_areas:
+            violations.append({
+                'ruleId': "CGMTieFlowImbalance",
+                'validationLevel': "8",
+                'severity': "WARNING",
+                'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
+                           "cim:ControlArea interchange tolerance INTERCH_IMBALANCE_EMF MW.",
+                'ruleTargets': [{
+                    'objectType': "ControlArea",
+                    'objectId': str(area.get('area')),
+                    'attributeName': "final_offset_acnp",
+                    'attributeValue': str(area.get('final_offset_acnp')),
+                }],
+            })
+        if quality_indicator_cgm == "Valid":
+            quality_indicator_cgm = "Warning - non fatal inconsistencies"
+    elif not scaled_entity:
+        # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
+        # could not be solved with relaxed Q limits") -- skip if already reported.
+        if violations_list[1] not in violations:
+            violations.append(violations_list[1])
+        quality_indicator_cgm = "Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {
