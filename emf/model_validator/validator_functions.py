@@ -6,7 +6,7 @@ import triplets.tools as triplet_tools
 import xml.etree.ElementTree as ET
 import datetime
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets
-from emf.common.helpers.statistics import get_tieflow_data, sum_on_KEY
+from emf.common.helpers.statistics import sum_on_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -199,29 +199,73 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
 
 def get_ac_net_position(models_as_triplets):
     """
-    Taken from model_quality/statistics.py. Finds sum of EquivalentInjection on the borders
+    Sum of EquivalentInjection.p at this model's AC boundary points.
+
+    Only Interchange-type control areas are considered; a tie point is excluded when either
+    its own equipment (the TieFlow terminal's ConductingEquipment) is a DC/HVDC CIM class,
+    or its boundary node is tagged with the legacy "HVDC ..." description convention (some
+    TSOs model their converter's grid-side connection as plain AC equipment and only flag
+    the link this way).
 
     :param models_as_triplets: input dataframe of model as triplets
     """
-    # Use only Interchange Control Area Tieflows
-    tieflow_type = "ControlAreaTypeKind.Interchange"
-    tieflow_data = _as_polars(get_tieflow_data(models_as_triplets))
+    DC_EQUIPMENT_TYPES = {"DCLineSegment", "ACDCConverter", "CsConverter", "VsConverter"}
 
-    tieflow_data = tieflow_data.filter(pl.col('ControlArea.type') == tieflow_type)
-    # AC was needed?
-    if 'BoundaryPoint.isDirectCurrent' in tieflow_data.columns:
-        tieflow_data = tieflow_data.filter(pl.col('BoundaryPoint.isDirectCurrent') == False)  # noqa: E712
+    models_pl = _as_polars(models_as_triplets)
 
-    data_columns = ["EquivalentInjection.p", "EquivalentInjection.q", "SvPowerFlow.p", "SvPowerFlow.q"]
-    if tieflow_data.height == 0:
-        tieflow_values = {c: 0.0 for c in data_columns}
-    else:
-        sums = tieflow_data.select([
-            pl.col(c).cast(pl.Float64).sum().alias(c) for c in data_columns
-        ])
-        tieflow_values = sums.to_dicts()[0]
+    control_areas = triplet_tools.type_tableview(models_pl, 'ControlArea')
+    tie_flows = triplet_tools.type_tableview(models_pl, 'TieFlow')
+    terminals_view = triplet_tools.type_tableview(models_pl, 'Terminal')
+    equivalent_injections = triplet_tools.type_tableview(models_pl, 'EquivalentInjection')
+    if control_areas is None or tie_flows is None or terminals_view is None or equivalent_injections is None:
+        return None
 
-    return tieflow_values.get("EquivalentInjection.p", None)
+    terminals = terminals_view.rename({'ID': 'Terminal'})
+    node_col = ('Terminal.ConnectivityNode' if 'Terminal.ConnectivityNode' in terminals.columns
+                else 'Terminal.TopologicalNode')
+
+    # Use only Interchange Control Area Tieflows (ends_with matches both the short enum name
+    # and the full CIM-schema URI form some models use)
+    interchange_areas = control_areas.filter(pl.col('ControlArea.type').str.ends_with('Interchange'))
+    tie_flows = tie_flows.join(
+        interchange_areas.select(pl.col('ID').alias('TieFlow.ControlArea')), on='TieFlow.ControlArea', how='inner'
+    )
+    tie_terminals = terminals.join(tie_flows, left_on='Terminal', right_on='TieFlow.Terminal', how='inner')
+
+    equipment_type = (models_pl.filter(pl.col('KEY') == 'Type')
+                       .unique(subset='ID')
+                       .select(['ID', pl.col('VALUE').alias('EquipmentType')]))
+    node_description = (models_pl.filter(pl.col('KEY') == 'IdentifiedObject.description')
+                         .unique(subset='ID')
+                         .select(['ID', pl.col('VALUE').alias('Description')]))
+    tie_terminals = (
+        tie_terminals
+        .join(equipment_type, left_on='Terminal.ConductingEquipment', right_on='ID', how='left')
+        .join(node_description, left_on=node_col, right_on='ID', how='left')
+    )
+
+    ac_nodes = tie_terminals.filter(
+        ~(
+            pl.col('EquipmentType').fill_null('').is_in(DC_EQUIPMENT_TYPES)
+            | pl.col('Description').fill_null('').str.starts_with('HVDC')
+        )
+    ).select(node_col).unique()
+
+    injections_by_equipment = equivalent_injections.select(
+        pl.col('ID').alias('Terminal.ConductingEquipment'), 'EquivalentInjection.p'
+    )
+    ac_injection_terminals = (
+        terminals
+        .join(injections_by_equipment, on='Terminal.ConductingEquipment', how='inner')
+        .join(ac_nodes, on=node_col, how='inner')
+    )
+
+    if ac_injection_terminals.height == 0:
+        return 0.0
+    total = ac_injection_terminals.select(
+        pl.col('EquivalentInjection.p').cast(pl.Float64, strict=False).sum()
+    ).item()
+    return round(total, 2) if total is not None else 0.0
 
 def get_sum_of_loads(models_as_triplets, parameter_name: str = 'ConformLoad'):
     """
