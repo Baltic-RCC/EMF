@@ -25,7 +25,7 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
 
     elif object_type == "IGM":
 
-        tso = model_metadata[0]['pmd:TSO']
+        tso = model_metadata['pmd:TSO']
         if tso in ['LITGRID', 'AST', 'ELERING']:
             report = check_line_limits(report, network, handler, limit_temperature=LINE_LIMIT_TEMPERATURE)
         else:
@@ -42,7 +42,7 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
 def set_common_metadata(model_metadata, object_type):
     metadata = {}
     if object_type == "IGM":
-        opdm_object = model_metadata[0]
+        opdm_object = model_metadata
         metadata['object_type'] = object_type
         metadata['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
         metadata['@time_horizon'] = opdm_object['pmd:timeHorizon']
@@ -96,7 +96,9 @@ def set_quality_flag(report, object_type, rule_dict):
 
     if all(flag is True for flag in rule_flags):
         report.update({"quality": 'good'})
-    elif any(flag is None for flag in rule_flags) and any(flag is not False for flag in rule_flags):
+    elif any(flag is False for flag in rule_flags):
+        report.update({"quality": 'bad'})
+    elif any(flag is None for flag in rule_flags):
         report.update({"quality": 'semi-good'})
     else:
         report.update({"quality": 'bad'})
