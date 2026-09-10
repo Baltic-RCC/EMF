@@ -138,7 +138,8 @@ def check_lt_pl_crossborder(report, network, border_limit, tieflow_data=None):
         tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
         tie_flow = float((tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2)
         report.update({"lt_pl_flow": tie_flow, "lt_pl_xborder_check": abs(tie_flow) < float(border_limit)})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check LT-PL crossborder flow: {error}", exc_info=True)
         report.update({"lt_pl_flow": None, "lt_pl_xborder_check": None})
 
     return report
@@ -177,7 +178,8 @@ def check_crossborder_inconsistencies(report, network):
 
         report.update(
             {"xborder_inconsistencies": inconsistencies, "xborder_consistency_check": len(inconsistencies) < 1})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check crossborder inconsistencies: {error}", exc_info=True)
         report.update({"xborder_inconsistencies": None, "xborder_consistency_check": None})
 
     return report
@@ -228,7 +230,8 @@ def check_outage_inconsistencies(report, network, handler, model_metadata):
 
         report.update(
             {"outage_inconsistencies": all_inconsistencies, "outage_check": inconsistency_flag})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check outage inconsistencies: {error}", exc_info=True)
         report.update({"outage_inconsistencies": None, "outage_check": None})
 
     return report
@@ -266,16 +269,16 @@ def check_line_impedance(report, network):
                 orient='records')
         else:
             impedance_bool = True
-            impedance_error_dict = {}
+            impedance_error_dict = []
         if not impedance_warnings.empty:
             impedance_warning_dict = impedance_warnings[['grid_id', 'name', 'type', 'r', 'x', 'x/r_ratio']].to_dict(
                 orient='records')
         else:
-            impedance_warning_dict = {}
-        report.update({"impedance_errors": impedance_error_dict, "impedance_warnings:": impedance_warning_dict,
+            impedance_warning_dict = []
+        report.update({"impedance_errors": impedance_error_dict, "impedance_warnings": impedance_warning_dict,
                        "impedance_check": impedance_bool})
-    except Exception as e:
-        logger.error(f"Failed to calculate impedance: {e}")
+    except Exception as error:
+        logger.error(f"Failed to calculate impedance: {error}", exc_info=True)
         report.update({"impedance_errors": None, "impedance_warnings": None, "impedance_check": None})
 
     return report
@@ -308,7 +311,8 @@ def check_line_limits(report, network, handler, limit_temperature='25 C'):
                                              'CurrentLimit.value1']].to_dict('records')
         report.update(
             {"line_rating_mismatch": line_rating_mismatch, "line_rating_check": not bool(line_rating_mismatch)})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check line limits: {error}", exc_info=True)
         report.update({"line_rating_mismatch": None, "line_rating_check": None})
 
     return report
@@ -364,7 +368,8 @@ def check_reactive_power_limits(report, network):
                        "sum_min_q_limit": total_min_q_limtis, "reactive_power_check": flag,
                        "q_limit_errors": violations_list})
 
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check reactive power limits: {error}", exc_info=True)
         report.update({"total_area_q": None, "sum_max_q_limit": None,
                        "sum_min_q_limit": None, "reactive_power_check": None,
                        "q_limit_errors": None})
