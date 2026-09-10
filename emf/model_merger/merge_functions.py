@@ -913,7 +913,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
         filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
     for index, outage in filtered_model_outages.iterrows():
         try:
-            if merged_model.network.connect(outage['mrid']):
+            if merged_model.network.connect(outage['mrid'], operate_disconnectors=True, operate_fictitious=True):
                 merged_model.outages = True
                 outage_dict = outage.to_dict()
                 outage_dict.update({'status': 'connected'})
@@ -944,7 +944,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     mapped_outages["eic"] = (mapped_outages["eic"].astype(object).where(mapped_outages["eic"].notna(), None))
     for index, outage in mapped_outages.iterrows():
         try:
-            if merged_model.network.disconnect(outage['mrid']):
+            if merged_model.network.disconnect(outage['mrid'], operate_disconnectors=True, operate_fictitious=True):
                 merged_model.outages = True
                 outage_dict = outage.to_dict()
                 outage_dict.update({'status': 'disconnected'})
