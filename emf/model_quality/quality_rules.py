@@ -1,9 +1,12 @@
 import pandas as pd
 import numpy as np
-from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
+import config
 import logging
+from emf.common.config_parser import parse_app_properties
+from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
 
 logger = logging.getLogger(__name__)
+parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.model_quality)
 
 
 # TODO temp function, later use common one
@@ -71,11 +74,7 @@ def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, i
                 outage_df = pd.concat([outage_df, pd.DataFrame([row])], ignore_index=True)
                 last_end_time[eic] = end_time
 
-    BRELL_LINES = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
-                   '10T-LV-RU-00001A', '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
-                   '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
-
-    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES)].copy()
+    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES.split(','))].copy()
 
     model_scenario_time = datetime.datetime.fromisoformat(model_timestamp)
     if model_scenario_time.tzinfo is None:
@@ -150,7 +149,7 @@ def check_crossborder_inconsistencies(report, network):
         connectivity_nodes = type_tableview_merge(network, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
         boundary_nodes = connectivity_nodes[connectivity_nodes['ConnectivityNode.boundaryPoint'] == "true"]
 
-        tso_list = ["Augstsprieguma tikls", 'Litgrid', "Elering", "PSE S.A."]
+        tso_list = CROSSBORDER_CHECK_TSO_LIST.split(',')
         ba_boundary_nodes = boundary_nodes[boundary_nodes['ConnectivityNode.fromEndNameTso'].isin(tso_list) &
                                            boundary_nodes['ConnectivityNode.toEndNameTso'].isin(tso_list)]
 

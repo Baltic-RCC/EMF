@@ -26,7 +26,7 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
     elif object_type == "IGM":
 
         tso = model_metadata['pmd:TSO']
-        if tso in ['LITGRID', 'AST', 'ELERING']:
+        if tso in LINE_RATING_TSO_LIST.split(','):
             report = check_line_limits(report, network, handler, limit_temperature=LINE_LIMIT_TEMPERATURE)
         else:
             report.update({"line_rating_mismatch": None, "line_rating_check": None})
