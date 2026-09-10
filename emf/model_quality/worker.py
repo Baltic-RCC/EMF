@@ -1,4 +1,5 @@
 import logging
+import sys
 from uuid import uuid4
 from emf.common.logging import custom_logger
 
@@ -18,11 +19,21 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.m
 logger.info(f"Starting 'model-quality' worker with assigned trace uuid: {worker_uuid}")
 
 # RabbitMQ consumer implementation
-consumer = rabbit.RMQConsumer(queue=INPUT_RMQ_QUEUE,
-                              message_handlers=[HandlerModelQuality()],
-                              )
-
-try:
-    consumer.run()
-except KeyboardInterrupt:
-    consumer.stop()
+if CONSUMER_TYPE == "SINGLE_MESSAGE":
+    # RabbitMQ single message consumer implementation aligned with KEDA usage
+    consumer = rabbit.SingleMessageConsumer(
+        queue=INPUT_RMQ_QUEUE,
+        message_handlers=[HandlerModelQuality()],
+    )
+    sys.exit(consumer.run())
+elif CONSUMER_TYPE == "LONG_LIVING":
+    # RabbitMQ long-living consumer implementation
+    consumer = rabbit.RMQConsumer(queue=INPUT_RMQ_QUEUE,
+                                  message_handlers=[HandlerModelQuality()],
+                                  )
+    try:
+        consumer.run()
+    except KeyboardInterrupt:
+        consumer.stop()
+else:
+    raise Exception("Unknown CONSUMER_TYPE, please check the config/model_quality/model_quality.properties file")
