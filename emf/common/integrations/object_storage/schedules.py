@@ -27,17 +27,14 @@ def query_hvdc_schedules(time_horizon: str,
     service = elastic.Elastic()
 
     # Get area name to eic mapping
+    areas_config = json.load(config.paths.cgm_worker.config_areas_mapping)
+    area_eic_map = {area['area.eic']: area['area.code'] for area in areas_config}
+
     try:
-        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
         hvdc_eic_codes = service.get_docs_by_query(index='config-bds-lines', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
         hvdc_eic_map = hvdc_eic_codes.set_index('IdentifiedObject.energyIdentCodeEic')['IdentifiedObject.description'].to_dict()
     except Exception as e:
-        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
-        # Using default mapping table from config
-        import json
-        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
-            area_eic_map = json.loads(f.read())
+        logger.warning(f"HVDC line mapping configuration retrieval failed: {e}")
         hvdc_eic_map = {}
 
     # Define utc end time from timestamp
@@ -277,16 +274,9 @@ def query_acnp_schedules(time_horizon: str,
     service = elastic.Elastic()
 
     # Get area name to eic mapping
-    try:
-        area_eic_codes = service.get_docs_by_query(index='config-areas', query={'match_all': {}}, size=500)
-        area_eic_map = area_eic_codes.set_index('area.eic')['area.code'].to_dict()
-        area_name_map = area_eic_codes.set_index('area.code')['party.name'].to_dict()
-    except Exception as e:
-        logger.warning(f"Eic mapping configuration retrieval failed, using default: {e}")
-        # Using default mapping table from config
-        with open(config.paths.cgm_worker.default_area_eic_map, "rb") as f:
-            area_eic_map = json.loads(f.read())
-        area_name_map = {}
+    areas_config = json.load(config.paths.cgm_worker.config_areas_mapping)
+    area_eic_map = {area['area.eic']: area['area.code'] for area in areas_config}
+    area_name_map = {area['area.code']: area['party.name'] for area in areas_config}
 
     main_status_value = DOC_STATUS_FINAL if time_horizon in ("1D", "2D") else None
     schedules_df = _fetch_acnp_schedules(service, time_horizon, scenario_timestamp, area_eic_map, area_name_map,
