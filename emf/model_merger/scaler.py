@@ -705,7 +705,12 @@ def scale_balance(model: object,
             logger.info(f"[ITER {_iteration}] Scaling successful as ACNP offsets less than threshold: {int(BALANCE_THRESHOLD)} MW")
             break
     else:
-        logger.warning(f"Max iteration limit reached")
+        exceeded_offsets = {
+            k: {'offset_mw': v, 'exceeds_by_mw': round(abs(v) - int(BALANCE_THRESHOLD), 2)}
+            for k, v in _to_area_dict(offset_acnp).items() if abs(v) > int(BALANCE_THRESHOLD)
+        }
+        logger.info(f"[ITER {_iteration}] Max iteration limit reached, ACNP offsets still exceeding threshold "
+                       f"({int(BALANCE_THRESHOLD)} MW): {exceeded_offsets}")
         # TODO actions after scale break
 
     # Post-processing scaling results dataframe. polars .round() isn't frame-wide like
@@ -731,7 +736,7 @@ def scale_balance(model: object,
         .otherwise(pl.col('KEY')).alias('KEY')
     )
 
-    filtered_df = filtered_df.drop(['_row_idx', 'GLOBAL'])
+    filtered_df = filtered_df.drop(['_row_idx', 'GLOBAL', 'ITER'])
     # drop any column containing a null -- polars has no .dropna(axis=1) equivalent
     non_null_cols = [c for c in filtered_df.columns if filtered_df[c].null_count() < filtered_df.height]
     filtered_df = filtered_df.select(non_null_cols)
@@ -752,10 +757,8 @@ def scale_balance(model: object,
     model.scaled_entity = ac_scale_report_dict
     model.scaled_hvdc = hvdc_scale_report_dict
 
-    # Set the common scaling status flag -- True whenever scaling ran to completion, even if some areas
-    # overshoot BALANCE_THRESHOLD. Per-area pass/fail is in scaled_entity['success']; only a diverged,
-    # failed or skipped scaling (scaled_entity left empty) should read as unscaled downstream.
-    model.scaled = True
+    # Set the common scaling status flag
+    model.scaled = all(ac_pivoted_df['success'].to_list())
 
     return model
 
