@@ -852,6 +852,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     if 'pairing_key' in boundary_lines.columns and 'pairing_key' in model_outages.columns:
         border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
         relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
+        # A shared pairing_key also matches when only the neighbour's half is disconnected -
+        # keep just the local halves that are themselves actually disconnected.
+        relevant_border_lines = relevant_border_lines[relevant_border_lines['grid_id'].isin(model_outages['grid_id'])]
         # Removing any BRELL lines - exact EIC match, not a 'contains RU' substring guess
         relevant_border_lines = relevant_border_lines[
             ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].isin(BRELL_XBORDER_EICS)]
@@ -868,6 +871,8 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
         paired_lines = relevant_border_lines[is_paired]
         additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(paired_lines['pairing_key'])]
+        additional_boundary_lines = additional_boundary_lines[
+            additional_boundary_lines['grid_id'].isin(model_outages['grid_id'])]
 
         # Paired just means present - check the neighbour's own half against the live plan
         # before reconnecting it, since the plan is the source of truth, not the local side.
