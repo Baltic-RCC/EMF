@@ -122,6 +122,34 @@ def check_and_fix_dependencies(cgm_sv_data, cgm_ssh_data, original_data):
     return cgm_sv_data
 
 
+def fix_dangling_sv_references(cgm_sv_data, original_data):
+    """
+    Pypowsybl export drops leading underscore of non-uuid ids (e.g. _TN_X -> TN_X) causing DanglingReference errors.
+    Maps such SV references back to the ids used in the original models
+    :param cgm_sv_data: merged SV profile
+    :param original_data: original models (including boundary) as triplets
+    :return updated merged SV profile
+    """
+    ref_keys = ['SvVoltage.TopologicalNode', 'SvPowerFlow.Terminal', 'SvStatus.ConductingEquipment',
+                'TopologicalIsland.TopologicalNodes', 'TopologicalIsland.AngleRefTopologicalNode',
+                'SvInjection.TopologicalNode', 'SvTapStep.TapChanger', 'SvShuntCompensatorSections.ShuntCompensator']
+    known_ids = pd.Index(pd.concat([original_data.ID.astype(str), cgm_sv_data.ID.astype(str)]).unique())
+    refs = cgm_sv_data[cgm_sv_data['KEY'].isin(ref_keys)]
+    dangling = refs[~refs['VALUE'].astype(str).isin(known_ids)]
+    if dangling.empty:
+        return cgm_sv_data
+
+    id_map = pd.Series(known_ids, index=known_ids.str.lstrip('_')).groupby(level=0).first()
+    remapped = dangling['VALUE'].astype(str).str.lstrip('_').map(id_map).dropna()
+    cgm_sv_data['VALUE'] = cgm_sv_data['VALUE'].astype(object)  # arrow dictionary dtype does not accept new values
+    cgm_sv_data.loc[remapped.index, 'VALUE'] = remapped
+    logger.info(f"Remapped {len(remapped)} of {len(dangling)} dangling SV references to original ids")
+    if len(remapped) < len(dangling):
+        unresolved = dangling.drop(remapped.index)['VALUE'].unique()
+        logger.warning(f"Unresolved dangling SV references: {list(unresolved)}")
+    return cgm_sv_data
+
+
 def take_best_match_for_sv_voltage(input_data, column_name: str = 'v', to_keep: bool = True):
     """
     Returns one row for with sv voltage id for topological node
@@ -711,6 +739,7 @@ def run_post_merge_processing(input_models: list,
 
     # Apply corrections to SV profile
     sv_data = merge_functions.update_merged_model_sv(sv_data=exported_model, opdm_object_meta=opdm_object_meta)
+    sv_data = fix_dangling_sv_references(cgm_sv_data=sv_data, original_data=input_models_triplets)
 
     # Create update SSH
     sv_data, ssh_data, opdm_object_meta = merge_functions.create_updated_ssh(models_as_triplets=input_models_triplets,
