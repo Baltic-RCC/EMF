@@ -38,7 +38,9 @@ def get_nodes_against_kirchhoff_first_law(original_models,
     :param nodes_only: if true then return unique nodes only, if false then nodes with corresponding terminals
     :param sv_injection_limit: threshold for deciding whether the node is violated by sum of flows
     """
-    original_models = _as_polars(load_opdm_objects_to_triplets(opdm_objects=original_models))
+    if not isinstance(original_models, (pandas.DataFrame, pl.DataFrame)):
+        original_models = load_opdm_objects_to_triplets(opdm_objects=original_models)
+    original_models = _as_polars(original_models)
     if cgm_sv_data is None:
         cgm_sv_data = original_models
     else:
@@ -109,10 +111,12 @@ def get_nodes_against_kirchhoff_first_law(original_models,
             ])
         )
 
-    # Get topological nodes that have mismatch
+    # Get topological nodes that have mismatch. Null node groups flows of terminals not found
+    # in the models - skipped, same as pandas groupby dropped NaN keys
     nok_nodes = flows_summed.filter(
-        (pl.col('SvPowerFlow.p').abs() > sv_injection_limit) |
-        (pl.col('SvPowerFlow.q').abs() > sv_injection_limit)
+        pl.col('Terminal.TopologicalNode').is_not_null() &
+        ((pl.col('SvPowerFlow.p').abs() > sv_injection_limit) |
+         (pl.col('SvPowerFlow.q').abs() > sv_injection_limit))
     ).select('Terminal.TopologicalNode')
 
     if nodes_only:
@@ -169,11 +173,11 @@ def check_not_retained_switches_between_nodes(original_data, open_not_retained_s
 
     # Replaces the pandas groupby().apply(check_switch_terminals) python-level loop with a
     # single vectorized group_by/agg: a switch is violated when its terminals span more than
-    # one distinct TopologicalNode.
+    # one distinct TopologicalNode. Terminals without TopologicalNode are not counted.
     between_tn = (
         not_retained_terminals
         .group_by('ID')
-        .agg(pl.col('Terminal.TopologicalNode').n_unique().alias('n_unique_tn'))
+        .agg(pl.col('Terminal.TopologicalNode').drop_nulls().n_unique().alias('n_unique_tn'))
         .filter(pl.col('n_unique_tn') > 1)
     )
 

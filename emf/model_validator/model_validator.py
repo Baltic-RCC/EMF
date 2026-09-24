@@ -119,8 +119,7 @@ class PostLFValidator:
     def validate_kirchhoff_first_law(self):
         """Validates possible Kirchhoff first law errors after loadflow"""
         # Export SV profile and check it for Kirchhoff 1st law
-        export_parameters = {"iidm.export.cgmes.profiles": 'SV',
-                             "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+        export_parameters = {"iidm.export.cgmes.profiles": 'SV'}
         bytes_object = self.network.save_to_binary_buffer(format="CGMES", parameters=export_parameters)
         bytes_object.name = f"{uuid.uuid4()}.zip"
 
@@ -248,7 +247,26 @@ class HandlerModelsValidator:
                 # Clean DATA from OPDM object as this is already converted to other formats
                 opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
 
-                # Apply pre-processing modification to models and store in Minio
+                # Collect both pre and post loadflow validation reports and merge
+                report.update(pre_lf_validation.report)
+                report.update(post_lf_validation.report)
+
+                # Include relevant metadata fields
+                report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
+                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
+                report['fullModel_ID'] = opdm_object['pmd:fullModel_ID']
+                report['@version'] = int(opdm_object['pmd:versionNumber'])
+                report['content_reference'] = opdm_object['pmd:content-reference']
+                report['tso'] = opdm_object['pmd:TSO']
+                report['minio_bucket'] = opdm_object['minio-bucket']
+
+            except Exception as error:
+                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
+                continue
+
+            # Apply pre-processing modification to models and store in Minio
+            # Failure here must not discard the validation result
+            try:
                 pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets,
                                                                         tso=opdm_object["pmd:TSO"])
                 network_triplets = pre_merge_modification.run_pre_process_modifications()
@@ -261,25 +279,11 @@ class HandlerModelsValidator:
                     self.minio_service.upload_object(file_path_or_file_object=cgmes_file,
                                                      bucket_name=opdm_object['minio-bucket'],
                                                      tags={"state": "modified"})
-
-                # Collect both pre and post loadflow validation reports and merge
-                report.update(pre_lf_validation.report)
-                report.update(post_lf_validation.report)
                 report.update(pre_merge_modification.report)
-
-                # Include relevant metadata fields
-                report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
-                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
-                report['fullModel_ID'] = opdm_object['pmd:fullModel_ID']
-                report['@version'] = int(opdm_object['pmd:versionNumber'])
-                report['content_reference'] = opdm_object['pmd:content-reference']
-                report['tso'] = opdm_object['pmd:TSO']
-                report['duration_s'] = round(time.time() - start_time, 3)
-                report['minio_bucket'] = opdm_object['minio-bucket']
-
             except Exception as error:
-                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
-                continue
+                logger.error(f"Pre-merge modification of model failed: {error}", exc_info=True)
+
+            report['duration_s'] = round(time.time() - start_time, 3)
 
             # Define model validity
             valid = all(report['validations'].values())
