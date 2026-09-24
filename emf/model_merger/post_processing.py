@@ -377,22 +377,26 @@ def check_energized_boundary_nodes(cgm_sv_data, cgm_ssh_data, original_models, f
     return cgm_ssh_data
 
 
-def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: bool = False):
+def check_for_disconnected_terminals(cgm_sv_data, cgm_ssh_data, original_models, fix_errors: bool = False):
     """
     Checks if disconnected terminals have powerflow different from 0
+    pypowsybl merges a boundary EquivalentInjection into its boundary line, so on an energized boundary node it keeps
+    injecting (e.g. HVDC schedule applied by scaling) even if the IGM has the injection disconnected. Zeroing such flow
+    breaks KirchhoffsFirstLawCGM at the boundary node, therefore those injection terminals are connected in SSH instead
     :param cgm_sv_data: merged sv profile
+    :param cgm_ssh_data: merged ssh profile
     :param original_models: original profiles
-    :param fix_errors: sets flows to zero
-    :return (updated) sv profile
+    :param fix_errors: sets flows to zero or connects energized boundary injections
+    :return (updated) sv profile, (updated) ssh profile
     """
     all_terminals = original_models.type_tableview('Terminal')
     power_flows_post = cgm_sv_data.type_tableview('SvPowerFlow')
     if all_terminals is None or power_flows_post is None:
-        return cgm_sv_data
+        return cgm_sv_data, cgm_ssh_data
     all_terminals = all_terminals.rename_axis('SvPowerFlow.Terminal').reset_index()
     disconnected_terminals = all_terminals[all_terminals['ACDCTerminal.connected'] == 'false']
     if disconnected_terminals.empty:
-        return cgm_sv_data
+        return cgm_sv_data, cgm_ssh_data
     power_flows_post = power_flows_post.reset_index()
     disconnected_powerflows = power_flows_post.merge(disconnected_terminals[['SvPowerFlow.Terminal']],
                                                      on='SvPowerFlow.Terminal')
@@ -401,14 +405,33 @@ def check_for_disconnected_terminals(cgm_sv_data, original_models, fix_errors: b
     if not flows_on_powerflows.empty:
         logger.info(f"Found {len(flows_on_powerflows.index)} disconnected terminals which have flows set")
         if fix_errors:
-            logger.info(f"Setting flows on disconnected terminals to zero")
-            flows_on_powerflows.loc[:, 'SvPowerFlow.p'] = 0
-            flows_on_powerflows.loc[:, 'SvPowerFlow.q'] = 0
-            cgm_sv_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_sv_data,
-                                                                            flows_on_powerflows,
-                                                                            add=False,
-                                                                            update=True)
-    return cgm_sv_data
+            # Boundary injections on boundary nodes with solved voltage are part of the solution
+            boundary_nodes = original_models.query("KEY == 'TopologicalNode.boundaryPoint' and VALUE == 'true'")['ID']
+            injections = original_models.query("KEY == 'Type' and VALUE == 'EquivalentInjection'")['ID']
+            voltages = cgm_sv_data.type_tableview('SvVoltage')
+            energized_nodes = voltages[voltages['SvVoltage.v'].astype('float') > 0]['SvVoltage.TopologicalNode']
+            energized_injections = disconnected_terminals[
+                disconnected_terminals['Terminal.ConductingEquipment'].isin(injections) &
+                disconnected_terminals['Terminal.TopologicalNode'].isin(boundary_nodes) &
+                disconnected_terminals['Terminal.TopologicalNode'].isin(energized_nodes)]
+            to_connect = flows_on_powerflows['SvPowerFlow.Terminal'].isin(energized_injections['SvPowerFlow.Terminal'])
+            if to_connect.any():
+                logger.info(f"Connecting {to_connect.sum()} boundary injection terminals on energized boundary nodes")
+                updated_terminal_status = (flows_on_powerflows[to_connect][['SvPowerFlow.Terminal']]
+                                           .rename(columns={'SvPowerFlow.Terminal': 'ID'}))
+                updated_terminal_status["KEY"] = "ACDCTerminal.connected"
+                updated_terminal_status["VALUE"] = "true"
+                cgm_ssh_data = cgm_ssh_data.update_triplet_from_triplet(updated_terminal_status, add=False)
+            flows_on_powerflows = flows_on_powerflows[~to_connect].copy()
+            if not flows_on_powerflows.empty:
+                logger.info(f"Setting flows on disconnected terminals to zero")
+                flows_on_powerflows.loc[:, 'SvPowerFlow.p'] = 0
+                flows_on_powerflows.loc[:, 'SvPowerFlow.q'] = 0
+                cgm_sv_data = triplets.rdf_parser.update_triplet_from_tableview(cgm_sv_data,
+                                                                                flows_on_powerflows,
+                                                                                add=False,
+                                                                                update=True)
+    return cgm_sv_data, cgm_ssh_data
 
 
 def check_non_regulating_rotating_machine_q(cgm_ssh_data, original_models, fix_errors: bool = False):
@@ -763,9 +786,10 @@ def run_post_merge_processing(input_models: list,
                                                        cgm_ssh_data=ssh_data)
 
     if additional_processing:
-        sv_data = check_for_disconnected_terminals(cgm_sv_data=sv_data,
-                                                    original_models=input_models_triplets,
-                                                    fix_errors=True)
+        sv_data, ssh_data = check_for_disconnected_terminals(cgm_sv_data=sv_data,
+                                                              cgm_ssh_data=ssh_data,
+                                                              original_models=input_models_triplets,
+                                                              fix_errors=True)
         ssh_data = check_energized_boundary_nodes(cgm_sv_data=sv_data,
                                                    cgm_ssh_data=ssh_data,
                                                    original_models=input_models_triplets,
