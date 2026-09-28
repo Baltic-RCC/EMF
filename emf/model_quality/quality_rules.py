@@ -1,13 +1,16 @@
 import pandas as pd
 import numpy as np
-from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
+import config
 import logging
+from emf.common.config_parser import parse_app_properties
+from emf.common.helpers.statistics import get_tieflow_data, type_tableview_merge
 
 logger = logging.getLogger(__name__)
+parse_app_properties(caller_globals=globals(), path=config.paths.model_quality.model_quality)
 
 
 # TODO temp function, later use common one
-def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, index='opc-outages-baltics*'):
+def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, eic_mrid_map, index='opc-outages-baltics*'):
 
     import datetime
 
@@ -44,8 +47,6 @@ def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, i
     response = handler.elastic_service.get_docs_by_query(index=index, query=query, size=10000, return_df=True)
     outage_df = pd.DataFrame()
 
-    eic_mrid_map = handler.elastic_service.get_docs_by_query(index='config-network', query={"match_all": {}}, size=10000, return_df=True)
-
     if not response.empty:
 
         # Get only latest report data
@@ -60,22 +61,22 @@ def get_uap_outages_from_scenario_time(handler, time_horizon, model_timestamp, i
 
         response = response.sort_values(by=['eic', 'start_date', 'end_date']).reset_index(drop=True)
         last_end_time = {}
+        keep = []
 
         # Remove outage duplicate if there is time overlap
-        for _, row in response.iterrows():
-            eic = row['eic']
-            start_time = row['start_date']
-            end_time = row['end_date']
-
+        for row_index, eic, start_time, end_time in zip(response.index, response['eic'], response['start_date'],
+                                                        response['end_date']):
             if eic not in last_end_time or start_time > last_end_time[eic]:
-                outage_df = pd.concat([outage_df, pd.DataFrame([row])], ignore_index=True)
+                keep.append(row_index)
                 last_end_time[eic] = end_time
 
-    BRELL_LINES = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
-                   '10T-LV-RU-00001A', '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
-                   '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
+        outage_df = response.loc[keep].reset_index(drop=True)
 
-    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES)].copy()
+    if outage_df.empty:
+        logger.info("No OUT/SSS outages found in outage reports")
+        return pd.DataFrame(columns=['eic', 'name', 'mrid'])
+
+    outage_df = outage_df[~outage_df['eic'].isin(BRELL_LINES.split(','))].copy()
 
     model_scenario_time = datetime.datetime.fromisoformat(model_timestamp)
     if model_scenario_time.tzinfo is None:
@@ -138,7 +139,8 @@ def check_lt_pl_crossborder(report, network, border_limit, tieflow_data=None):
         tie_flow_2 = tie_flows[tie_flows['IdentifiedObject.shortName_EquivalentInjection'] == 'XEL_AL12']
         tie_flow = float((tie_flow_1['SvPowerFlow.p'].iloc[0] + tie_flow_2['SvPowerFlow.p'].iloc[0]) / 2)
         report.update({"lt_pl_flow": tie_flow, "lt_pl_xborder_check": abs(tie_flow) < float(border_limit)})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check LT-PL crossborder flow: {error}", exc_info=True)
         report.update({"lt_pl_flow": None, "lt_pl_xborder_check": None})
 
     return report
@@ -149,7 +151,7 @@ def check_crossborder_inconsistencies(report, network):
         connectivity_nodes = type_tableview_merge(network, "ControlArea<-TieFlow->Terminal->ConnectivityNode")
         boundary_nodes = connectivity_nodes[connectivity_nodes['ConnectivityNode.boundaryPoint'] == "true"]
 
-        tso_list = ["Augstsprieguma tikls", 'Litgrid', "Elering", "PSE S.A."]
+        tso_list = CROSSBORDER_CHECK_TSO_LIST.split(',')
         ba_boundary_nodes = boundary_nodes[boundary_nodes['ConnectivityNode.fromEndNameTso'].isin(tso_list) &
                                            boundary_nodes['ConnectivityNode.toEndNameTso'].isin(tso_list)]
 
@@ -177,7 +179,8 @@ def check_crossborder_inconsistencies(report, network):
 
         report.update(
             {"xborder_inconsistencies": inconsistencies, "xborder_consistency_check": len(inconsistencies) < 1})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check crossborder inconsistencies: {error}", exc_info=True)
         report.update({"xborder_inconsistencies": None, "xborder_consistency_check": None})
 
     return report
@@ -185,10 +188,11 @@ def check_crossborder_inconsistencies(report, network):
 
 def check_outage_inconsistencies(report, network, handler, model_metadata):
     try:
-        outages = get_uap_outages_from_scenario_time(handler, time_horizon=model_metadata['@time_horizon'],
-                                                     model_timestamp=model_metadata['@scenario_timestamp'])
         critical_elements = handler.elastic_service.get_docs_by_query(index='config-network', query={"match_all": {}},
                                                                  size=10000, return_df=True)
+        outages = get_uap_outages_from_scenario_time(handler, time_horizon=model_metadata['pmd:timeHorizon'],
+                                                     model_timestamp=model_metadata['pmd:scenarioDate'],
+                                                     eic_mrid_map=critical_elements)
 
         outages['mrid'] = outages['mrid'].str.lstrip('_')
         critical_elements['mrid'] = critical_elements['mrid'].str.lstrip('_')
@@ -228,7 +232,8 @@ def check_outage_inconsistencies(report, network, handler, model_metadata):
 
         report.update(
             {"outage_inconsistencies": all_inconsistencies, "outage_check": inconsistency_flag})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check outage inconsistencies: {error}", exc_info=True)
         report.update({"outage_inconsistencies": None, "outage_check": None})
 
     return report
@@ -266,16 +271,16 @@ def check_line_impedance(report, network):
                 orient='records')
         else:
             impedance_bool = True
-            impedance_error_dict = {}
+            impedance_error_dict = []
         if not impedance_warnings.empty:
             impedance_warning_dict = impedance_warnings[['grid_id', 'name', 'type', 'r', 'x', 'x/r_ratio']].to_dict(
                 orient='records')
         else:
-            impedance_warning_dict = {}
-        report.update({"impedance_errors": impedance_error_dict, "impedance_warnings:": impedance_warning_dict,
+            impedance_warning_dict = []
+        report.update({"impedance_errors": impedance_error_dict, "impedance_warnings": impedance_warning_dict,
                        "impedance_check": impedance_bool})
-    except Exception as e:
-        logger.error(f"Failed to calculate impedance: {e}")
+    except Exception as error:
+        logger.error(f"Failed to calculate impedance: {error}", exc_info=True)
         report.update({"impedance_errors": None, "impedance_warnings": None, "impedance_check": None})
 
     return report
@@ -308,7 +313,8 @@ def check_line_limits(report, network, handler, limit_temperature='25 C'):
                                              'CurrentLimit.value1']].to_dict('records')
         report.update(
             {"line_rating_mismatch": line_rating_mismatch, "line_rating_check": not bool(line_rating_mismatch)})
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check line limits: {error}", exc_info=True)
         report.update({"line_rating_mismatch": None, "line_rating_check": None})
 
     return report
@@ -364,7 +370,8 @@ def check_reactive_power_limits(report, network):
                        "sum_min_q_limit": total_min_q_limtis, "reactive_power_check": flag,
                        "q_limit_errors": violations_list})
 
-    except:
+    except Exception as error:
+        logger.error(f"Failed to check reactive power limits: {error}", exc_info=True)
         report.update({"total_area_q": None, "sum_max_q_limit": None,
                        "sum_min_q_limit": None, "reactive_power_check": None,
                        "q_limit_errors": None})
