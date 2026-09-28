@@ -183,6 +183,34 @@ def check_and_fix_dependencies(cgm_sv_data: pl.DataFrame, cgm_ssh_data: pl.DataF
     return cgm_sv_data
 
 
+def fix_dangling_sv_references(cgm_sv_data, original_data):
+    """
+    Pypowsybl export drops leading underscore of non-uuid ids (e.g. _TN_X -> TN_X) causing DanglingReference errors.
+    Maps such SV references back to the ids used in the original models
+    :param cgm_sv_data: merged SV profile
+    :param original_data: original models (including boundary) as triplets
+    :return updated merged SV profile
+    """
+    ref_keys = ['SvVoltage.TopologicalNode', 'SvPowerFlow.Terminal', 'SvStatus.ConductingEquipment',
+                'TopologicalIsland.TopologicalNodes', 'TopologicalIsland.AngleRefTopologicalNode',
+                'SvInjection.TopologicalNode', 'SvTapStep.TapChanger', 'SvShuntCompensatorSections.ShuntCompensator']
+    known_ids = pd.Index(pd.concat([original_data.ID.astype(str), cgm_sv_data.ID.astype(str)]).unique())
+    refs = cgm_sv_data[cgm_sv_data['KEY'].isin(ref_keys)]
+    dangling = refs[~refs['VALUE'].astype(str).isin(known_ids)]
+    if dangling.empty:
+        return cgm_sv_data
+
+    id_map = pd.Series(known_ids, index=known_ids.str.lstrip('_')).groupby(level=0).first()
+    remapped = dangling['VALUE'].astype(str).str.lstrip('_').map(id_map).dropna()
+    cgm_sv_data['VALUE'] = cgm_sv_data['VALUE'].astype(object)  # arrow dictionary dtype does not accept new values
+    cgm_sv_data.loc[remapped.index, 'VALUE'] = remapped
+    logger.info(f"Remapped {len(remapped)} of {len(dangling)} dangling SV references to original ids")
+    if len(remapped) < len(dangling):
+        unresolved = dangling.drop(remapped.index)['VALUE'].unique()
+        logger.warning(f"Unresolved dangling SV references: {list(unresolved)}")
+    return cgm_sv_data
+
+
 def get_boundary_nodes_between_igms(model_data) -> pl.DataFrame:
     """
     Filters out nodes that are between the igms (mentioned at least 2 igms)
@@ -231,14 +259,13 @@ def remove_duplicate_sv_voltages(cgm_sv_data: pl.DataFrame, original_data: pl.Da
     sv_voltage_values = (
         cgm_sv_data.filter(pl.col("KEY") == "SvVoltage.v")
         .select(["ID", "VALUE"]).rename({"VALUE": "SvVoltage.v"})
+        .with_row_index("_row_idx")  # before the join: polars joins do not guarantee row order
         .join(
             sv_voltage_ids.select(["ID", "VALUE"]).rename({"VALUE": "SvVoltage.SvTopologicalNode"}),
             on="ID",))
     # Just in case convert the values to numeric
-    sv_voltage_values = (
-        sv_voltage_values
-        .with_columns(pl.col("SvVoltage.v").cast(pl.Float64, strict=False).alias("_v_numeric"))
-        .with_row_index("_row_idx"))
+    sv_voltage_values = sv_voltage_values.with_columns(
+        pl.col("SvVoltage.v").cast(pl.Float64, strict=False).alias("_v_numeric"))
     # Group by topological node id and by some logic take SvVoltage that will be dropped
     voltages_to_keep = (
         sv_voltage_values
@@ -403,7 +430,8 @@ def check_energized_boundary_nodes(cgm_sv_data: pl.DataFrame, cgm_ssh_data: pl.D
 
     if fix_errors:
         logger.info("Setting injection at boundary to zero")
-        updated_injections = not_zero_flows.select(pl.col("EquivalentInjection").alias("ID"))
+        # an injection on a boundary node shared by two IGMs appears once per IGM voltage row
+        updated_injections = not_zero_flows.select(pl.col("EquivalentInjection").alias("ID")).unique()
         updated_p_value = updated_injections.with_columns(
             pl.lit("EquivalentInjection.p").alias("KEY"), pl.lit(0).alias("VALUE")
         )
@@ -416,24 +444,29 @@ def check_energized_boundary_nodes(cgm_sv_data: pl.DataFrame, cgm_ssh_data: pl.D
     return cgm_ssh_data
 
 
-def check_for_disconnected_terminals(cgm_sv_data: pl.DataFrame, original_models: pl.DataFrame,
-                                      fix_errors: bool = False) -> pl.DataFrame:
+def check_for_disconnected_terminals(cgm_sv_data: pl.DataFrame, cgm_ssh_data: pl.DataFrame,
+                                      original_models: pl.DataFrame,
+                                      fix_errors: bool = False) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
     Checks if disconnected terminals have powerflow different from 0
+    pypowsybl merges a boundary EquivalentInjection into its boundary line, so on an energized boundary node it keeps
+    injecting (e.g. HVDC schedule applied by scaling) even if the IGM has the injection disconnected. Zeroing such flow
+    breaks KirchhoffsFirstLawCGM at the boundary node, therefore those injection terminals are connected in SSH instead
     :param cgm_sv_data: merged sv profile
+    :param cgm_ssh_data: merged ssh profile
     :param original_models: original profiles
-    :param fix_errors: sets flows to zero
-    :return (updated) sv profile
+    :param fix_errors: sets flows to zero or connects energized boundary injections
+    :return (updated) sv profile, (updated) ssh profile
     """
     all_terminals = original_models.triplets.type_tableview("Terminal")
     power_flows_post = cgm_sv_data.triplets.type_tableview("SvPowerFlow")
     if all_terminals is None or power_flows_post is None:
-        return cgm_sv_data
+        return cgm_sv_data, cgm_ssh_data
 
     all_terminals = all_terminals.rename({"ID": "SvPowerFlow.Terminal"})
     disconnected_terminals = all_terminals.filter(pl.col("ACDCTerminal.connected") == "false")
     if disconnected_terminals.height == 0:
-        return cgm_sv_data
+        return cgm_sv_data, cgm_ssh_data
 
     disconnected_powerflows = power_flows_post.join(
         disconnected_terminals.select("SvPowerFlow.Terminal"), on="SvPowerFlow.Terminal", how="semi"
@@ -444,14 +477,38 @@ def check_for_disconnected_terminals(cgm_sv_data: pl.DataFrame, original_models:
     if flows_on_powerflows.height > 0:
         logger.info(f"Found {flows_on_powerflows.height} disconnected terminals which have flows set")
         if fix_errors:
-            logger.info("Setting flows on disconnected terminals to zero")
-            flows_on_powerflows = flows_on_powerflows.with_columns(
-                pl.lit(0).alias("SvPowerFlow.p"), pl.lit(0).alias("SvPowerFlow.q")
-            )
-            cgm_sv_data = cgm_sv_data.triplets.update_triplets_from_tableview(
-                flows_on_powerflows, add=False, update=True
-            )
-    return cgm_sv_data
+            # Boundary injections on boundary nodes with solved voltage are part of the solution
+            boundary_nodes = original_models.filter(
+                (pl.col("KEY") == "TopologicalNode.boundaryPoint") & (pl.col("VALUE") == "true")).select("ID")
+            injections = original_models.filter(
+                (pl.col("KEY") == "Type") & (pl.col("VALUE") == "EquivalentInjection")).select("ID")
+            energized_nodes = (cgm_sv_data.triplets.type_tableview("SvVoltage")
+                               .filter(pl.col("SvVoltage.v").cast(pl.Float64) > 0)
+                               .select(pl.col("SvVoltage.TopologicalNode").alias("ID")))
+            energized_injections = (
+                disconnected_terminals
+                .join(injections, left_on="Terminal.ConductingEquipment", right_on="ID", how="semi")
+                .join(boundary_nodes, left_on="Terminal.TopologicalNode", right_on="ID", how="semi")
+                .join(energized_nodes, left_on="Terminal.TopologicalNode", right_on="ID", how="semi"))
+            to_connect = flows_on_powerflows.join(
+                energized_injections.select("SvPowerFlow.Terminal"), on="SvPowerFlow.Terminal", how="semi")
+            if to_connect.height > 0:
+                logger.info(f"Connecting {to_connect.height} boundary injection terminals on energized boundary nodes")
+                updated_terminal_status = to_connect.select(pl.col("SvPowerFlow.Terminal").alias("ID")).unique()
+                cgm_ssh_data = cgm_ssh_data.triplets.update_triplets_from_triplets(
+                    updated_terminal_status.with_columns(
+                        pl.lit("ACDCTerminal.connected").alias("KEY"), pl.lit("true").alias("VALUE")),
+                    add=False)
+            flows_on_powerflows = flows_on_powerflows.join(
+                to_connect.select("SvPowerFlow.Terminal"), on="SvPowerFlow.Terminal", how="anti")
+            if flows_on_powerflows.height > 0:
+                logger.info("Setting flows on disconnected terminals to zero")
+                cgm_sv_data = cgm_sv_data.triplets.update_triplets_from_tableview(
+                    flows_on_powerflows.select(
+                        "ID", pl.lit(0.0).alias("SvPowerFlow.p"), pl.lit(0.0).alias("SvPowerFlow.q")),
+                    add=False, update=True
+                )
+    return cgm_sv_data, cgm_ssh_data
 
 
 def check_non_regulating_rotating_machine_q(cgm_ssh_data: pl.DataFrame, original_models: pl.DataFrame,
@@ -688,9 +745,8 @@ def check_net_interchanges(cgm_sv_data: pl.DataFrame, cgm_ssh_data: pl.DataFrame
 
     if net_interchange_errors.height > 0:
         logger.info(f"Updating {net_interchange_errors.height} interchanges to new values")
-        new_areas = cgm_ssh_data.triplets.type_tableview("ControlArea").select(
-            ["ID", "ControlArea.pTolerance", "Type"]
-        ).rename({"ID": "ControlArea"})
+        # write back only netInterchange: numeric tableview columns come back as Float64 ("10" -> "10.0")
+        new_areas = cgm_ssh_data.triplets.type_tableview("ControlArea").select("ID").rename({"ID": "ControlArea"})
         new_areas = new_areas.join(
             net_interchange_errors.select(["ControlArea", "SvPowerFlow.p_post"]).rename(
                 {"SvPowerFlow.p_post": "ControlArea.netInterchange"}
@@ -813,7 +869,9 @@ def check_all_kind_of_injections(cgm_sv_data: pl.DataFrame,
             injections_update = injections.join(
                 filtered.select(fixed_fields + list(fields_to_check.keys())), on="ID", how="inner")
             injections_update = injections_update.drop(list(fields_to_check.values()))
-            injections_update = injections_update.rename(fields_to_check)
+            # only the corrected fields: other numeric columns would be written back as floats ("1" -> "1.0")
+            injections_update = injections_update.rename(fields_to_check).select(
+                ["ID", *fields_to_check.values()])
             cgm_ssh_data = cgm_ssh_data.triplets.update_triplets_from_tableview(
                 injections_update, update=True, add=False)
     return cgm_ssh_data
@@ -826,6 +884,7 @@ def run_post_merge_processing(input_models: list, exported_model: bytes, opdm_ob
 
     # Apply corrections to SV profile
     sv_data = merge_functions.update_merged_model_sv(sv_data=exported_model, opdm_object_meta=opdm_object_meta)
+    sv_data = fix_dangling_sv_references(cgm_sv_data=sv_data, original_data=input_models_triplets)
 
     # Create update SSH
     sv_data, ssh_data, opdm_object_meta = merge_functions.create_updated_ssh(
@@ -854,8 +913,8 @@ def run_post_merge_processing(input_models: list, exported_model: bytes, opdm_ob
     ssh_data = set_paired_boundary_injections_to_zero(original_models=input_models_triplets, cgm_ssh_data=ssh_data)
 
     if additional_processing:
-        sv_data = check_for_disconnected_terminals(cgm_sv_data=sv_data, original_models=input_models_triplets,
-                                                     fix_errors=True)
+        sv_data, ssh_data = check_for_disconnected_terminals(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
+                                                             original_models=input_models_triplets, fix_errors=True)
         ssh_data = check_energized_boundary_nodes(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
                                                    original_models=input_models_triplets, fix_errors=True)
         ssh_data = check_non_regulating_rotating_machine_q(cgm_ssh_data=ssh_data,
@@ -865,29 +924,29 @@ def run_post_merge_processing(input_models: list, exported_model: bytes, opdm_ob
         ssh_data, sv_data = check_non_ltc_tap_changer_step(cgm_ssh_data=ssh_data, cgm_sv_data=sv_data,
                                                             original_models=input_models_triplets, fix_errors=True)
 
-        # Run injections check and apply modification if defined in configuration
-        injection_threshold = float(INJECTION_THRESHOLD)
-        fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
+    # Run injections check and apply modification if defined in configuration
+    injection_threshold = float(INJECTION_THRESHOLD)
+    fix_injection_errors = json.loads(str(FIX_INJECTION_ERRORS).lower())
 
-        ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data, cgm_sv_data=sv_data,
-                                                 original_models=input_models_triplets,
-                                                 injection_name="EnergySource", threshold=injection_threshold,
-                                                 fields_to_check={"SvPowerFlow.p": "EnergySource.activePower"},
-                                                 fix_errors=fix_injection_errors)
-        ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data, cgm_sv_data=sv_data,
-                                                 original_models=input_models_triplets,
-                                                 injection_name="ExternalNetworkInjection",
-                                                 fields_to_check={"SvPowerFlow.p": "ExternalNetworkInjection.p"},
-                                                 threshold=injection_threshold, fix_errors=fix_injection_errors)
-        ssh_data = check_non_boundary_equivalent_injections(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
-                                                             original_models=input_models_triplets,
-                                                             threshold=injection_threshold,
-                                                             fix_errors=fix_injection_errors)
-        try:
-            ssh_data = check_net_interchanges(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
-                                               original_models=input_models_triplets)
-        except KeyError:
-            logger.warning("No fields for net interchange correction")
+    ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data, cgm_sv_data=sv_data,
+                                             original_models=input_models_triplets,
+                                             injection_name="EnergySource", threshold=injection_threshold,
+                                             fields_to_check={"SvPowerFlow.p": "EnergySource.activePower"},
+                                             fix_errors=fix_injection_errors)
+    ssh_data = check_all_kind_of_injections(cgm_ssh_data=ssh_data, cgm_sv_data=sv_data,
+                                             original_models=input_models_triplets,
+                                             injection_name="ExternalNetworkInjection",
+                                             fields_to_check={"SvPowerFlow.p": "ExternalNetworkInjection.p"},
+                                             threshold=injection_threshold, fix_errors=fix_injection_errors)
+    ssh_data = check_non_boundary_equivalent_injections(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
+                                                         original_models=input_models_triplets,
+                                                         threshold=injection_threshold,
+                                                         fix_errors=fix_injection_errors)
+    try:
+        ssh_data = check_net_interchanges(cgm_sv_data=sv_data, cgm_ssh_data=ssh_data,
+                                           original_models=input_models_triplets)
+    except (KeyError, pl.exceptions.ColumnNotFoundError):
+        logger.warning("No fields for net interchange correction")
 
     # --- return back to pandas (this can be removed once (if ever) opdm_objects.py and merge_functions.py is in polars)
     sv_data = sv_data.to_pandas()
