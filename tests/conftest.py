@@ -8,16 +8,20 @@ Unit tests must not open network connections, tests marked with `integration` ar
 import io
 import json
 import os
+import re
 import socket
+import urllib.request
 import uuid
 import zipfile
 from functools import cache
 from pathlib import Path
 from unittest import mock
 
+import pandas as pd
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_DATA_DIR = Path(os.environ.get("EMFOS_TEST_DATA", Path.home() / ".cache" / "emfos-tests"))
 
 TEST_ENVIRONMENT = {
     "ELK_SERVER": "http://localhost:9200",
@@ -47,15 +51,33 @@ FAKE_MINIO_CREDENTIALS = {
     "SessionToken": "test",
     "Expiration": "2099-01-01T00:00:00Z",
 }
-mock.patch.object(minio_api.ObjectStorage, "_get_credentials", return_value=FAKE_MINIO_CREDENTIALS).start()
-mock.patch.object(custom_logger, "get_elk_logging_handler",
-                  new=lambda: mock.MagicMock(spec=custom_logger.ElkLoggingHandler)).start()
+_minio_login_patch = mock.patch.object(minio_api.ObjectStorage, "_get_credentials", return_value=FAKE_MINIO_CREDENTIALS)
+_elk_handler_patch = mock.patch.object(custom_logger, "get_elk_logging_handler",
+                                       new=lambda: mock.MagicMock(spec=custom_logger.ElkLoggingHandler))
+_minio_login_patch.start()
+_elk_handler_patch.start()
 
 
 @pytest.fixture(autouse=True)
 def _allow_network_for_integration_tests(request, monkeypatch):
     if request.node.get_closest_marker("integration"):
         monkeypatch.setattr(socket.socket, "connect", _socket_connect)
+
+
+@pytest.fixture
+def real_minio_login():
+    """Restores the real ObjectStorage._get_credentials for tests of the MinIO login itself"""
+    _minio_login_patch.stop()
+    yield
+    _minio_login_patch.start()
+
+
+@pytest.fixture
+def real_elk_logging_handler():
+    """Restores the real custom_logger.get_elk_logging_handler for tests of the ELK log handler itself"""
+    _elk_handler_patch.stop()
+    yield
+    _elk_handler_patch.start()
 
 
 @cache
@@ -117,11 +139,89 @@ def ieee14_igm():
     return _opdm_object_from_network("create_ieee14")
 
 
+# ENTSO-E CGMES 2.4.15 conformity MicroGrid BaseCase, owned and provided by ENTSO-E, downloaded from powsybl-core.
+# Not committed to the repo, cached in TEST_DATA_DIR instead. Offline, put the files there manually.
+MICROGRID_URL = ("https://raw.githubusercontent.com/powsybl/powsybl-core/v6.8.0/cgmes/cgmes-conformity/src/main/resources/"
+                 "conformity/cas-1.1.3-data-4.0.3/MicroGrid/BaseCase/")
+MICROGRID_FILES = {
+    "BE": ("CGMES_v2.4.15_MicroGridTestConfiguration_BC_BE_v2",
+           {p: f"MicroGridTestConfiguration_BC_BE_{p}_V2.xml" for p in ("EQ", "SSH", "TP", "SV")}),
+    "NL": ("CGMES_v2.4.15_MicroGridTestConfiguration_BC_NL_v2",
+           {p: f"MicroGridTestConfiguration_BC_NL_{p}_V2.xml" for p in ("EQ", "SSH", "TP", "SV")}),
+    "BD": ("CGMES_v2.4.15_MicroGridTestConfiguration_BD_v2",
+           {"EQ_BD": "MicroGridTestConfiguration_EQ_BD.xml", "TP_BD": "MicroGridTestConfiguration_TP_BD.xml"}),
+}
+MICROGRID_SCENARIO_TIME = "20140601T1030Z"
+
+
+def _microgrid_file(folder: str, file_name: str) -> bytes:
+    path = TEST_DATA_DIR / "microgrid" / file_name
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        socket.socket.connect = _socket_connect
+        try:
+            urllib.request.urlretrieve(f"{MICROGRID_URL}{folder}/{file_name}", path.with_suffix(".part"))
+            path.with_suffix(".part").rename(path)
+        except OSError as error:
+            pytest.skip(f"MicroGrid test models not available, download them into {path.parent}: {error}")
+        finally:
+            socket.socket.connect = _blocked_connect
+    return path.read_bytes()
+
+
+def _microgrid_object(area: str, tso: str) -> dict:
+    folder, files = MICROGRID_FILES[area]
+    components = []
+    for profile, source_name in files.items():
+        xml = _microgrid_file(folder, source_name)
+        if area == "BD":
+            file_name = f"{MICROGRID_SCENARIO_TIME[:9]}0000Z__ENTSOE_{profile.replace('_', '')}_001"
+        else:
+            file_name = f"{MICROGRID_SCENARIO_TIME}_1D_{tso}_{profile}_001"
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as profile_zip:
+            profile_zip.writestr(f"{file_name}.xml", xml)
+        components.append({"opdm:Profile": {"pmd:cgmesProfile": profile, "pmd:fileName": f"{file_name}.zip", "DATA": data.getvalue()}})
+
+    key_xml = _microgrid_file(folder, files["EQ_BD" if area == "BD" else "SV"]).decode("utf-8")
+    return {
+        "opde:Id": str(uuid.uuid4()),
+        "opde:Object-Type": "BDS" if area == "BD" else "IGM",
+        "data-source": "OPDM",
+        "pmd:TSO": tso,
+        "pmd:modelPartReference": tso,
+        "pmd:timeHorizon": "" if area == "BD" else "1D",
+        "pmd:scenarioDate": re.search(r"<md:Model.scenarioTime>([^<]+)<", key_xml).group(1).rstrip("Z") + "Z",
+        "pmd:versionNumber": "001",
+        "pmd:fullModel_ID": re.search(r'<md:FullModel rdf:about="(?:urn:uuid:)?([^"]+)"', key_xml).group(1),
+        "opde:Component": components,
+    }
+
+
 @pytest.fixture
-def micro_grid_be_igm():
-    """ENTSO-E conformity MicroGrid BE. References boundary set objects, so it does not load
-    into pypowsybl on its own. Use it as triplets until a boundary set fixture is added."""
-    return _opdm_object_from_network("create_micro_grid_be_network", tso="ELIA")
+def microgrid_be_igm():
+    """MicroGrid BE IGM (ELIA), needs microgrid_boundary to load into pypowsybl"""
+    return _microgrid_object("BE", "ELIA")
+
+
+@pytest.fixture
+def microgrid_nl_igm():
+    """MicroGrid NL IGM (TENNET), needs microgrid_boundary to load into pypowsybl"""
+    return _microgrid_object("NL", "TENNET")
+
+
+@pytest.fixture
+def microgrid_boundary():
+    """MicroGrid boundary set (BDS) matching microgrid_be_igm and microgrid_nl_igm"""
+    return _microgrid_object("BD", "ENTSOE")
+
+
+@pytest.fixture
+def make_triplets():
+    """Builds triplets from (ID, KEY, VALUE) rows, e.g. make_triplets([("sw1", "Type", "Breaker")])"""
+    def _make_triplets(rows, instance_id: str = "test-instance"):
+        return pd.DataFrame(rows, columns=["ID", "KEY", "VALUE"]).assign(INSTANCE_ID=instance_id)
+    return _make_triplets
 
 
 @pytest.fixture

@@ -24,9 +24,14 @@ def test_ieee14_igm_loads_and_solves(ieee14_igm):
 
 
 @pytest.mark.pypowsybl
-def test_micro_grid_be_igm_parses_to_triplets(micro_grid_be_igm):
-    data = load_opdm_objects_to_triplets([micro_grid_be_igm])
+def test_microgrid_loads_with_boundary_and_solves(microgrid_be_igm, microgrid_nl_igm, microgrid_boundary):
+    import pypowsybl as pp
+
+    data = load_opdm_objects_to_triplets([microgrid_be_igm, microgrid_boundary])
     assert "Terminal" in set(data.query("KEY == 'Type'").VALUE)
+
+    network = load_network_model([microgrid_be_igm, microgrid_nl_igm, microgrid_boundary])
+    assert pp.loadflow.run_ac(network)[0].status_text == "Converged"
 
 
 @pytest.mark.pypowsybl
