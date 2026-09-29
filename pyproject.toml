@@ -25,6 +25,21 @@ dependencies = [
     "pyarrow>=24.0.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --import-mode=importlib -m 'not integration'"
+markers = [
+    "pypowsybl: runs the pypowsybl engine (import, load flow, export)",
+    "integration: needs real RabbitMQ/Elasticsearch/MinIO, excluded from the default CI run",
+]
+
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"
