@@ -2,3 +2,6 @@
 .venv
 containers.txt
 .DS_Store
+__pycache__/
+.pytest_cache/
+.coverage
