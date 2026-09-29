@@ -1,0 +1,56 @@
+{
+  "replacement.find_replacement_models": {
+    "input_rows": 30036,
+    "pandas_s": 3.6424,
+    "polars_s": 2.0123,
+    "speedup": 1.81
+  },
+  "validator.kirchhoff (pandas input, production path)": {
+    "input_rows": 743100,
+    "pandas_s": 1.1629,
+    "polars_s": 0.24,
+    "speedup": 4.85
+  },
+  "validator.switches (pandas input, production path)": {
+    "input_rows": 743100,
+    "pandas_s": 0.2398,
+    "polars_s": 0.1806,
+    "speedup": 1.33
+  },
+  "validator.sum_of_loads (pandas input, production path)": {
+    "input_rows": 743100,
+    "pandas_s": 0.0429,
+    "polars_s": 0.1558,
+    "speedup": 0.28
+  },
+  "validator.conversion_overhead": {
+    "input_rows": 743100,
+    "pl.from_pandas_s": 0.1254,
+    "polars_input_s": {
+      "kirchhoff": 0.0997,
+      "switches": 0.0531,
+      "sum_of_loads": 0.0114,
+      "ac_net_position": 0.0615
+    },
+    "pandas_input_s": {
+      "kirchhoff": 0.2846,
+      "switches": 0.24,
+      "sum_of_loads": 0.2094,
+      "ac_net_position": 0.2477
+    },
+    "all_functions_convert_each_call_s": 0.9817,
+    "all_functions_convert_once_s": 0.3511
+  },
+  "post_processing.chain": {
+    "input_rows": 987000,
+    "pandas_s": 13.6433,
+    "polars_s": 1.845,
+    "speedup": 7.39
+  },
+  "scaler.scale_balance (MicroGrid BE+NL, max iterations)": {
+    "input_rows": null,
+    "pandas_s": 1.3077,
+    "polars_s": 0.9288,
+    "speedup": 1.41
+  }
+}
