@@ -29,8 +29,13 @@ jobs:
       - name: Start RabbitMQ, Elasticsearch and MinIO
         run: docker compose -f tests/integration/docker-compose.yml up -d --wait --wait-timeout 300
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        run: pip install uv
 
       - name: Install dependencies
         run: uv sync --frozen

@@ -21,10 +21,17 @@ OBJECT_NAME = "IGM/20250102T0930Z-1D-AST-001.xml"
 CONTENT = b"<model>AST</model>"
 
 
+_minio_client = minio_api.minio.Minio
+
+
 @pytest.fixture
 def storage():
-    """ObjectStorage against a MinIO served over HTTPS (self-signed certificate, ObjectStorage does not verify it)"""
-    with mock.patch.object(minio_api.ObjectStorage, "_get_credentials", return_value=ROOT_CREDENTIALS):
+    """ObjectStorage against the local MinIO over plain HTTP, the HTTPS/STS login is covered by the unit tests"""
+    def http_client(*args, **kwargs):
+        return _minio_client(*args, **{**kwargs, "secure": False})
+
+    with mock.patch.object(minio_api.ObjectStorage, "_get_credentials", return_value=ROOT_CREDENTIALS), \
+            mock.patch.object(minio_api.minio, "Minio", side_effect=http_client):
         yield minio_api.ObjectStorage(server=MINIO_SERVER)
 
 

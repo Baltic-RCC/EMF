@@ -36,35 +36,18 @@ services:
       timeout: 10s
       retries: 30
 
-  # ObjectStorage always connects with HTTPS, so MinIO gets a self-signed certificate
-  minio-certs:
-    image: alpine/openssl:latest
-    command: >-
-      req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=localhost
-      -addext subjectAltName=DNS:localhost,IP:127.0.0.1
-      -keyout /certs/private.key -out /certs/public.crt
-    volumes:
-      - minio-certs:/certs
-
-  # minio/minio is no longer published on Docker Hub, pgsty/minio is the community maintained build of it
+  # Official MinIO image, same tag and healthcheck as MinIO's own docker-compose example. Plain HTTP, the tests
+  # connect without TLS
   minio:
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    command: server /data --certs-dir /certs
+    image: quay.io/minio/minio:RELEASE.2025-09-06T17-38-46Z
+    command: server /data
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
       - "9000:9000"
-    volumes:
-      - minio-certs:/certs:ro
-    depends_on:
-      minio-certs:
-        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-fsk", "https://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 10s
       retries: 30
-
-volumes:
-  minio-certs:
