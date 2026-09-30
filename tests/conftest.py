@@ -64,6 +64,14 @@ def _allow_network_for_integration_tests(request, monkeypatch):
         monkeypatch.setattr(socket.socket, "connect", _socket_connect)
 
 
+@pytest.fixture(autouse=True)
+def _reset_logging_context():
+    # HandlerMergeModels sets the log context of its task and never clears it
+    token = custom_logger.log_context.set({})
+    yield
+    custom_logger.log_context.reset(token)
+
+
 @pytest.fixture
 def real_minio_login():
     """Restores the real ObjectStorage._get_credentials for tests of the MinIO login itself"""
