@@ -1,0 +1,47 @@
+name: CI - Integration tests
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  integration_tests:
+    runs-on: ubuntu-latest
+    env:
+      # Read at import time by parse_app_properties and by the integration tests, must match tests/integration/docker-compose.yml
+      RMQ_SERVER: localhost
+      RMQ_PORT: "5672"
+      RMQ_USERNAME: guest
+      RMQ_PASSWORD: guest
+      ELK_SERVER: http://localhost:9200
+      ELK_SSL_VERIFY: "False"
+      MINIO_SERVER: localhost:9000
+      MINIO_USERNAME: minioadmin
+      MINIO_PASSWORD: minioadmin
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start RabbitMQ, Elasticsearch and MinIO
+        run: docker compose -f tests/integration/docker-compose.yml up -d --wait --wait-timeout 300
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run integration tests
+        run: uv run --frozen pytest -m integration
+
+      - name: Show service logs
+        if: failure()
+        run: docker compose -f tests/integration/docker-compose.yml logs
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f tests/integration/docker-compose.yml down -v
