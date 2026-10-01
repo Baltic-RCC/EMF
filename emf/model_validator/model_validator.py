@@ -1,5 +1,6 @@
 import logging
 import pandas as pd
+import polars as pl
 import config
 import json
 import time
@@ -26,7 +27,7 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_validator
 
 class PreLFValidator:
 
-    def __init__(self, network: pd.DataFrame):
+    def __init__(self, network: pl.DataFrame):
         self.network = network
         self.report = {'pre_validations': {}}
 
@@ -50,11 +51,11 @@ class PreLFValidator:
 
 class PostLFValidator:
 
-    def __init__(self, network: pp.network, network_triplets: pd.DataFrame):
+    def __init__(self, network: pp.network, network_triplets: pl.DataFrame):
         self.network = network
         self.network_triplets = network_triplets
         self.loadflow_parameters = getattr(loadflow_settings, VALIDATION_LOAD_FLOW_SETTINGS)
-        self.report = {'validations': {}}
+        self.report = {'validations': {}, 'warnings': {}}
 
     def validate_loadflow(self):
         """Validate load flow convergence"""
@@ -100,12 +101,23 @@ class PostLFValidator:
         self.report['loadflow_parameters'] = lf_settings
         self.report['validations']['loadflow'] = True if main_component.status.value == 0 else False
 
+    def validate_slack_mismatch(self, limit: float = 0.1) -> None:
+        """Warns if slack mismatch exceeds QoCDC SV_INJECTION_LIMIT (IGMConvergence), does not affect validity"""
+        slack_bus_results = self.report['loadflow']['slack_bus_results']
+        slack_mismatch_valid = all(abs(slack['active_power_mismatch']) <= limit for slack in slack_bus_results)
+        if not slack_mismatch_valid:
+            logger.warning(f"Slack mismatch exceeds {limit} MW: {slack_bus_results}")
+        self.report['warnings']['slack_mismatch'] = slack_mismatch_valid
+
     def validate_network_elements(self):
         """Run all network element validations"""
         validations = list(set(attr_to_dict(pp._pypowsybl.ValidationType).keys()) - set(["ALL", "name", "value"]))
         _status = {}
         for validation in validations:
             validation_type = getattr(pp._pypowsybl.ValidationType, validation)
+            if validation == 'SHUNTS' and (self.network.get_shunt_compensators()['model_type'] == 'NON_LINEAR').any():
+                logger.info(f"Skipping {validation_type} validation: non-linear shunts not supported by pypowsybl")
+                continue
             logger.info(f"Running validation: {validation_type}")
             try:
                 # TODO figure out how to store full validation results if needed. Currently only status is taken
@@ -119,8 +131,7 @@ class PostLFValidator:
     def validate_kirchhoff_first_law(self):
         """Validates possible Kirchhoff first law errors after loadflow"""
         # Export SV profile and check it for Kirchhoff 1st law
-        export_parameters = {"iidm.export.cgmes.profiles": 'SV',
-                             "iidm.export.cgmes.naming-strategy": "cgmes-fix-all-invalid-ids"}
+        export_parameters = {"iidm.export.cgmes.profiles": 'SV'}
         bytes_object = self.network.save_to_binary_buffer(format="CGMES", parameters=export_parameters)
         bytes_object.name = f"{uuid.uuid4()}.zip"
 
@@ -137,6 +148,7 @@ class PostLFValidator:
 
     def run_validation(self):
         self.validate_loadflow()
+        self.validate_slack_mismatch()
         self.validate_network_elements()
         if json.loads(CHECK_KIRCHHOFF_FIRST_LAW.lower()):
             self.validate_kirchhoff_first_law()
@@ -237,18 +249,38 @@ class HandlerModelsValidator:
             try:
                 # Run pre-loadflow validations
                 network_triplets = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
-                pre_lf_validation = PreLFValidator(network=network_triplets)
+                # Convert once for validator functions, pandas copy is kept for pre-merge modifications and export
+                network_triplets_pl = pl.from_pandas(network_triplets)
+                pre_lf_validation = PreLFValidator(network=network_triplets_pl)
                 pre_lf_validation.run_validation()
 
                 # Run post-loadflow validations
                 network = load_network_model(opdm_objects=[opdm_object, latest_boundary])
-                post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
+                post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets_pl)
                 post_lf_validation.run_validation()
 
                 # Clean DATA from OPDM object as this is already converted to other formats
                 opdm_object = clean_data_from_opdm_objects(opdm_objects=[opdm_object])[0]
 
-                # Apply pre-processing modification to models and store in Minio
+                # Collect both pre and post loadflow validation reports and merge
+                report.update(pre_lf_validation.report)
+                report.update(post_lf_validation.report)
+
+                # Include relevant metadata fields
+                report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
+                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
+                report['fullModel_ID'] = opdm_object['pmd:fullModel_ID']
+                report['@version'] = int(opdm_object['pmd:versionNumber'])
+                report['content_reference'] = opdm_object['pmd:content-reference']
+                report['tso'] = opdm_object['pmd:TSO']
+                report['minio_bucket'] = opdm_object['minio-bucket']
+
+            except Exception as error:
+                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
+                continue
+
+            # Apply pre-processing modification to models and store in Minio
+            try:
                 pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets,
                                                                         tso=opdm_object["pmd:TSO"])
                 network_triplets = pre_merge_modification.run_pre_process_modifications()
@@ -261,25 +293,11 @@ class HandlerModelsValidator:
                     self.minio_service.upload_object(file_path_or_file_object=cgmes_file,
                                                      bucket_name=opdm_object['minio-bucket'],
                                                      tags={"state": "modified"})
-
-                # Collect both pre and post loadflow validation reports and merge
-                report.update(pre_lf_validation.report)
-                report.update(post_lf_validation.report)
                 report.update(pre_merge_modification.report)
-
-                # Include relevant metadata fields
-                report['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
-                report['@time_horizon'] = opdm_object['pmd:timeHorizon']
-                report['fullModel_ID'] = opdm_object['pmd:fullModel_ID']
-                report['@version'] = int(opdm_object['pmd:versionNumber'])
-                report['content_reference'] = opdm_object['pmd:content-reference']
-                report['tso'] = opdm_object['pmd:TSO']
-                report['duration_s'] = round(time.time() - start_time, 3)
-                report['minio_bucket'] = opdm_object['minio-bucket']
-
             except Exception as error:
-                logger.error(f"Models validator failed with exception: {error}", exc_info=True)
-                continue
+                logger.error(f"Pre-merge modification of model failed: {error}", exc_info=True)
+
+            report['duration_s'] = round(time.time() - start_time, 3)
 
             # Define model validity
             valid = all(report['validations'].values())
@@ -290,8 +308,8 @@ class HandlerModelsValidator:
                 # self.update_opdm_metadata_object(id=opdm_object['opde:Id'], body={'valid': valid})
                 opdm_object["valid"] = valid
                 try:
-                    opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets)
-                    opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets,
+                    opdm_object['ac_net_position'] = get_ac_net_position(models_as_triplets=network_triplets_pl)
+                    opdm_object['sum_conform_load'] = get_sum_of_loads(models_as_triplets=network_triplets_pl,
                                                                        parameter_name='ConformLoad')
                 except Exception as error:
                     logger.error(f"Failed to calculate AC net position / sum of loads: {error}", exc_info=True)
