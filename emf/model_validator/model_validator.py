@@ -11,7 +11,7 @@ import triplets
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api, edx
 from emf.common.integrations.object_storage import models
-from emf.common.loadflow_tool import loadflow_settings
+from emf.common.loadflow_tool import loadflow_settings, settings_manager
 from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, clean_data_from_opdm_objects
 from emf.common.helpers.loadflow import load_network_model
 from emf.common.helpers.utils import attr_to_dict
@@ -69,7 +69,7 @@ class PostLFValidator:
 
         # Run loadflow, relaxing settings after each diverging result
         for lf_settings in settings_list:
-            loadflow_parameters = getattr(loadflow_settings, lf_settings)
+            loadflow_parameters = settings_manager.LoadflowSettingsManager(settings_keyword=lf_settings).build_pypowsybl_parameters()
             logger.info(f"Solving loadflow with settings: {lf_settings}")
             # loadflow_report = pp.report.Reporter()
             loadflow_result = pp.loadflow.run_ac(network=self.network,
