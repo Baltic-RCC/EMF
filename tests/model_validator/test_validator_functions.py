@@ -47,9 +47,6 @@ def triplets_input_accepted():
         yield
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError,
-                   reason="get_nodes_against_kirchhoff_first_law always passes original_models to load_opdm_objects_to_triplets, "
-                          "so the triplets both validators pass in crash")
 def test_kirchhoff_accepts_triplets_as_documented(make_triplets):
     data = make_triplets(node_with_flows("tn1", [(10, 0), (-9, 0)]))
 
@@ -340,11 +337,7 @@ def test_dk_sub_regions_moved_to_region_with_control_area_eic(make_triplets, eng
     assert regions_of_sub_regions(data) == {"sjaelland": "dk_eic", "entsoe": "dk"}
 
 
-@pytest.mark.parametrize("engine", [
-    pytest.param("pandas", marks=pytest.mark.xfail(
-        strict=True, reason="pandas input: update from a tableview with an ID column adds a junk 'index' triplet without INSTANCE_ID")),
-    "polars",
-])
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_dk_region_fix_changes_only_the_region_reference(make_triplets, engine):
     original = make_triplets(MISMATCHED_DK_REGIONS)
 

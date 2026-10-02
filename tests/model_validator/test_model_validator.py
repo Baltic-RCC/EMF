@@ -5,7 +5,7 @@ import zipfile
 from types import SimpleNamespace
 from unittest import mock
 
-import pandas as pd
+import polars as pl
 import pypowsybl as pp
 import pytest
 from lxml import etree
@@ -138,8 +138,6 @@ def test_post_lf_validation_on_ieee14(ieee14_igm, set_config):
 
 
 @pytest.mark.pypowsybl
-@pytest.mark.xfail(strict=True, raises=pp.PyPowsyblError,
-                   reason="SV export uses naming-strategy 'cgmes-fix-all-invalid-ids', which pypowsybl 1.16.1 doesn't know")
 def test_post_lf_validation_checks_kirchhoff_first_law_when_enabled(ieee14_igm, set_config):
     set_config(CHECK_KIRCHHOFF_FIRST_LAW="True")
     validator = PostLFValidator(network=load_network_model([ieee14_igm]), network_triplets=load_opdm_objects_to_triplets([ieee14_igm]))
@@ -400,7 +398,7 @@ def test_handler_adds_net_position_and_conform_load_to_metadata(services, ieee14
     assert (metadata["ac_net_position"], metadata["sum_conform_load"]) == (-123.45, 678.9)
     assert sum_of_loads.call_args.kwargs["parameter_name"] == "ConformLoad"
     network_triplets = net_position.call_args.kwargs["models_as_triplets"]
-    assert isinstance(network_triplets, pd.DataFrame) and not network_triplets.empty
+    assert isinstance(network_triplets, pl.DataFrame) and not network_triplets.is_empty()
 
 
 @pytest.mark.pypowsybl
