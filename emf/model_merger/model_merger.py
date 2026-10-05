@@ -166,7 +166,7 @@ class HandlerMergeModels:
         ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start,
                                             merged_model=merged_model)
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
-        acnp_dict = calculate_ac_net_position(ac_schedules)
+        acnp_dict = calculate_ac_net_position(ac_schedules) if model_scaling and dc_schedules else None
 
         # Create list of only the TSOs that are needed for the merge, to query Elastic only for *their* metadata
         desired_tsos = merge_functions.filter_models(tsos=full_tso_list,

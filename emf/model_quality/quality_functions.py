@@ -25,8 +25,8 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
 
     elif object_type == "IGM":
 
-        tso = model_metadata[0]['pmd:TSO']
-        if tso in ['LITGRID', 'AST', 'ELERING']:
+        tso = model_metadata['pmd:TSO']
+        if tso in LINE_RATING_TSO_LIST.split(','):
             report = check_line_limits(report, network, handler, limit_temperature=LINE_LIMIT_TEMPERATURE)
         else:
             report.update({"line_rating_mismatch": None, "line_rating_check": None})
@@ -42,7 +42,7 @@ def generate_quality_report(handler, network, object_type, model_metadata, rule_
 def set_common_metadata(model_metadata, object_type):
     metadata = {}
     if object_type == "IGM":
-        opdm_object = model_metadata[0]
+        opdm_object = model_metadata
         metadata['object_type'] = object_type
         metadata['@scenario_timestamp'] = opdm_object['pmd:scenarioDate']
         metadata['@time_horizon'] = opdm_object['pmd:timeHorizon']
@@ -82,6 +82,23 @@ def process_zipped_cgm(zipped_bytes, processed=None):
     return processed
 
 
+def cache_tableviews(network):
+    """Cache type_tableview results on this network instance - the checks request the same tableviews repeatedly."""
+    cache = {}
+    compute = network.type_tableview
+
+    def cached_type_tableview(type_name, *args, **kwargs):
+        key = (type_name, args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            cache[key] = compute(type_name, *args, **kwargs)
+        result = cache[key]
+        # Shallow copy is enough under pandas 3 Copy-on-Write: callers cannot modify the cached table
+        return None if result is None else result.copy(deep=False)
+
+    network.type_tableview = cached_type_tableview
+    return network
+
+
 def set_quality_flag(report, object_type, rule_dict):
 
     if object_type == 'CGM':
@@ -96,7 +113,9 @@ def set_quality_flag(report, object_type, rule_dict):
 
     if all(flag is True for flag in rule_flags):
         report.update({"quality": 'good'})
-    elif any(flag is None for flag in rule_flags) and any(flag is not False for flag in rule_flags):
+    elif any(flag is False for flag in rule_flags):
+        report.update({"quality": 'bad'})
+    elif any(flag is None for flag in rule_flags):
         report.update({"quality": 'semi-good'})
     else:
         report.update({"quality": 'bad'})

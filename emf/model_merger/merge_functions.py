@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TaskConfig:
-    # ponytail: model_merger.py unpacks this via astuple() positionally - keep field order in sync with that unpack
     task_properties: dict
     task_creation_time: str
     included_models: list
@@ -85,9 +84,9 @@ def set_merge_logging_context(task: dict):
     Job id, process id and run id come directly from the task; the rest from task_properties.
     """
     task_properties = task.get('task_properties', {})
-    set_logging_context_token(job_id=task.get('@id'), process_id=task.get('process_id'),
+    set_logging_context_token(job_id=task.get('job_id'), process_id=task.get('process_id'),
                               run_id=task.get('run_id'), scenario_timestamp=task_properties['timestamp_utc'],
-                              task_id=task.get('@task_id'), time_horizon=task_properties['time_horizon'],
+                              task_id=task.get('@id'), time_horizon=task_properties['time_horizon'],
                               version=task_properties['version'], merge_type=task_properties['merge_type'])
 
 
@@ -782,14 +781,7 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
     return models[keep]
 
 
-def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
-    # BRELL (Baltic-Russia/Belarus) EICs never have a merged neighbour - exclude them
-    BRELL_XBORDER_EICS = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
-                         '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
-                         '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
-    area_map = {"LITGRID": "Lithuania", "AST": "Latvia", "ELERING": "Estonia"}
-    outage_areas = [area_map.get(item, item) for item in tso_list]
-
+def get_uap_outages(time_horizon: str):
     elk_service = elastic.Elastic()
 
     # Get outage eic-mrid mapping
@@ -816,8 +808,37 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
 
     # Filter out incorrect elements
-    uap_outages['mrid'] = uap_outages['mrid'].replace("None", pd.NA)
+    uap_outages['mrid'] = uap_outages['mrid'].replace("None", pd.NA).str.lstrip('_')
     uap_outages = uap_outages[uap_outages["asset_type"] != "PROD"]
+
+    return uap_outages, mrid_map
+
+
+def update_elements_connection(network: pypowsybl.network.Network, elements: pd.DataFrame, connect: bool):
+    # pypowsybl returns False when element is already in requested state and raises when element is missing
+    action = 'connect' if connect else 'disconnect'
+    updated, unchanged, failed = [], [], []
+    for element in elements.to_dict('records'):
+        try:
+            if getattr(network, action)(element['mrid'], operate_disconnectors=True, operate_fictitious=True):
+                updated.append(element)
+            else:
+                unchanged.append(element)
+        except Exception as e:
+            logger.error(f"Failed to {action} element {element['name']} [mrid: {element['mrid']}]: {e}", exc_info=True)
+            failed.append(element)
+
+    return updated, unchanged, failed
+
+
+def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
+    BRELL_XBORDER_EICS = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
+                         '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
+                         '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
+    tso_areas = {"LITGRID": ("Lithuania", "LT"), "AST": ("Latvia", "LV"), "ELERING": ("Estonia", "EE")}
+    outage_areas, model_outage_areas = map(list, zip(*[tso_areas.get(tso, (tso, tso)) for tso in tso_list]))
+
+    uap_outages, mrid_map = get_uap_outages(time_horizon=time_horizon)
 
     # Map missing mrid by eic
     lookup = mrid_map.set_index(mrid_map[['eic', 'mrid']].columns[0])[mrid_map[['eic', 'mrid']].columns[1]]
@@ -838,12 +859,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     # Get disconnected elements in network model
     model_outages = pd.DataFrame(get_model_outages(network=merged_model.network))
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
-    model_area_map = {"LITGRID": "LT", "AST": "LV", "ELERING": "EE"}
-    model_outage_areas = [model_area_map.get(item, item) for item in tso_list]
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
-    # Include cross-border lines for reconnection, but only when the neighbour is actually
-    # paired (tie_line_id set) - unpaired means there's no neighbour to safely sync with.
+    # Include cross-border lines for reconnection, but only when the neighbour is actually paired
     boundary_lines = get_network_elements(network=merged_model.network,
                                           element_type=pypowsybl.network.ElementType.BOUNDARY_LINE).reset_index(
         names=['grid_id'])
@@ -852,7 +870,10 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     if 'pairing_key' in boundary_lines.columns and 'pairing_key' in model_outages.columns:
         border_lines = boundary_lines[boundary_lines['pairing_key'].isin(model_outages['pairing_key'])]
         relevant_border_lines = border_lines[border_lines['country'].isin(model_outage_areas)]
-        # Removing any BRELL lines - exact EIC match, not a 'contains RU' substring guess
+        # A shared pairing_key also matches when only the neighbour's half is disconnected -
+        # keep just the local halves that are themselves actually disconnected.
+        relevant_border_lines = relevant_border_lines[relevant_border_lines['grid_id'].isin(model_outages['grid_id'])]
+        # Removing any BRELL lines
         relevant_border_lines = relevant_border_lines[
             ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].isin(BRELL_XBORDER_EICS)]
 
@@ -868,17 +889,18 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
         paired_lines = relevant_border_lines[is_paired]
         additional_boundary_lines = boundary_lines[boundary_lines['pairing_key'].isin(paired_lines['pairing_key'])]
+        additional_boundary_lines = additional_boundary_lines[
+            additional_boundary_lines['grid_id'].isin(model_outages['grid_id'])]
 
-        # Paired just means present - check the neighbour's own half against the live plan
-        # before reconnecting it, since the plan is the source of truth, not the local side.
+        # Paired just means present
         neighbour_side = additional_boundary_lines[~additional_boundary_lines['country'].isin(model_outage_areas)]
         if not neighbour_side.empty:
             now_in_outage_mrids = set(
                 uap_outages.loc[
                     (uap_outages['start_date'] <= scenario_datetime) & (uap_outages['end_date'] >= scenario_datetime),
                     'mrid'
-                ].dropna().str.lstrip('_'))
-            # unmapped eic -> mrid is unverifiable, not confirmed-clear; treat as still-outaged
+                ].dropna())
+            # unmapped eic means mrid is unverifiable, not confirmed, treat as still-outaged
             cant_verify = neighbour_side['lineEnergyIdentificationCodeEIC'].isin(unmapped_outages['eic'])
             neighbour_still_outaged = neighbour_side[
                 neighbour_side['grid_id'].isin(now_in_outage_mrids) | cant_verify]
@@ -892,13 +914,11 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     # Merged dataframe of network elements to be reconnected
     filtered_model_outages = pd.concat([filtered_model_outages, additional_boundary_lines]).drop_duplicates(
         subset='grid_id')
-    filtered_model_outages = filtered_model_outages.where(pd.notnull(filtered_model_outages), None)
 
     # rename columns
     filtered_model_outages = filtered_model_outages.copy()[['name', 'grid_id', 'eic']].rename(
         columns={'grid_id': 'mrid'})
-    mapped_outages = mapped_outages[['name', 'mrid', 'eic']].copy()
-    mapped_outages.loc[:, 'mrid'] = mapped_outages['mrid'].str.lstrip('_')
+    mapped_outages = mapped_outages[['name', 'mrid', 'eic']].drop_duplicates(subset='mrid')
 
     # Don't reconnect something the live plan still wants disconnected - it would just get
     # disconnected again by the loop below.
@@ -906,72 +926,38 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     logger.info(f"Updating outages in merged model areas: {model_outage_areas}")
 
-    # Reconnecting outages from network-config list
-    outages_updated = {}
-    reconnected, already_connected, failed_connect = [], [], []
-    filtered_model_outages["eic"] = (
-        filtered_model_outages["eic"].astype(object).where(filtered_model_outages["eic"].notna(), None))
-    for index, outage in filtered_model_outages.iterrows():
-        try:
-            if merged_model.network.connect(outage['mrid']):
-                merged_model.outages = True
-                outage_dict = outage.to_dict()
-                outage_dict.update({'status': 'connected'})
-                outages_updated[outage_dict['mrid']] = outage_dict
-                reconnected.append(outage['name'])
-            elif uap_outages['mrid'].str.contains(("_" + outage['mrid']), regex=False).any():
-                already_connected.append(outage['name'])
-            else:
-                failed_connect.append(outage['name'])
-                merged_model.outages_unmapped.extend(
-                    [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
-        except Exception as e:
-            logger.error(f"Failed to reconnect element {outage['name']} [mrid: {outage['mrid']}]: {e}", exc_info=True)
-            failed_connect.append(outage['name'])
-            merged_model.outages_unmapped.extend(
-                [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
-            merged_model.outages = False
-
-    if reconnected:
-        logger.info(f"Reconnected: {reconnected}")
+    # Reconnecting outages from network-config list.
+    reconnected, already_connected, failed_connect = update_elements_connection(
+        network=merged_model.network, elements=filtered_model_outages, connect=True)
     if already_connected:
-        logger.info(f"Already connected: {already_connected}")
+        fully_connected = merged_model.network.get_terminals()['connected'].groupby(level=0).all()
+        failed_connect += [e for e in already_connected if not fully_connected.get(e['mrid'], False)]
+        already_connected = [e for e in already_connected if fully_connected.get(e['mrid'], False)]
+    if reconnected:
+        logger.info(f"Reconnected: {[e['name'] for e in reconnected]}")
+    if already_connected:
+        logger.info(f"Already connected: {[e['name'] for e in already_connected]}")
     if failed_connect:
-        logger.error(f"Failed to reconnect: {failed_connect}")
+        logger.error(f"Failed to reconnect: {[e['name'] for e in failed_connect]}")
 
     # Applying outages from UAP
-    disconnected, already_outaged, failed_disconnect = [], [], []
-    mapped_outages["eic"] = (mapped_outages["eic"].astype(object).where(mapped_outages["eic"].notna(), None))
-    for index, outage in mapped_outages.iterrows():
-        try:
-            if merged_model.network.disconnect(outage['mrid']):
-                merged_model.outages = True
-                outage_dict = outage.to_dict()
-                outage_dict.update({'status': 'disconnected'})
-                outages_updated[outage_dict['mrid']] = outage_dict
-                disconnected.append(outage['name'])
-            elif uap_outages['mrid'].str.contains(("_" + outage['mrid']), regex=False).any():
-                already_outaged.append(outage['name'])
-            else:
-                failed_disconnect.append(outage['name'])
-                merged_model.outages_unmapped.extend(
-                    [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
-        except Exception as e:
-            logger.error(f"Failed to disconnect element {outage['name']} [mrid: {outage['mrid']}]: {e}", exc_info=True)
-            failed_disconnect.append(outage['name'])
-            merged_model.outages_unmapped.extend(
-                [{"name": outage['name'], "mrid": outage['mrid'], "eic": outage['eic']}])
-            merged_model.outages = False
-
-    if disconnected:
-        logger.info(f"Disconnected: {disconnected}")
+    disconnected, already_outaged, failed_disconnect = update_elements_connection(
+        network=merged_model.network, elements=mapped_outages, connect=False)
+    # Safety net for node-breaker models, where unchanged can also mean no switch could be opened
     if already_outaged:
-        logger.info(f"Already in outage: {already_outaged}")
+        fully_connected = merged_model.network.get_terminals()['connected'].groupby(level=0).all()
+        failed_disconnect += [e for e in already_outaged if fully_connected.get(e['mrid'], False)]
+        already_outaged = [e for e in already_outaged if not fully_connected.get(e['mrid'], False)]
+    if disconnected:
+        logger.info(f"Disconnected: {[e['name'] for e in disconnected]}")
+    if already_outaged:
+        logger.info(f"Already in outage: {[e['name'] for e in already_outaged]}")
     if failed_disconnect:
-        logger.error(f"Failed to disconnect: {failed_disconnect}")
+        logger.error(f"Failed to disconnect: {[e['name'] for e in failed_disconnect]}")
 
-    # Keep only important keys of updated outages
-    merged_model.outages_updated = list(outages_updated.values())
+    merged_model.outages_updated = sanitize_nan([{**e, 'status': 'connected'} for e in reconnected] +
+                                                [{**e, 'status': 'disconnected'} for e in disconnected])
+    merged_model.outages_unmapped.extend(sanitize_nan(failed_connect + failed_disconnect))
 
     # Safety net: re-check every paired tie line this run touched for a resulting mismatch
     # between its two halves. Not auto-corrected, just logged for visibility.
@@ -999,12 +985,8 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
 
     if merged_model.outages_unmapped:
         merged_model.outages = False
-
-    # Sanitise NaN values in merge report
-    merged_model.outages_updated = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
-                                    for d in merged_model.outages_updated]
-    merged_model.outages_unmapped = [{k: None if isinstance(v, float) and math.isnan(v) else v for k, v in d.items()}
-                                     for d in merged_model.outages_unmapped]
+    elif merged_model.outages_updated:
+        merged_model.outages = True
 
     return merged_model
 
@@ -1078,32 +1060,34 @@ def lvl8_report_cgm(merge_report: dict):
         violations.append(violations_list[1])
         quality_indicator_cgm = "Invalid - inconsistent data"
 
-    # if scaling is failed then set error or warning from error list
-    if not merge_report['scaled']:
-        failed_areas = [a for a in (merge_report.get('scaled_entity') or []) if not a.get('success', True)]
-        if failed_areas:
-            for area in failed_areas:
-                violations.append({
-                    'ruleId': "CGMTieFlowImbalance",
-                    'validationLevel': "8",
-                    'severity': "WARNING",
-                    'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
-                               "cim:ControlArea interchange tolerance INTERCH_IMBALANCE_EMF MW.",
-                    'ruleTargets': [{
-                        'objectType': "ControlArea",
-                        'objectId': str(area.get('area')),
-                        'attributeName': "final_offset_acnp",
-                        'attributeValue': str(area.get('final_offset_acnp')),
-                    }],
-                })
-            if quality_indicator_cgm == "Valid":
-                quality_indicator_cgm = "Warning - non fatal inconsistencies"
-        else:
-            # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
-            # could not be solved with relaxed Q limits") -- skip if already reported.
-            if violations_list[1] not in violations:
-                violations.append(violations_list[1])
-            quality_indicator_cgm = "Invalid - inconsistent data"
+    # Scaling detail lives in scaled_entity regardless of the top-level 'scaled' flag (which just means
+    # "scaling ran to completion", see scaler.py) -- empty means it diverged/failed/never ran, non-empty
+    # with a miss means it completed outside BALANCE_THRESHOLD.
+    scaled_entity = merge_report.get('scaled_entity') or []
+    failed_areas = [a for a in scaled_entity if not a.get('success', True)]
+    if failed_areas:
+        for area in failed_areas:
+            violations.append({
+                'ruleId': "CGMTieFlowImbalance",
+                'validationLevel': "8",
+                'severity': "WARNING",
+                'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
+                           "cim:ControlArea interchange tolerance of 2 MW.",
+                'ruleTargets': [{
+                    'objectType': "ControlArea",
+                    'objectId': str(area.get('area')),
+                    'attributeName': "final_offset_acnp",
+                    'attributeValue': str(area.get('final_offset_acnp')),
+                }],
+            })
+        if quality_indicator_cgm == "Valid":
+            quality_indicator_cgm = "Warning - non fatal inconsistencies"
+    elif not scaled_entity:
+        # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
+        # could not be solved with relaxed Q limits") -- skip if already reported.
+        if violations_list[1] not in violations:
+            violations.append(violations_list[1])
+        quality_indicator_cgm = "Invalid - inconsistent data"
 
     # Create <CGM>
     cgm_attribs = {

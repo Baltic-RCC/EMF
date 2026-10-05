@@ -2,6 +2,7 @@ import logging
 from enum import Enum
 from io import BytesIO
 import pandas as pd
+import polars as pl
 import triplets
 from lxml import etree
 from emf.common.helpers.time import parse_datetime
@@ -70,13 +71,13 @@ def load_opdm_objects_to_triplets(opdm_objects: list[dict], profile: str | None 
         [get_opdm_component_data_bytes(instance) for model in opdm_objects for instance in model['opde:Component']])
 
 
-def get_opdm_data_from_models(model_data: list | pd.DataFrame):
+def get_opdm_data_from_models(model_data: list | pd.DataFrame |pl.DataFrame):
     """
     Check if input is already parsed to triplets. Do it otherwise
     :param model_data: input models
     :return triplets
     """
-    if not isinstance(model_data, pd.DataFrame):
+    if not isinstance(model_data, (pd.DataFrame, pl.DataFrame)):
         model_data = load_opdm_objects_to_triplets(model_data)
     return model_data
 

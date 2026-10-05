@@ -17,12 +17,10 @@ def sum_on_KEY(data, KEY, precision=1):
 
 def get_load_and_generation_ssh(data):
     logger.info("Getting Load and Generation data") # TODO add wrapper with timing and logging
-    return {
-        "EnergyConsumer.p": sum_on_KEY(data, 'EnergyConsumer.p'),
-        "EnergyConsumer.q": sum_on_KEY(data, 'EnergyConsumer.q'),
-        "RotatingMachine.p": sum_on_KEY(data, 'RotatingMachine.p'),
-        "RotatingMachine.q": sum_on_KEY(data, 'RotatingMachine.q'),
-    }
+    keys = ['EnergyConsumer.p', 'EnergyConsumer.q', 'RotatingMachine.p', 'RotatingMachine.q']
+    # One scan of the full triplet table; sum_on_KEY then only filters this small slice
+    load_and_generation_data = data[data['KEY'].isin(keys)]
+    return {key: sum_on_KEY(load_and_generation_data, key) for key in keys}
 
 def type_tableview_merge(data, query):
     """function assumes that the relationship between entities can be represented with a direct link (PreviousEntity.NextEntity -> NextEntity.ID)"""
