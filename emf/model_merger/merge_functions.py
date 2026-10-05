@@ -927,11 +927,16 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     logger.info(f"Updating outages in merged model areas: {model_outage_areas}")
 
     # Reconnecting outages from network-config list.
-    reconnected, not_connected, failed_connect = update_elements_connection(
+    reconnected, already_connected, failed_connect = update_elements_connection(
         network=merged_model.network, elements=filtered_model_outages, connect=True)
-    failed_connect += not_connected
+    if already_connected:
+        fully_connected = merged_model.network.get_terminals()['connected'].groupby(level=0).all()
+        failed_connect += [e for e in already_connected if not fully_connected.get(e['mrid'], False)]
+        already_connected = [e for e in already_connected if fully_connected.get(e['mrid'], False)]
     if reconnected:
         logger.info(f"Reconnected: {[e['name'] for e in reconnected]}")
+    if already_connected:
+        logger.info(f"Already connected: {[e['name'] for e in already_connected]}")
     if failed_connect:
         logger.error(f"Failed to reconnect: {[e['name'] for e in failed_connect]}")
 
