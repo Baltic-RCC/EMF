@@ -49,7 +49,8 @@ class Elastic:
         # Create client
         self.client = Elasticsearch(self.server,
                                     api_key=self.api_key, verify_certs=self.ssl_verify, ca_certs=ssl_cert_file,
-                                    request_timeout=request_timeout, max_retries=max_retries)
+                                    request_timeout=request_timeout, max_retries=max_retries,
+                                    retry_on_timeout=True)
 
     @staticmethod
     def send_to_elastic(index: str,

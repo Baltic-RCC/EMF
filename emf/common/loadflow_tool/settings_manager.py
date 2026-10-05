@@ -8,7 +8,7 @@ import logging
 import config
 from emf.common.config_parser import parse_app_properties
 from enum import Enum as _PyEnum
-from elasticsearch import Elasticsearch
+from emf.common.integrations.elastic import Elastic
 from emf.common.loadflow_tool import loadflow_settings
 
 try:
@@ -21,10 +21,29 @@ logger = logging.getLogger(__name__)
 parse_app_properties(globals(), config.paths.integrations.elastic)
 
 
+def fetch_settings(keywords: list[str], elastic_index: str = 'config-lf-parameters') -> dict[str, dict]:
+    """Fetch several loadflow settings documents from Elastic in one request, fallback to repository per keyword."""
+    logger.info(f"Retrieving loadflow settings from Elasticsearch with keys: {keywords}")
+    try:
+        response = Elastic().client.mget(index=elastic_index, ids=keywords)
+        elastic_docs = {doc['_id']: doc['_source'] for doc in response['docs'] if doc.get('found')}
+    except Exception as err:
+        logger.warning(f"Loadflow settings retrieving failed from Elastic: {err}")
+        elastic_docs = {}
+    settings, sources = {}, {}
+    for keyword in keywords:
+        if keyword in elastic_docs:
+            settings[keyword], sources[keyword] = elastic_docs[keyword], 'elastic'
+        else:
+            settings[keyword], sources[keyword] = LoadflowSettingsManager.get_repository_defaults(keyword), 'repository'
+    logger.info(f"Loadflow settings sources: {sources}")
+    return settings
+
+
 class LoadflowSettingsManager:
     """Class-based settings manager for pypowsybl load flow parameters.
 
-    - Defaults are imported from loadflow_settings.py.
+    - Base settings are read from Elastic (prefetched or fetched by key), fallback to loadflow_settings.py.
     - Optional override file path is read from env:
         * LOADFLOW_CONFIG_OVERRIDE_PATH
       The file may be JSON or YAML.
@@ -49,6 +68,7 @@ class LoadflowSettingsManager:
                  elastic_index: str = 'config-lf-parameters',
                  settings_keyword: str = 'EU_DEFAULT',
                  override_path: str | None = None,
+                 base_settings: dict | None = None,
                  ):
 
         self.elastic_server = elastic_server
@@ -63,16 +83,14 @@ class LoadflowSettingsManager:
             logger.info(f"Loadflow settings override path: {self.override_path}")
 
         # Firstly try to get loadflow parameters from Elastic as primary source, otherwise - fallback to repository
-        try:
-            base = self._get_defaults_from_elastic()
-        except Exception as err:
-            logger.warning(f"Loadflow settings retrieving failed from Elastic: {err}")
-            logger.warning(f"Using default settings from repository with key: {self.settings_keyword}")
-            _default_settings = getattr(loadflow_settings, self.settings_keyword)
-            base = {
-                'LF_PROVIDER': deepcopy(_default_settings.provider_parameters),
-                'LF_PARAMETERS': self._extract_params_dict(_default_settings),
-            }
+        if base_settings is not None:
+            base = deepcopy(base_settings)
+        else:
+            try:
+                base = self._get_defaults_from_elastic()
+            except Exception as err:
+                logger.warning(f"Loadflow settings retrieving failed from Elastic: {err}")
+                base = self.get_repository_defaults(self.settings_keyword)
 
         # Handle overrides if defined
         overrides = self._load_override_file(self.override_path) if self.override_path else {}
@@ -80,11 +98,20 @@ class LoadflowSettingsManager:
 
     # ----------------- I/O -----------------
     def _get_defaults_from_elastic(self) -> dict:
-        client = Elasticsearch(self.elastic_server, api_key=self.elastic_api_key)
+        client = Elastic(server=self.elastic_server, api_key=self.elastic_api_key).client
         logger.info(f"Retrieving base loadflow settings fromm Elasticsearch with key: {self.settings_keyword}")
         response = client.get(index=self.elastic_index, id=self.settings_keyword)
 
         return response.raw["_source"]
+
+    @classmethod
+    def get_repository_defaults(cls, settings_keyword: str) -> dict:
+        logger.warning(f"Using default settings from repository with key: {settings_keyword}")
+        _default_settings = getattr(loadflow_settings, settings_keyword)
+        return {
+            'LF_PROVIDER': deepcopy(_default_settings.provider_parameters),
+            'LF_PARAMETERS': cls._extract_params_dict(_default_settings),
+        }
 
     @staticmethod
     def _load_override_file(path: Path | None) -> dict:
@@ -201,10 +228,11 @@ class LoadflowSettingsManager:
                 res[k] = deepcopy(v)
         return res
 
-    def _extract_params_dict(self, params_obj) -> dict:
+    @classmethod
+    def _extract_params_dict(cls, params_obj) -> dict:
         """Extract a dict snapshot from a pypowsybl Parameters object without coercion."""
         out = {}
-        for name in self._KNOWN_PARAM_FIELDS:
+        for name in cls._KNOWN_PARAM_FIELDS:
             if hasattr(params_obj, name):
                 out[name] = getattr(params_obj, name)
         return out

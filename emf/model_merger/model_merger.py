@@ -82,10 +82,12 @@ class HandlerMergeModels:
         else:
             settings_keywords = [MERGE_LOAD_FLOW_SETTINGS]
 
+        lf_settings = settings_manager.fetch_settings(keywords=settings_keywords)
         for settings_keyword in settings_keywords:
             logger.info(f"Solving loadflow with settings: {settings_keyword}")
             # report = pypowsybl.report.Reporter()
-            settings_mgr = settings_manager.LoadflowSettingsManager(settings_keyword=settings_keyword)
+            settings_mgr = settings_manager.LoadflowSettingsManager(settings_keyword=settings_keyword,
+                                                                   base_settings=lf_settings[settings_keyword])
             pp_loadflow_parameters = settings_mgr.build_pypowsybl_parameters()
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
                                                parameters=pp_loadflow_parameters,
