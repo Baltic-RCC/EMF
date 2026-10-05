@@ -134,7 +134,7 @@ __IGM_VALIDATION_PROVIDER = {
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     'voltagePerReactivePowerControl': 'True',
-    'voltageRemoteControlRobustMode': 'False',
+    'voltageRemoteControlRobustMode': 'True',
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
 }
 __EU_DEFAULT_PROVIDER = {
@@ -185,7 +185,7 @@ __EU_RELAXED_PROVIDER = {
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     'voltagePerReactivePowerControl': 'True',
-    'voltageRemoteControlRobustMode': 'False',
+    'voltageRemoteControlRobustMode': 'True',
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'slackDistributionFailureBehavior': 'FAIL',
 }
@@ -213,7 +213,7 @@ __BA_DEFAULT_PROVIDER = {
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     'voltagePerReactivePowerControl': 'True',
-    'voltageRemoteControlRobustMode': 'False',
+    'voltageRemoteControlRobustMode': 'True',
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'slackBusCountryFilter': 'PL',
 }
@@ -273,7 +273,7 @@ IGM_VALIDATION = pypowsybl.loadflow.Parameters(
     voltage_init_mode=pypowsybl._pypowsybl.VoltageInitMode.UNIFORM_VALUES,  # cim:PowerFlowSettings.flatStart "true"
     transformer_voltage_control_on=True,  # cim:PowerFlowSettings.transformerRatioTapControlPriority "1"
     use_reactive_limits=True,  # cim:PowerFlowSettings.respectReactivePowerLimits "true"
-    phase_shifter_regulation_on=False,
+    phase_shifter_regulation_on=True,
     twt_split_shunt_admittance=None,
     shunt_compensator_voltage_control_on=True,  # cim:PowerFlowSettings.switchedShuntControlPriority "2"
     read_slack_bus=True,
