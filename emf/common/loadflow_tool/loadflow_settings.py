@@ -159,7 +159,7 @@ __EU_DEFAULT_PROVIDER = {
     'transformerVoltageControlMode': 'INCREMENTAL_VOLTAGE_CONTROL',
     'voltageInitModeOverride': 'FULL_VOLTAGE',
     'voltagePerReactivePowerControl': 'True',
-    'voltageRemoteControlRobustMode': 'False',
+    'voltageRemoteControlRobustMode': 'True',
     'newtonRaphsonStoppingCriteriaType': 'PER_EQUATION_TYPE_CRITERIA',
     'slackDistributionFailureBehavior': 'FAIL',
 }
