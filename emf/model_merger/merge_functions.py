@@ -1082,12 +1082,19 @@ def lvl8_report_cgm(merge_report: dict):
             })
         if quality_indicator_cgm == "Valid":
             quality_indicator_cgm = "Warning - non fatal inconsistencies"
-    elif not scaled_entity:
-        # Same rule/message as the base-loadflow-divergence case above (both mean "power flow
-        # could not be solved with relaxed Q limits") -- skip if already reported.
-        if violations_list[1] not in violations:
-            violations.append(violations_list[1])
-        quality_indicator_cgm = "Invalid - inconsistent data"
+    elif not scaled_entity and merge_report["loadflow_status"] == 'CONVERGED':
+        # Base CGM solved but scaling did not complete (skipped, failed or diverged): interchange is not
+        # aligned to schedules, which is a tie flow imbalance, not a convergence failure. A non-converged
+        # base loadflow is already reported above as CGMConvergenceRelaxed.
+        violations.append({
+            'ruleId': "CGMTieFlowImbalance",
+            'validationLevel': "8",
+            'severity': "WARNING",
+            'Message': "The sum of solved tie flows for a cim:ControlArea deviates from the "
+                       "cim:ControlArea interchange tolerance of 2 MW.",
+        })
+        if quality_indicator_cgm == "Valid":
+            quality_indicator_cgm = "Warning - non fatal inconsistencies"
 
     # Create <CGM>
     cgm_attribs = {
