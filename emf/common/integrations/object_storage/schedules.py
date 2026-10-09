@@ -59,7 +59,25 @@ def query_hvdc_schedules(time_horizon: str,
     )
 
     if schedules_df is None:
-        return None
+        # Missing schedules are replaced
+        for step in _acnp_replacement_steps(time_horizon):
+            step_start = datetime.fromisoformat(scenario_timestamp) + timedelta(days=step["day_offset"])
+            schedules_df = service.query_schedules_from_elk(
+                index="emfos-schedules*",
+                utc_start=step_start.isoformat(),
+                utc_end=(step_start + timedelta(minutes=15)).isoformat(),
+                metadata={"@time_horizon": step["time_horizon"],
+                          "TimeSeries.businessType": "B63" if step["time_horizon"] in ["1D", "ID"] else "B67",
+                          step["status_field"]: step["status_value"]},
+                period_overlap=True,
+            )
+            if schedules_df is not None:
+                logger.warning(f"HVDC schedules missing for time horizon '{time_horizon}', replaced with "
+                               f"{step['status_field']}='{step['status_value']}' (time horizon "
+                               f"'{step['time_horizon']}', day offset {step['day_offset']})")
+                break
+        else:
+            return None
 
     # Map eic codes to area names
     schedules_df["in_domain"] = schedules_df["TimeSeries.in_Domain.mRID"].map(area_eic_map)

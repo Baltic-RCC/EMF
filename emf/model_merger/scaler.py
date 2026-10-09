@@ -63,6 +63,12 @@ def _pl_from_pypowsybl(df: pd.DataFrame, index_name: str = 'id') -> pl.DataFrame
     return pl.from_pandas(df.rename_axis(name).reset_index())
 
 
+def _get_boundary_lines(network: pp.network.Network) -> pl.DataFrame:
+    """Boundary lines with HVDC properties ensured -- they only exist when the boundary set has HVDC points."""
+    df = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    return df.with_columns([pl.lit('').alias(c) for c in ['isHvdc', 'lineEnergyIdentificationCodeEIC'] if c not in df.columns])
+
+
 def _area_key_frame(df: pl.DataFrame, value_col: str, area_col: str = _country_col) -> pl.DataFrame:
     """Build an 'area_key' column (country + "-" + connected_component) and sum value_col
     per area_key -- equivalent to pandas' string-concatenated-index + groupby(level=0)."""
@@ -205,7 +211,7 @@ def get_fragmented_areas_participation(unpaired_boundary_lines: pl.DataFrame, ar
                 comp: area_boundary_lines.filter(pl.col('connected_component') == comp)['boundary_p'].sum() or 0.0
                 for comp in comps
             }
-            total_fragments_acnp = abs(sum(fragments_acnp.values())) or 1  # removing zero division warning
+            total_fragments_acnp = sum(abs(v) for v in fragments_acnp.values()) or 1  # removing zero division warning
             participation = {k: abs(v) / total_fragments_acnp for k, v in fragments_acnp.items()}
             fragmented_areas.append(pl.DataFrame({
                 'connected_component': list(participation.keys()),
@@ -235,6 +241,8 @@ def scale_balance(model: object,
                   *,
                   debug: bool,
                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
+                  hold_missing_areas: bool = True,
+                  hvdc_igm_offset: float = 0.02,
                   ):
     """
     Main method to scale each CGM area to target balance
@@ -249,6 +257,10 @@ def scale_balance(model: object,
         always reaches Elasticsearch regardless; this flag only controls whether the console
         shows it (see custom_logger.set_console_log_level)
     :param lf_settings: loadflow settings
+    :param hold_missing_areas: areas without AC schedule keep their current AC net position as target instead of
+        being pushed towards 0 MW, the model is still not marked as scaled
+    :param hvdc_igm_offset: HVDC links without schedule keep the IGM values; if both sides are in the model and their
+        flows differ by more than this share, both get the average (EMF requirements 6.7.2.4)
     :return: scaled pypowsybl network object
     """
     logger.info(f"Network scaling initialized")
@@ -269,6 +281,14 @@ def scale_balance(model: object,
     _scaling_results = []
     _hvdc_results = []
     _iteration = 0
+    _initial_valid, valid_components, _held_areas = set(), {}, []
+    _hvdc_source = 'schedule' if dc_schedules else 'model (no DC schedules)'
+    _hvdc_kept = []
+
+    def _info(exit_: str, results) -> dict:
+        return {'iterations': _iteration, 'exit': exit_, 'lf_status': getattr(results[0], 'status_text', None),
+                'held_areas': _held_areas, 'hvdc_source': _hvdc_source, 'hvdc_kept_model': _hvdc_kept,
+                'dropped_components': sorted(_initial_valid - set(valid_components))}
 
     # Get entire network elements mapping to areas
     _elements_to_areas_map = get_network_elements_map_to_areas(network=network)  # polars: columns include 'id', _country_col
@@ -277,7 +297,7 @@ def scale_balance(model: object,
     buses = _pl_from_pypowsybl(network.get_buses())
 
     # Get all dangling lines and define power factor
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(
         _elements_to_areas_map.select(['id', _country_col]), on='id', how='left'
     )
@@ -288,10 +308,13 @@ def scale_balance(model: object,
     ])
 
     # Target HVDC setpoints
-    target_hvdc_sp_df = pl.DataFrame(dc_schedules)
+    target_hvdc_sp_df = pl.DataFrame(dc_schedules) if dc_schedules else pl.DataFrame(
+        schema={'registered_resource': pl.Utf8, 'value': pl.Float64, 'in_domain': pl.Utf8, 'out_domain': pl.Utf8})
+    target_hvdc_sp_df = target_hvdc_sp_df.with_columns(pl.col('value').cast(pl.Float64).fill_nan(None))
 
     # Target AC net positions mapping
     target_acnp_df = pl.DataFrame(ac_schedules)
+    target_acnp_df = target_acnp_df.with_columns(pl.col('value').cast(pl.Float64).fill_nan(None))
     # ac_schedules can carry missing in_domain/out_domain as the literal string "NaN", not a
     # real null -- pl.coalesce() would pick that string as a real value. Null it out first.
     target_acnp_df = target_acnp_df.with_columns([
@@ -332,6 +355,19 @@ def scale_balance(model: object,
     if missing_ac_schedule:
         # TODO consider exit scaling here if some schedules are missing
         logger.error(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
+        if hold_missing_areas:
+            logger.warning(f"Areas without AC schedule keep their current AC net position and are not "
+                           f"evaluated in the scaling report: {missing_ac_schedule}")
+    _held_areas = missing_ac_schedule if hold_missing_areas else []
+    _held_acnp = {}
+    # held areas keep the AC net position of the merged model, taken before the HVDC setpoints change, so an HVDC
+    # change of a neighbour is not spread onto them by slack distribution (unsolved areas fall back to post-HVDC)
+    _held_prescale = {f"{c}-{k}": v for c, k, v, ok in (
+        boundary_lines.filter((pl.col('isHvdc') == '') & pl.col(_country_col).is_in(_held_areas))
+        .join(buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left')
+        .group_by([_country_col, 'connected_component'])
+        .agg(pl.col('boundary_p').sum(), pl.col('boundary_p').is_not_null().all().alias('_ok'))
+    ).iter_rows() if ok and v is not None and not np.isnan(v)}
 
     # Get pre-scale HVDC setpoints
     logger.info(f"Scaling HVDC network part")
@@ -356,7 +392,8 @@ def scale_balance(model: object,
     scalable_hvdc = scalable_hvdc.join(target_hvdc_sp_df, left_on='lineEnergyIdentificationCodeEIC', right_on='registered_resource', how='inner')
     missing_hvdc_target = scalable_hvdc.filter(pl.col('value').is_null())['lineEnergyIdentificationCodeEIC'].to_list()
     if missing_hvdc_target:
-        raise ValueError(f"Missing target DC schedule value for HVDC links present in network model: {missing_hvdc_target}")
+        logger.warning(f"Missing target DC schedule value for HVDC links, keeping model setpoints: {missing_hvdc_target}")
+        scalable_hvdc = scalable_hvdc.filter(pl.col('value').is_not_null())
     scalable_hvdc = scalable_hvdc.filter(
         (pl.col(_country_col) == pl.col('in_domain')) | (pl.col(_country_col) == pl.col('out_domain'))
     )
@@ -384,6 +421,32 @@ def scale_balance(model: object,
         scalable_hvdc_target = scalable_hvdc_target.join(
             boundary_lines.select(['id', 'q0']), on='id', how='left', maintain_order='left'
         ).rename({'q0': 'value_q'})
+
+    _hvdc_kept = sorted(set(boundary_lines.filter((pl.col('isHvdc') == 'true') & pl.col('connected'))
+                            ['lineEnergyIdentificationCodeEIC'].drop_nulls().to_list())
+                        - set(scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].to_list()))
+    if dc_schedules and _hvdc_kept:
+        _hvdc_source = 'schedule (partial)'
+    _hvdc_avg = (
+        boundary_lines.filter((pl.col('isHvdc') == 'true') & pl.col('connected')
+                              & pl.col('lineEnergyIdentificationCodeEIC').is_in(_hvdc_kept))
+        .select(['id', 'lineEnergyIdentificationCodeEIC', 'power_factor', 'p0', 'q0'])
+        .filter(pl.len().over('lineEnergyIdentificationCodeEIC') == 2)
+        .sort(['lineEnergyIdentificationCodeEIC', 'id'])
+        .with_columns(pl.col('p0').first().over('lineEnergyIdentificationCodeEIC').alias('_a'),
+                      pl.col('p0').last().over('lineEnergyIdentificationCodeEIC').alias('_b'),
+                      pl.int_range(pl.len()).over('lineEnergyIdentificationCodeEIC').alias('_side'))
+        .filter((pl.col('_a') + pl.col('_b')).abs()
+                > hvdc_igm_offset * pl.max_horizontal(pl.col('_a').abs(), pl.col('_b').abs()))
+        .with_columns(pl.when(pl.col('_side') == 0).then((pl.col('_a') - pl.col('_b')) / 2)
+                      .otherwise((pl.col('_b') - pl.col('_a')) / 2).alias('value'))
+        .select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor', pl.col('q0').alias('value_q')])
+    )
+    if not _hvdc_avg.is_empty():
+        logger.warning(f"[INITIAL] HVDC links without schedule set to the average of both IGM sides (differ by more "
+                       f"than {hvdc_igm_offset:.0%}): {_hvdc_avg['lineEnergyIdentificationCodeEIC'].unique().to_list()}")
+        scalable_hvdc_target = pl.concat([scalable_hvdc_target, _hvdc_avg], how='diagonal_relaxed')
+
     network.update_boundary_lines(
         id=scalable_hvdc_target['id'].to_list(),
         p0=scalable_hvdc_target['value'].to_list(),
@@ -422,10 +485,12 @@ def scale_balance(model: object,
     else:
         if pf_results[0].status.value:
             logger.debug(f"Terminating network scaling due to divergence in main island")
+            model.scaled = False
+            model.scaling_info = _info('initial_lf_diverged', pf_results)
             return model
 
     # Get dangling lines after HVDC scaling and loadflow
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     ## Join buses to dangling lines in order to know dangling lines network component
     boundary_lines = boundary_lines.join(
@@ -437,6 +502,10 @@ def scale_balance(model: object,
     # Validate existence of internal islands and exclude them
     converged_components = validate_converged_components(boundary_lines=boundary_lines, converged_components=converged_components)
     valid_components = {k: copy.deepcopy(v) for k, v in converged_components.items() if v['state'] == 'valid'}
+    # islands to be scaled, including the ones not converged here (reported as dropped)
+    _initial_valid = set(valid_components) | {
+        k for k, v in _components.items() if k not in converged_components
+        and (len(v['countries']) > 1 or not boundary_lines.filter(pl.col('connected_component') == k).is_empty())}
 
     # Get pre-scale total network balance by each component -> AC+DC net position
     # polars .sum() on an empty selection returns None, not 0 -- hence the `or 0.0` guards below
@@ -487,17 +556,32 @@ def scale_balance(model: object,
     # From target_acnp variable need to take only areas which are present in network model
     # TODO discuss whether to scale only converged islands or try on all. Currently scales converged higher than 5 buses
     logger.info(f"Scaling each existing island external injections to meet total island ACNP target schedule")
+    if _held_areas:
+        _held_frame = (
+            boundary_lines.filter((pl.col('isHvdc') == '') & pl.col(_country_col).is_in(_held_areas)
+                                  & pl.col('connected_component').is_in(list(valid_components.keys())))
+            .group_by([_country_col, 'connected_component']).agg(pl.col('boundary_p').sum())
+        )
+        _held_acnp = {f"{c}-{k}": round(_held_prescale.get(f"{c}-{k}", v or 0.0), 1) for c, k, v in _held_frame.iter_rows()}
     target_network_acnp = {}
     for component_key, v in valid_components.items():
         scheduled_component_acnp = float(round(
             target_acnp_df.filter(pl.col('connected_component') == component_key)['value'].sum() or 0.0, 1
         ))
+        # areas without schedule keep their current AC net position -> island target includes it, so the
+        # unpaired lines do not push them towards 0 MW
+        scheduled_component_acnp += float(round(sum(
+            v for k, v in _held_acnp.items() if k.rsplit('-', 1)[1] == str(component_key)), 1))
         target_network_acnp[str(component_key)] = round(scheduled_component_acnp)  # preserve for scaling report
         relevant_boundary_lines = unpaired_boundary_lines.filter(pl.col('connected_component') == component_key)
         total_abs_boundary_p = relevant_boundary_lines['boundary_p'].abs().sum() or 0.0
-        relevant_boundary_lines = relevant_boundary_lines.with_columns(
-            (pl.col('boundary_p').abs() / total_abs_boundary_p).alias('participation')
-        )
+        if total_abs_boundary_p:
+            _participation = pl.col('boundary_p').abs() / total_abs_boundary_p
+        else:
+            # all lines at 0 MW -> share the offset equally instead of 0/0 = NaN
+            _participation = pl.when(pl.col('boundary_p').is_not_null()).then(
+                1 / max(relevant_boundary_lines['boundary_p'].count(), 1))
+        relevant_boundary_lines = relevant_boundary_lines.with_columns(_participation.alias('participation'))
         offset_network_acnp = prescale_network_acnp.get(str(component_key)) - scheduled_component_acnp
         relevant_boundary_lines = relevant_boundary_lines.with_columns(
             (pl.col('p0') - offset_network_acnp * pl.col('participation')).alias('prescale_network_acnp_target')
@@ -529,10 +613,11 @@ def scale_balance(model: object,
     if not validate_loadflow_status(results=pf_results, components=valid_components):
         model.scaled = False
         logger.debug(f"Terminating network scaling due to divergence in main island after island ACNP alignment")
+        model.scaling_info = _info('diverged_after_acnp_alignment', pf_results)
         return model
 
     # Validate total network AC net position alignment
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -599,8 +684,12 @@ def scale_balance(model: object,
         scalable_loads = scalable_loads.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
         )
+        # Participation from pre-scale p0 -- current p0 can approach zero/negative after large shifts and blow it up
+        scalable_loads = scalable_loads.join(
+            conform_loads.select(['id', pl.col('p0').alias('p0_base')]), on='id', how='left'
+        )
         scalable_loads = scalable_loads.with_columns(
-            (pl.col('p0') / pl.col('p0').sum().over([_country_col, 'connected_component'])).alias('p_participation')
+            (pl.col('p0_base') / pl.col('p0_base').sum().over([_country_col, 'connected_component'])).alias('p_participation')
         )
 
         # Join ACNP offsets to scalable loads
@@ -639,7 +728,10 @@ def scale_balance(model: object,
         if not validate_loadflow_status(results=pf_results, components=valid_components):
             model.scaled = False
             logger.warning(f"Terminating network scaling due to divergence in main island after iteration: {_iteration}")
+            model.scaling_info = _info('diverged_in_loop', pf_results)
             return model
+        combined_scaling_target_df = combined_scaling_target_df.filter(
+            pl.col('connected_component').is_in(list(valid_components.keys())))
 
         # Store distributed active power after AC part scaling
         distributed_power = round(pf_results[0].distributed_active_power, 2)
@@ -665,7 +757,7 @@ def scale_balance(model: object,
             logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {_to_area_dict(postscale_losses)}")
 
         # Get post-scale AC net position
-        boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+        boundary_lines = _get_boundary_lines(network)
         boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
         boundary_lines = boundary_lines.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -703,6 +795,7 @@ def scale_balance(model: object,
         # Breaking scaling loop if target ac net position for all areas is reached
         if all(abs(v) <= int(BALANCE_THRESHOLD) for v in offset_acnp['value'].to_list()):
             logger.info(f"[ITER {_iteration}] Scaling successful as ACNP offsets less than threshold: {int(BALANCE_THRESHOLD)} MW")
+            _exit = 'converged'
             break
     else:
         exceeded_offsets = {
@@ -711,6 +804,7 @@ def scale_balance(model: object,
         }
         logger.info(f"[ITER {_iteration}] Max iteration limit reached, ACNP offsets still exceeding threshold "
                        f"({int(BALANCE_THRESHOLD)} MW): {exceeded_offsets}")
+        _exit = 'max_iterations'
         # TODO actions after scale break
 
     # Post-processing scaling results dataframe. polars .round() isn't frame-wide like
@@ -726,26 +820,47 @@ def scale_balance(model: object,
 
     # Process data for merge report
     filtered_df = ac_scaling_results_df.filter(pl.col('KEY').is_in(['prescale-acnp', 'postscale-acnp', 'offset-acnp']))
-    # Select first + last row -- polars has no index, so a temp row-number column stands in
-    filtered_df = filtered_df.with_row_index('_row_idx')
-    filtered_df = filtered_df.filter((pl.col('_row_idx') == 0) | (pl.col('_row_idx') == filtered_df['_row_idx'].max()))
-    is_first_row = pl.col('_row_idx') == 0
-    filtered_df = filtered_df.with_columns(
-        pl.when(is_first_row & (pl.col('KEY') == 'offset-acnp')).then(pl.lit('initial-offset-acnp'))
-        .when((~is_first_row) & (pl.col('KEY') == 'offset-acnp')).then(pl.lit('final-offset-acnp'))
-        .otherwise(pl.col('KEY')).alias('KEY')
-    )
+    # Keep rows of the initial (0) and last iteration; offset row is labelled by iteration (both when no iterations ran)
+    last_iter = filtered_df['ITER'].max()
+    filtered_df = filtered_df.filter(pl.col('ITER').is_in([0, last_iter]))
+    offset_rows = filtered_df.filter(pl.col('KEY') == 'offset-acnp')
+    filtered_df = pl.concat([
+        filtered_df.filter(pl.col('KEY') != 'offset-acnp'),
+        offset_rows.filter(pl.col('ITER') == 0).with_columns(pl.lit('initial-offset-acnp').alias('KEY')),
+        offset_rows.filter(pl.col('ITER') == last_iter).with_columns(pl.lit('final-offset-acnp').alias('KEY')),
+    ])
 
-    filtered_df = filtered_df.drop(['_row_idx', 'GLOBAL', 'ITER'])
+    filtered_df = filtered_df.drop(['GLOBAL', 'ITER'])
     # drop any column containing a null -- polars has no .dropna(axis=1) equivalent
     non_null_cols = [c for c in filtered_df.columns if filtered_df[c].null_count() < filtered_df.height]
     filtered_df = filtered_df.select(non_null_cols)
     filtered_df = filtered_df.with_columns(pl.col('KEY').str.replace_all('-', '_'))
     ac_melted_df = filtered_df.unpivot(index=['KEY'], variable_name='area', value_name='value')
     ac_pivoted_df = ac_melted_df.pivot(index='area', on='KEY', values='value')
+    # Areas without schedule (held) are checked for drift from their held ACNP; drift explained by the residual
+    # offsets of the evaluated areas of the same island is tolerated
+    _acnp_col = 'postscale_acnp' if 'postscale_acnp' in ac_pivoted_df.columns else 'prescale_acnp'
+    ac_pivoted_df = ac_pivoted_df.join(
+        pl.DataFrame({'area': list(_held_acnp.keys()), 'held_acnp': list(_held_acnp.values())},
+                     schema={'area': pl.Utf8, 'held_acnp': pl.Float64}),
+        on='area', how='left',
+    ).with_columns(pl.col('area').str.extract(r'-(\d+)$', 1).alias('_component'))
+    # islands dropped after diverging are not evaluated, same as islands dropped before the loop (see scaling_info)
+    ac_pivoted_df = ac_pivoted_df.filter(
+        ~pl.col('_component').cast(pl.Int64).is_in(sorted(_initial_valid - set(valid_components))))
     ac_pivoted_df = ac_pivoted_df.with_columns(
-        (pl.col('final_offset_acnp').abs() <= int(BALANCE_THRESHOLD)).alias('success')
-    )
+        pl.when(pl.col('held_acnp').is_null()).then(pl.col('final_offset_acnp')).otherwise(0.0)
+        .sum().over('_component').alias('_island_residual')
+    ).with_columns(
+        pl.when(pl.col('held_acnp').is_not_null())
+        .then((pl.col(_acnp_col) - pl.col('held_acnp')).abs()
+              <= int(BALANCE_THRESHOLD) + pl.col('_island_residual').fill_null(0.0).abs())
+        .otherwise(pl.col('final_offset_acnp').abs() <= int(BALANCE_THRESHOLD))
+        .alias('success')
+    ).with_columns(
+        pl.when(pl.col('held_acnp').is_not_null()).then((pl.col(_acnp_col) - pl.col('held_acnp')).round(1))
+        .otherwise(pl.col('final_offset_acnp')).alias('final_offset_acnp')
+    ).drop(['_component', '_island_residual'])
     ac_scale_report_dict = ac_pivoted_df.to_dicts()  # polars nulls already serialize as None
 
     hvdc_results_df = hvdc_results_df.with_columns(pl.col('KEY').str.replace_all('-', '_'))
@@ -758,8 +873,9 @@ def scale_balance(model: object,
     model.scaled_hvdc = hvdc_scale_report_dict
 
     # Set the common scaling status flag
-    model.scaled = all(ac_pivoted_df['success'].to_list())
+    model.scaled = ac_pivoted_df.height > 0 and all(ac_pivoted_df['success'].to_list()) and not _held_acnp
 
+    model.scaling_info = _info(_exit, pf_results)
     return model
 
 
