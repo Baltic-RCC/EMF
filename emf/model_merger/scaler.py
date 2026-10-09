@@ -339,6 +339,15 @@ def _scale_balance(model: object,
                     network.update_buses(id=_undefined.index.tolist(),
                                          v_mag=_undefined['voltage_level_id'].map(_voltage_levels_cache['nominal_v']).tolist(),
                                          v_angle=[0.0] * len(_undefined))
+                # same for star buses of three winding transformers, kept as 'v'/'angle' properties of the transformer
+                _t3w = network.get_3_windings_transformers(all_attributes=True)
+                _t3w_state = _t3w.reindex(columns=['v', 'angle']).apply(pd.to_numeric, errors='coerce')
+                _t3w_undefined = _t3w_state[_t3w_state.isna().any(axis=1)]
+                if not _t3w_undefined.empty:
+                    _t3w_undefined = _t3w_undefined.fillna({'v': _t3w['rated_u0'], 'angle': 0.0})
+                    network.add_elements_properties(id=_t3w_undefined.index.tolist(),
+                                                    v=_t3w_undefined['v'].astype(str).tolist(),
+                                                    angle=_t3w_undefined['angle'].astype(str).tolist())
                 results = pp.loadflow.run_ac(network=network, parameters=_lf_warm)
                 if _converged(results) or not cold_fallback:
                     return results
