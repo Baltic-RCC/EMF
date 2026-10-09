@@ -238,7 +238,7 @@ def _set_power_ratio_to_boundary_lines(df: pl.DataFrame) -> pl.DataFrame:
 # previous scaler (cold start, no sub-steps, q0 from power factor) -- never worse than before at convergence
 ATTEMPTS = (
     ('improved', {}),
-    ('main', {'warm_start': False, 'continuation': False, 'hvdc_keep_q': False, 'incremental_q': False}),
+    ('main', {'warm_start': False, 'continuation': False, 'incremental_q': False}),
 )
 _DIVERGED_EXITS = ('initial_lf_diverged', 'diverged_after_acnp_alignment', 'diverged_in_loop')
 
@@ -287,7 +287,6 @@ def _scale_balance(model: object,
                    *,
                    debug: bool,
                    lf_settings: pp.loadflow.Parameters = EU_RELAXED,
-                   hvdc_keep_q: bool = True,
                    incremental_q: bool = True,
                    warm_start: bool = True,
                    continuation: bool = True,
@@ -308,7 +307,6 @@ def _scale_balance(model: object,
         always reaches Elasticsearch regardless; this flag only controls whether the console
         shows it (see custom_logger.set_console_log_level)
     :param lf_settings: loadflow settings
-    :param hvdc_keep_q: keep IGM q0 on HVDC boundary lines even when CONSTANT_POWER_FACTOR is enabled
     :param incremental_q: change q0 by delta p0 * power factor instead of setting q0 = p0 * power factor
         (unpaired AC boundary lines with CONSTANT_POWER_FACTOR, and conform loads)
     :param warm_start: solve scaling loadflows from the previous solution instead of a flat start; falls back to
@@ -543,7 +541,7 @@ def _scale_balance(model: object,
 
     # Updating HVDC network elements to scheduled values
     scalable_hvdc_target = scalable_hvdc.select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor'])
-    if _CONSTANT_POWER_FACTOR and not hvdc_keep_q:
+    if _CONSTANT_POWER_FACTOR:
         scalable_hvdc_target = scalable_hvdc_target.with_columns(
             (pl.col('value') * pl.col('power_factor')).alias('value_q')  # ensure power factor is kept
         )
@@ -575,7 +573,8 @@ def _scale_balance(model: object,
                 > hvdc_igm_offset * pl.max_horizontal(pl.col('_a').abs(), pl.col('_b').abs()))
         .with_columns(pl.when(pl.col('_side') == 0).then((pl.col('_a') - pl.col('_b')) / 2)
                       .otherwise((pl.col('_b') - pl.col('_a')) / 2).alias('value'))
-        .select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor', pl.col('q0').alias('value_q'),
+        .select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor',
+                 (pl.col('value') * pl.col('power_factor') if _CONSTANT_POWER_FACTOR else pl.col('q0')).alias('value_q'),
                  pl.col('p0').alias('_p_start'), pl.col('q0').alias('_q_start')])
     )
     if not _hvdc_avg.is_empty():
