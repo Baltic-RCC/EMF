@@ -234,6 +234,15 @@ def _set_power_ratio_to_boundary_lines(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+# Scaling attempts tried in this order while scaling diverges: all improvements, then the solving method of the
+# previous scaler (cold start, no sub-steps, q0 from power factor) -- never worse than before at convergence
+ATTEMPTS = (
+    ('improved', {}),
+    ('main', {'warm_start': False, 'continuation': False, 'hvdc_keep_q': False, 'incremental_q': False}),
+)
+_DIVERGED_EXITS = ('initial_lf_diverged', 'diverged_after_acnp_alignment', 'diverged_in_loop')
+
+
 @performance_counter(units='seconds')
 def scale_balance(model: object,
                   ac_schedules: List[Dict[str, Union[str, float, None]]],
@@ -241,9 +250,51 @@ def scale_balance(model: object,
                   *,
                   debug: bool,
                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
-                  hold_missing_areas: bool = True,
-                  hvdc_igm_offset: float = 0.02,
-                  ):
+                  attempts: tuple = ATTEMPTS,
+                  **kwargs):
+    """Scale each CGM area to target balance, see _scale_balance. If scaling diverges, the merged model state is
+    restored and scaling retried with the settings of the next attempt (overriding kwargs). Attempts are listed in
+    scaling_info, temporary variants are always removed."""
+    network = model.network
+    working = network.get_working_variant_id()
+    snapshot, start = f"{working}_scaler_snapshot", f"{working}_scaler_start"
+    done = []
+    try:
+        if len(attempts) > 1:
+            network.clone_variant(working, start, True)
+        for i, (mode, settings) in enumerate(attempts):
+            if i:
+                logger.warning(f"Scaling ended with '{done[-1]['exit']}', restoring merged model state and retrying "
+                               f"in '{mode}' mode {settings}")
+                network.clone_variant(start, working, True)
+            model = _scale_balance(model, ac_schedules, dc_schedules, debug=debug, lf_settings=lf_settings,
+                                   **{**kwargs, **settings})
+            info = getattr(model, 'scaling_info', None) or {}
+            done.append({'mode': mode, 'exit': info.get('exit')})
+            if info.get('exit') not in _DIVERGED_EXITS:
+                break
+        model.scaling_info = {**(getattr(model, 'scaling_info', None) or {}), 'attempts': done}
+        return model
+    finally:
+        for variant in (snapshot, start):
+            if variant in network.get_variant_ids():
+                network.remove_variant(variant)
+
+
+def _scale_balance(model: object,
+                   ac_schedules: List[Dict[str, Union[str, float, None]]],
+                   dc_schedules: List[Dict[str, Union[str, float, None]]],
+                   *,
+                   debug: bool,
+                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
+                   hvdc_keep_q: bool = True,
+                   incremental_q: bool = True,
+                   warm_start: bool = True,
+                   continuation: bool = True,
+                   max_halvings: int = 3,
+                   hold_missing_areas: bool = True,
+                   hvdc_igm_offset: float = 0.02,
+                   ):
     """
     Main method to scale each CGM area to target balance
     :param network: pypowsybl network object
@@ -257,6 +308,13 @@ def scale_balance(model: object,
         always reaches Elasticsearch regardless; this flag only controls whether the console
         shows it (see custom_logger.set_console_log_level)
     :param lf_settings: loadflow settings
+    :param hvdc_keep_q: keep IGM q0 on HVDC boundary lines even when CONSTANT_POWER_FACTOR is enabled
+    :param incremental_q: change q0 by delta p0 * power factor instead of setting q0 = p0 * power factor
+        (unpaired AC boundary lines with CONSTANT_POWER_FACTOR, and conform loads)
+    :param warm_start: solve scaling loadflows from the previous solution instead of a flat start; falls back to
+        the configured (cold) settings if the warm start fails
+    :param continuation: if the main island diverges after a setpoint change, restore the last converged state and
+        apply the change in smaller sub-steps (max_halvings halvings per change)
     :param hold_missing_areas: areas without AC schedule keep their current AC net position as target instead of
         being pushed towards 0 MW, the model is still not marked as scaled
     :param hvdc_igm_offset: HVDC links without schedule keep the IGM values; if both sides are in the model and their
@@ -281,14 +339,87 @@ def scale_balance(model: object,
     _scaling_results = []
     _hvdc_results = []
     _iteration = 0
+    _halvings = 0
     _initial_valid, valid_components, _held_areas = set(), {}, []
     _hvdc_source = 'schedule' if dc_schedules else 'model (no DC schedules)'
     _hvdc_kept = []
+    _snapshot = f"{network.get_working_variant_id()}_scaler_snapshot"
+    _lf_warm = copy.deepcopy(lf_settings)
+    _lf_warm.voltage_init_mode = pp.loadflow.VoltageInitMode.PREVIOUS_VALUES
+    _lf_warm.provider_parameters = {**(_lf_warm.provider_parameters or {}), 'voltageInitModeOverride': 'NONE'}
+
+    def _converged(results, keys=None) -> bool:
+        """Main island converged and, if keys given, every one of those components"""
+        return results[0].status.value == 0 and all(
+            r.status.value == 0 for r in results if keys and r.connected_component_num in keys)
 
     def _info(exit_: str, results) -> dict:
         return {'iterations': _iteration, 'exit': exit_, 'lf_status': getattr(results[0], 'status_text', None),
-                'held_areas': _held_areas, 'hvdc_source': _hvdc_source, 'hvdc_kept_model': _hvdc_kept,
+                'halvings': _halvings, 'held_areas': _held_areas, 'hvdc_source': _hvdc_source, 'hvdc_kept_model': _hvdc_kept,
                 'dropped_components': sorted(_initial_valid - set(valid_components))}
+
+    def _solve(cold_fallback: bool = True):
+        """Loadflow from the previous solution; configured (cold start) settings if the main island fails"""
+        if warm_start:
+            try:
+                # buses never solved (e.g. failed islands) have no voltage -> nominal voltage, zero angle
+                _buses = network.get_buses(attributes=['v_mag', 'v_angle', 'voltage_level_id'])
+                _undefined = _buses[_buses['v_mag'].isna() | _buses['v_angle'].isna()]
+                if not _undefined.empty:
+                    network.update_buses(id=_undefined.index.tolist(),
+                                         v_mag=_undefined['voltage_level_id'].map(_voltage_levels_cache['nominal_v']).tolist(),
+                                         v_angle=[0.0] * len(_undefined))
+                # same for star buses of three winding transformers, kept as 'v'/'angle' properties of the transformer
+                _t3w = network.get_3_windings_transformers(all_attributes=True)
+                _t3w_state = _t3w.reindex(columns=['v', 'angle']).apply(pd.to_numeric, errors='coerce')
+                _t3w_undefined = _t3w_state[_t3w_state.isna().any(axis=1)]
+                if not _t3w_undefined.empty:
+                    _t3w_undefined = _t3w_undefined.fillna({'v': _t3w['rated_u0'], 'angle': 0.0})
+                    network.add_elements_properties(id=_t3w_undefined.index.tolist(),
+                                                    v=_t3w_undefined['v'].astype(str).tolist(),
+                                                    angle=_t3w_undefined['angle'].astype(str).tolist())
+                results = pp.loadflow.run_ac(network=network, parameters=_lf_warm)
+                if _converged(results) or not cold_fallback:
+                    return results
+                logger.warning(f"Warm start loadflow failed ({getattr(results[0], 'status_text', None)}), retrying with cold start")
+            except Exception as error:
+                logger.warning(f"Warm start loadflow not possible ({error}), retrying with cold start")
+        return pp.loadflow.run_ac(network=network, parameters=lf_settings)
+
+    def _continuation(apply_fraction, label: str, keys=None, trivial: bool = False):
+        """apply_fraction(t) sets setpoints for fraction t of the full change. On divergence of the main island (or of
+        any component in keys) restore the last converged state and continue with half the sub-step, up to
+        max_halvings times. A trivial (empty) change is not retried -- smaller steps would solve the same problem"""
+        nonlocal _halvings
+        working = network.get_working_variant_id()
+        network.clone_variant(working, _snapshot, True)
+        done, step, local_halvings = 0.0, 1.0, 0
+        while True:
+            t = min(1.0, done + step)
+            apply_fraction(t)
+            results = _solve(cold_fallback=done == 0.0 and local_halvings == 0)
+            if _converged(results, keys):
+                if t >= 1.0:
+                    return results
+                done = t
+                network.clone_variant(working, _snapshot, True)
+                continue
+            if not continuation or trivial or local_halvings >= max_halvings:
+                if keys and t < 1.0 and _converged(results):
+                    # only secondary islands fail -> finish the change for the main island, they are dropped afterwards
+                    logger.warning(f"{label}: secondary islands still diverge, completing the change for the main island")
+                    network.clone_variant(_snapshot, working, True)
+                    keys, step, local_halvings = None, 1.0 - done, 0
+                    continue
+                return results
+            _failed = [r.connected_component_num for r in results
+                       if r.status.value != 0 and (r is results[0] or (keys and r.connected_component_num in keys))]
+            logger.warning(f"{label}: components {_failed} diverged at {t:.3f} of the change "
+                           f"({getattr(results[0], 'status_text', None)}), restoring last converged state, half sub-step")
+            network.clone_variant(_snapshot, working, True)
+            step /= 2
+            local_halvings += 1
+            _halvings += 1
 
     # Get entire network elements mapping to areas
     _elements_to_areas_map = get_network_elements_map_to_areas(network=network)  # polars: columns include 'id', _country_col
@@ -412,7 +543,7 @@ def scale_balance(model: object,
 
     # Updating HVDC network elements to scheduled values
     scalable_hvdc_target = scalable_hvdc.select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor'])
-    if _CONSTANT_POWER_FACTOR:
+    if _CONSTANT_POWER_FACTOR and not hvdc_keep_q:
         scalable_hvdc_target = scalable_hvdc_target.with_columns(
             (pl.col('value') * pl.col('power_factor')).alias('value_q')  # ensure power factor is kept
         )
@@ -421,6 +552,10 @@ def scale_balance(model: object,
         scalable_hvdc_target = scalable_hvdc_target.join(
             boundary_lines.select(['id', 'q0']), on='id', how='left', maintain_order='left'
         ).rename({'q0': 'value_q'})
+    scalable_hvdc_target = scalable_hvdc_target.join(
+        boundary_lines.select(['id', pl.col('p0').alias('_p_start'), pl.col('q0').alias('_q_start')]),
+        on='id', how='left', maintain_order='left'
+    )
 
     _hvdc_kept = sorted(set(boundary_lines.filter((pl.col('isHvdc') == 'true') & pl.col('connected'))
                             ['lineEnergyIdentificationCodeEIC'].drop_nulls().to_list())
@@ -440,18 +575,20 @@ def scale_balance(model: object,
                 > hvdc_igm_offset * pl.max_horizontal(pl.col('_a').abs(), pl.col('_b').abs()))
         .with_columns(pl.when(pl.col('_side') == 0).then((pl.col('_a') - pl.col('_b')) / 2)
                       .otherwise((pl.col('_b') - pl.col('_a')) / 2).alias('value'))
-        .select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor', pl.col('q0').alias('value_q')])
+        .select(['id', 'value', 'lineEnergyIdentificationCodeEIC', 'power_factor', pl.col('q0').alias('value_q'),
+                 pl.col('p0').alias('_p_start'), pl.col('q0').alias('_q_start')])
     )
     if not _hvdc_avg.is_empty():
         logger.warning(f"[INITIAL] HVDC links without schedule set to the average of both IGM sides (differ by more "
                        f"than {hvdc_igm_offset:.0%}): {_hvdc_avg['lineEnergyIdentificationCodeEIC'].unique().to_list()}")
         scalable_hvdc_target = pl.concat([scalable_hvdc_target, _hvdc_avg], how='diagonal_relaxed')
 
-    network.update_boundary_lines(
-        id=scalable_hvdc_target['id'].to_list(),
-        p0=scalable_hvdc_target['value'].to_list(),
-        q0=scalable_hvdc_target['value_q'].to_list(),
-    )
+    def _apply_hvdc(t: float):
+        network.update_boundary_lines(
+            id=scalable_hvdc_target['id'].to_list(),
+            p0=(scalable_hvdc_target['_p_start'] + t * (scalable_hvdc_target['value'] - scalable_hvdc_target['_p_start'])).to_list(),
+            q0=(scalable_hvdc_target['_q_start'] + t * (scalable_hvdc_target['value_q'] - scalable_hvdc_target['_q_start'])).to_list(),
+        )
     _hvdc_results.append({
         **dict(zip(scalable_hvdc_target['lineEnergyIdentificationCodeEIC'].to_list(), scalable_hvdc_target['value'].to_list())),
         'KEY': 'postscale-setpoint',
@@ -473,9 +610,12 @@ def scale_balance(model: object,
     # slack_generators = get_slack_generators(network)  # TODO
     # logger.info(f"[INITIAL] Network slack generators: {slack_generators.name.to_list()}")
 
-    # Solving initial loadflow
+    # Solving initial loadflow (HVDC setpoints applied here, in sub-steps if needed)
     converged_components = {}
-    pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+    _hvdc_trivial = scalable_hvdc_target.is_empty() or max(
+        (scalable_hvdc_target['value'] - scalable_hvdc_target['_p_start']).abs().max() or 0.0,
+        (scalable_hvdc_target['value_q'] - scalable_hvdc_target['_q_start']).abs().max() or 0.0) < 1e-6
+    pf_results = _continuation(_apply_hvdc, "[INITIAL] HVDC setpoints", trivial=_hvdc_trivial)
     for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
         result_dict = attr_to_dict(result)
         logger.info(f"[INITIAL] Loadflow status: {result_dict.get('status').name}")
@@ -564,6 +704,7 @@ def scale_balance(model: object,
         )
         _held_acnp = {f"{c}-{k}": round(_held_prescale.get(f"{c}-{k}", v or 0.0), 1) for c, k, v in _held_frame.iter_rows()}
     target_network_acnp = {}
+    _dl_updates = []
     for component_key, v in valid_components.items():
         scheduled_component_acnp = float(round(
             target_acnp_df.filter(pl.col('connected_component') == component_key)['value'].sum() or 0.0, 1
@@ -588,21 +729,35 @@ def scale_balance(model: object,
         )
         relevant_boundary_lines = relevant_boundary_lines.filter(pl.col('prescale_network_acnp_target').is_not_null())
         if _CONSTANT_POWER_FACTOR:
-            relevant_boundary_lines = relevant_boundary_lines.with_columns(
-                (pl.col('prescale_network_acnp_target') * pl.col('power_factor')).alias('_component_dl_q_values')
-            )
+            if incremental_q:
+                _dl_q = pl.col('q0') + (pl.col('prescale_network_acnp_target') - pl.col('p0')) * pl.col('power_factor')
+            else:
+                _dl_q = pl.col('prescale_network_acnp_target') * pl.col('power_factor')
+            relevant_boundary_lines = relevant_boundary_lines.with_columns(_dl_q.alias('_component_dl_q_values'))
         else:
             relevant_boundary_lines = relevant_boundary_lines.with_columns(pl.col('q0').alias('_component_dl_q_values'))
         logger.info(f"[ITER {_iteration}] Scaling network component {component_key} {v['countries']} ACNP to scheduled: {scheduled_component_acnp}")
-        network.update_boundary_lines(
-            id=relevant_boundary_lines['id'].to_list(),
-            p0=relevant_boundary_lines['prescale_network_acnp_target'].to_list(),
-            q0=relevant_boundary_lines['_component_dl_q_values'].to_list(),
-        )
+        _dl_updates.append(relevant_boundary_lines.select([
+            'id', pl.col('p0').alias('_p_start'), pl.col('q0').alias('_q_start'),
+            pl.col('prescale_network_acnp_target').alias('_p_target'), pl.col('_component_dl_q_values').alias('_q_target'),
+        ]))
     _scaling_results.append({'KEY': 'target-network-acnp', 'GLOBAL': target_network_acnp, 'ITER': _iteration})
+    _dl_update = pl.concat(_dl_updates, how='diagonal_relaxed') if _dl_updates else None
 
-    # Solving loadflow after aligning total network AC net position to scheduled
-    pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+    def _apply_alignment(t: float):
+        if _dl_update is not None and not _dl_update.is_empty():
+            network.update_boundary_lines(
+                id=_dl_update['id'].to_list(),
+                p0=(_dl_update['_p_start'] + t * (_dl_update['_p_target'] - _dl_update['_p_start'])).to_list(),
+                q0=(_dl_update['_q_start'] + t * (_dl_update['_q_target'] - _dl_update['_q_start'])).to_list(),
+            )
+
+    # Solving loadflow after aligning total network AC net position to scheduled (in sub-steps if needed)
+    _alignment_trivial = _dl_update is None or _dl_update.is_empty() or max(
+        (_dl_update['_p_target'] - _dl_update['_p_start']).abs().max() or 0.0,
+        (_dl_update['_q_target'] - _dl_update['_q_start']).abs().max() or 0.0) < 1e-6
+    pf_results = _continuation(_apply_alignment, f"[ITER {_iteration}] ACNP alignment",
+                               keys=set(valid_components), trivial=_alignment_trivial)
     for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
         result_dict = attr_to_dict(result)
         logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
@@ -711,14 +866,21 @@ def scale_balance(model: object,
         conform_loads_na = conform_loads.join(
             scalable_loads_target.select('id'), on='id', how='inner', maintain_order='right'
         )
-        network.update_loads(
-            id=scalable_loads_target['id'].to_list(),
-            p0=scalable_loads_target['scalable_loads_target'].to_list(),
-            q0=(scalable_loads_target['scalable_loads_target'] * conform_loads_na['power_factor']).to_list(),  # maintain power factor
-        )
+        def _apply_loads(t: float):
+            _load_p = scalable_loads_target['p0'] + scalable_loads_target['scalable_loads_diff'] * t
+            if incremental_q:
+                _load_q = scalable_loads_target['q0'] + scalable_loads_target['scalable_loads_diff'] * t * conform_loads_na['power_factor']
+            else:
+                _load_q = _load_p * conform_loads_na['power_factor']  # maintain power factor
+            network.update_loads(
+                id=scalable_loads_target['id'].to_list(),
+                p0=_load_p.to_list(),
+                q0=_load_q.to_list(),
+            )
 
-        # Solving post-scale loadflow
-        pf_results = pp.loadflow.run_ac(network=network, parameters=lf_settings)
+        # Solving post-scale loadflow (load change applied in sub-steps if needed)
+        pf_results = _continuation(_apply_loads, f"[ITER {_iteration}] load scaling", keys=set(valid_components),
+                                   trivial=(scalable_loads_target['scalable_loads_diff'].abs().max() or 0.0) < 1e-6)
         for result in [x for x in pf_results if x.connected_component_num in _components.keys()]:
             result_dict = attr_to_dict(result)
             logger.info(f"[ITER {_iteration}] Loadflow status: {result_dict.get('status').name}")
