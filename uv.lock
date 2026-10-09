@@ -258,7 +258,7 @@ requires-dist = [
     { name = "opdm-api" },
     { name = "pandas" },
     { name = "pika" },
-    { name = "polars", specifier = ">=1.0" },
+    { name = "polars", specifier = ">=1.17.1" },
     { name = "pyarrow", specifier = ">=24.0.0" },
     { name = "pypowsybl", specifier = "==1.16.1" },
     { name = "pytz" },
