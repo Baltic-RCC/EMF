@@ -166,7 +166,7 @@ class HandlerMergeModels:
         ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start,
                                             merged_model=merged_model)
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
-        acnp_dict = calculate_ac_net_position(ac_schedules) if model_scaling and dc_schedules else None
+        acnp_dict = calculate_ac_net_position(ac_schedules) if model_scaling else None
 
         # Create list of only the TSOs that are needed for the merge, to query Elastic only for *their* metadata
         desired_tsos = merge_functions.filter_models(tsos=full_tso_list,
@@ -331,16 +331,20 @@ class HandlerMergeModels:
 
         # Scale merged model to reference schedules
         if model_scaling:
-            if all([ac_schedules, dc_schedules]):
+            if ac_schedules:
+                if not dc_schedules:
+                    logger.warning(f"DC schedules not available: {schedule_time_horizon} for {schedule_start}, "
+                                   f"HVDC setpoints kept from network model")
                 try:
                     merged_model = scaler.scale_balance(model=merged_model,
                                                         ac_schedules=ac_schedules,
-                                                        dc_schedules=dc_schedules,
+                                                        dc_schedules=dc_schedules or [],
                                                         lf_settings=pp_loadflow_parameters,
                                                         debug=debug)
                 except Exception as e:
                     logger.error(f"Model scaling failed: {type(e).__name__}: {e}", exc_info=True)
                     merged_model.scaled = False
+                logger.info(f"Scaling result: scaled={merged_model.scaled} {getattr(merged_model, 'scaling_info', {})}")
             else:
                 logger.warning(f"Schedule reference data not available: {schedule_time_horizon} for {schedule_start}")
                 logger.warning(f"Network model schedule scaling not performed")
