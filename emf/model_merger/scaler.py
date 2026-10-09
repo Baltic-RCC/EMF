@@ -234,8 +234,12 @@ def _set_power_ratio_to_boundary_lines(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-# Reactive power handling (hvdc_keep_q, incremental_q) tried in this order while scaling diverges
-Q_ATTEMPTS = ((True, True), (False, False))
+# Scaling attempts tried in this order while scaling diverges: all improvements, then the solving method of the
+# previous scaler (cold start, no sub-steps, q0 from power factor) -- never worse than before at convergence
+ATTEMPTS = (
+    ('improved', {}),
+    ('main', {'warm_start': False, 'continuation': False, 'hvdc_keep_q': False, 'incremental_q': False}),
+)
 _DIVERGED_EXITS = ('initial_lf_diverged', 'diverged_after_acnp_alignment', 'diverged_in_loop')
 
 
@@ -246,32 +250,30 @@ def scale_balance(model: object,
                   *,
                   debug: bool,
                   lf_settings: pp.loadflow.Parameters = EU_RELAXED,
-                  q_attempts: tuple = Q_ATTEMPTS,
+                  attempts: tuple = ATTEMPTS,
                   **kwargs):
     """Scale each CGM area to target balance, see _scale_balance. If scaling diverges, the merged model state is
-    restored and scaling retried with the next reactive power handling of q_attempts (explicit hvdc_keep_q /
-    incremental_q give a single attempt). Attempts are listed in scaling_info, temporary variants always removed."""
+    restored and scaling retried with the settings of the next attempt (overriding kwargs). Attempts are listed in
+    scaling_info, temporary variants are always removed."""
     network = model.network
     working = network.get_working_variant_id()
     snapshot, start = f"{working}_scaler_snapshot", f"{working}_scaler_start"
-    if 'hvdc_keep_q' in kwargs or 'incremental_q' in kwargs:
-        q_attempts = ((kwargs.pop('hvdc_keep_q', True), kwargs.pop('incremental_q', True)),)
-    attempts = []
+    done = []
     try:
-        if len(q_attempts) > 1:
+        if len(attempts) > 1:
             network.clone_variant(working, start, True)
-        for i, (hvdc_keep_q, incremental_q) in enumerate(q_attempts):
+        for i, (mode, settings) in enumerate(attempts):
             if i:
-                logger.warning(f"Scaling ended with '{attempts[-1]['exit']}', restoring merged model state and retrying "
-                               f"with hvdc_keep_q={hvdc_keep_q}, incremental_q={incremental_q}")
+                logger.warning(f"Scaling ended with '{done[-1]['exit']}', restoring merged model state and retrying "
+                               f"in '{mode}' mode {settings}")
                 network.clone_variant(start, working, True)
             model = _scale_balance(model, ac_schedules, dc_schedules, debug=debug, lf_settings=lf_settings,
-                                   hvdc_keep_q=hvdc_keep_q, incremental_q=incremental_q, **kwargs)
+                                   **{**kwargs, **settings})
             info = getattr(model, 'scaling_info', None) or {}
-            attempts.append({'hvdc_keep_q': hvdc_keep_q, 'incremental_q': incremental_q, 'exit': info.get('exit')})
+            done.append({'mode': mode, 'exit': info.get('exit')})
             if info.get('exit') not in _DIVERGED_EXITS:
                 break
-        model.scaling_info = {**(getattr(model, 'scaling_info', None) or {}), 'attempts': attempts}
+        model.scaling_info = {**(getattr(model, 'scaling_info', None) or {}), 'attempts': done}
         return model
     finally:
         for variant in (snapshot, start):

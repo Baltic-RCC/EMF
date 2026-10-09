@@ -341,11 +341,9 @@ class HandlerMergeModels:
                                                         dc_schedules=dc_schedules or [],
                                                         lf_settings=pp_loadflow_parameters,
                                                         debug=debug,
-                                                        # non-converged base: single cold attempt as before, no sub-steps or retry
-                                                        warm_start=merged_model.loadflow_status == 'CONVERGED',
-                                                        continuation=merged_model.loadflow_status == 'CONVERGED',
-                                                        q_attempts=scaler.Q_ATTEMPTS if merged_model.loadflow_status == 'CONVERGED'
-                                                        else scaler.Q_ATTEMPTS[:1])
+                                                        # non-converged base: single attempt with the previous scaler's method
+                                                        attempts=scaler.ATTEMPTS if merged_model.loadflow_status == 'CONVERGED'
+                                                        else scaler.ATTEMPTS[1:])
                 except Exception as e:
                     logger.error(f"Model scaling failed: {type(e).__name__}: {e}", exc_info=True)
                     merged_model.scaled = False
