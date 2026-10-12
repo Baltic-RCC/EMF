@@ -64,6 +64,11 @@ def generate_tasks(task_window_duration: str,
         # Loop through each run in the process configuration.
         for run in process["runs"]:
 
+            #disable mandatory run_at:
+            if not run.get("run_at"):
+                logger.debug(f"Run {run['@id']} has no run_at, manual-only, skipping")
+                continue
+
             # Get the time zone for the run (use the process time zone if not specified).
             time_zone = run.get("time_zone", process["time_zone"])
 
