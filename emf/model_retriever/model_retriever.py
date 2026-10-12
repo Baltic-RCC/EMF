@@ -126,16 +126,23 @@ class HandlerModelsToValidator:
         # Load from binary to json
         opdm_objects = json.loads(message)
 
+        output_queue = OUTPUT_RMQ_QUEUE
         for opdm_object in opdm_objects:
             # Append message headers with OPDM root metadata
             extracted_meta = {key: value for key, value in opdm_object.items() if isinstance(value, str)}
             properties.headers.update(extracted_meta)
 
+            # OPDM models go to small/large queue by size (unknown size goes large), others (PDN) stay on default queue
+            if opdm_object.get('data-source') == 'OPDM':
+                model_size = str(opdm_object.get('pmd:modelSize', ''))
+                size_class = 'small' if model_size.isdigit() and int(model_size) < int(SMALL_MODEL_SIZE_LIMIT) else 'large'
+                output_queue = f"{OUTPUT_RMQ_QUEUE}.{size_class}"
+
         # Publish to other queue/exchange
         rmq_channel = kwargs.get('channel', None)
         if rmq_channel:
-            logger.info(f"Publishing message to exchange/queue: {OUTPUT_RMQ_QUEUE}")
-            rmq_channel.basic_publish(exchange='', routing_key=OUTPUT_RMQ_QUEUE, body=message, properties=properties)
+            logger.info(f"Publishing message to exchange/queue: {output_queue}")
+            rmq_channel.basic_publish(exchange='', routing_key=output_queue, body=message, properties=properties)
 
         return message, properties
 
