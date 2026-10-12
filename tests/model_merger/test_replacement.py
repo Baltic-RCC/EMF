@@ -140,6 +140,18 @@ def test_find_replacement_models_drops_documents_with_list_valued_fields():
     assert ids(find_replacements(records)) == ["clean"]
 
 
+@pytest.mark.xfail(strict=True, reason="pl.DataFrame(columns) raises on mixed value types in one column, the error is "
+                                       "caught and replacement returns nothing for all TSOs")
+@pytest.mark.parametrize("field, odd_value", [("pmd:versionNumber", 3), ("ac_net_position", "123.4"),
+                                              ("sum_conform_load", "n/a")])
+def test_find_replacement_models_tolerates_one_document_with_other_value_type(field, odd_value):
+    records = [candidate("elering", "1D", SCENARIO, ac_net_position=1.0, sum_conform_load=1.0),
+               candidate("ast", "1D", SCENARIO, tso="AST", ac_net_position=1.0, sum_conform_load=1.0)]
+    records[1][field] = odd_value
+
+    assert sorted(ids(find_replacements(records))) == ["ast", "elering"]
+
+
 def test_find_replacement_models_month_ahead_uses_first_monday_of_previous_month():
     records = [candidate("month_ahead", "MO", "2025-07-16T21:30:00Z"),
                candidate("first_monday_08_30", "1D", "2025-06-02T08:30:00Z"),
