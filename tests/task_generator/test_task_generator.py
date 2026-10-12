@@ -10,6 +10,7 @@ from emf.task_generator.task_generator import generate_tasks
 
 PROCESS_CONF = json.loads(config.paths.task_generator.process_conf.read_text())
 TIMEFRAME_CONF = json.loads(config.paths.task_generator.timeframe_conf.read_text())
+MANUAL_ONLY_RUN_TYPES = [run["@id"].rsplit("/runs/", 1)[-1] for process in PROCESS_CONF for run in process["runs"] if not run.get("run_at")]
 
 
 def select_runs(*run_types: str) -> list:
@@ -267,7 +268,14 @@ def test_intraday_rmm_eod_does_not_fire_on_an_ordinary_wednesday(generate):
     assert generate(select_runs("IntraDayRMM/EOD"), "2025-06-04T14:59:30+02:00") == []
 
 
-@pytest.mark.xfail(strict=True, reason="croniter ORs day-of-month and day-of-week, so run_at '00 15 29 02 3' "
-                                       "(29 February on a Wednesday) fires every Wednesday in February")
+@pytest.mark.xfail(select_runs("IntraDayRMM/EOD")[0]["runs"][0]["run_at"] == "00 15 29 02 3", strict=True,
+                   reason="croniter ORs day-of-month and day-of-week, so run_at '00 15 29 02 3' "
+                          "(29 February on a Wednesday) fires every Wednesday in February")
 def test_intraday_rmm_eod_does_not_fire_on_a_february_wednesday(generate):
     assert generate(select_runs("IntraDayRMM/EOD"), "2026-02-04T14:59:30+01:00") == []
+
+
+@pytest.mark.parametrize("run_type", MANUAL_ONLY_RUN_TYPES)
+def test_run_without_run_at_is_never_generated_automatically(generate, run_type):
+    assert generate(select_runs(run_type), "2026-01-01T00:00:30+02:00", window_duration="P366D",
+                    window_reference="currentDayStart") == []
