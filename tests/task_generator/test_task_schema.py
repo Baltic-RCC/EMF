@@ -30,6 +30,7 @@ def schema_errors(task: dict) -> list[str]:
 def first_task_of_run(process: dict, run: dict) -> dict:
     """First task the run creates at its next scheduled time after 2025-06-01, with Elastic mocked"""
     time_zone = timezone(run.get("time_zone", process["time_zone"]))
+    run = {**run, "run_at": run["run_at"] or "* * * * *"}  # manual-only run, as build_manual_run_config sets it
     run_time = croniter.croniter(run["run_at"], time_zone.localize(datetime(2025, 6, 1))).get_next(datetime)
     process_conf = [{**copy.deepcopy(process), "runs": [copy.deepcopy(run)]}]
     with mock.patch("emf.task_generator.task_versioning._get_matching_tasks", return_value=pd.DataFrame()), \
@@ -42,7 +43,7 @@ def first_task_of_run(process: dict, run: dict) -> dict:
 def run_param(process: dict, run: dict):
     run_type = run["@id"].rsplit("/runs/", 1)[-1]
     marks = []
-    if run_type == "YearAheadCGM":
+    if run_type == "YearAheadCGM" and "outage_update" not in run["properties"]:
         marks = [pytest.mark.xfail(strict=True, reason="YearAheadCGM in process_conf.json lacks the required outage_update "
                                                        "property (merger's TaskConfig.from_task raises KeyError)")]
     return pytest.param(process, run, id=run_type, marks=marks)
@@ -96,4 +97,4 @@ def test_every_run_refers_to_a_usable_time_frame(process, run):
 
     assert time_frame["reference_time_start"] in reference_times
     assert time_frame["reference_time_end"] in reference_times
-    assert croniter.croniter.is_valid(run["run_at"]) and croniter.croniter.is_valid(run["data_timestamps"])
+    assert (not run["run_at"] or croniter.croniter.is_valid(run["run_at"])) and croniter.croniter.is_valid(run["data_timestamps"])

@@ -13,6 +13,7 @@ from emf.task_generator.task_generator import generate_tasks
 
 PROCESS_CONF = json.loads(config.paths.task_generator.process_conf.read_text())
 TIMEFRAME_CONF = json.loads(config.paths.task_generator.timeframe_conf.read_text())
+MANUAL_ONLY_RUN_TYPES = [run["@id"].rsplit("/runs/", 1)[-1] for process in PROCESS_CONF for run in process["runs"] if not run.get("run_at")]
 
 
 @pytest.fixture
@@ -156,6 +157,17 @@ def test_now_reference_run_types_use_current_time(settings, freeze_now, run_type
     _, _, timestamp = build(settings, RUN_TYPE=run_type)
 
     assert timestamp == "2025-06-10T10:15:01+02:00"
+
+
+@pytest.mark.parametrize("run_type", MANUAL_ONLY_RUN_TYPES)
+def test_run_without_run_at_uses_current_time_and_creates_manual_tasks(settings, freeze_now, run_type):
+    freeze_now(datetime(2025, 6, 10, 8, 15, 42, tzinfo=timezone.utc))
+
+    process_conf, timeframe_conf, timestamp = build(settings, RUN_TYPE=run_type, MANUAL_NOW_REFERENCE_RUN_TYPES="")
+
+    assert timestamp == "2025-06-10T10:15:01+02:00"
+    tasks = generate(process_conf, timeframe_conf, timestamp)
+    assert tasks and {task["task_type"] for task in tasks} == {"manual"}
 
 
 @pytest.mark.parametrize("run_type, utc_now, expected_timestamp", [
