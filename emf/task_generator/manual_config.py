@@ -56,7 +56,7 @@ def build_manual_run_config(process_config_json: list, timeframe_config_json: li
     process_config_json = [{**process, "runs": [run]}]
     timeframe_config_json = [select_timeframe(timeframe_config_json, run["time_frame"])]
 
-    original_run_at = run["run_at"]
+    original_run_at = run.get("run_at")
     run["run_at"] = "* * * * *"
 
     run["properties"]["included"] = [tso.strip() for tso in settings["INCLUDED_TSO"].split(",")] if settings["INCLUDED_TSO"] else []
@@ -84,7 +84,7 @@ def build_manual_run_config(process_config_json: list, timeframe_config_json: li
         # :00 seconds trips generate_tasks()'s cron boundary check into running twice - same fix
         # already used below for the reconstructed timestamp.
         timestamp = parse_datetime(settings["TIMESTAMP"]).replace(second=1).isoformat()
-    elif run_type in now_reference_run_types:
+    elif run_type in now_reference_run_types or not original_run_at:
         # Same :00-seconds boundary issue as the TIMESTAMP override above - astronomically unlikely
         # with a real clock, but cheap to guard against consistently.
         timestamp = datetime.now(tz=timezone(process["time_zone"])).replace(second=1).isoformat()
