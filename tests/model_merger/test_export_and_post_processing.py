@@ -358,6 +358,20 @@ def test_remove_duplicate_sv_voltages_keeps_one_non_zero_voltage_per_shared_boun
     assert result.height == 6
 
 
+@pytest.mark.xfail(strict=True, reason="an unparsable voltage casts to null, which sorts before valid voltages and is kept")
+def test_remove_duplicate_sv_voltages_prefers_valid_voltage_over_unparsable_one(pl_triplets):
+    original = pl_triplets(BOUNDARY_NODE_ROWS + [("o1", "SvVoltage.TopologicalNode", "tn-b"),
+                                                 ("o2", "SvVoltage.TopologicalNode", "tn-b")])
+    sv = pl_triplets([
+        ("v1", "Type", "SvVoltage"), ("v1", "SvVoltage.TopologicalNode", "tn-b"), ("v1", "SvVoltage.v", "n/a"),
+        ("v2", "Type", "SvVoltage"), ("v2", "SvVoltage.TopologicalNode", "tn-b"), ("v2", "SvVoltage.v", "401"),
+    ])
+
+    result = post_processing.remove_duplicate_sv_voltages(cgm_sv_data=sv, original_data=original)
+
+    assert set(result["ID"]) == {"v2"}
+
+
 # ---------------------------------------------------------------- SSH consistency and injection fixes
 
 def test_set_paired_boundary_injections_to_zero_only_touches_paired_injections(pl_triplets):
@@ -598,6 +612,8 @@ def test_check_net_interchanges_updates_control_area_interchange_to_solved_tie_f
 
     assert float(_values(result, "ControlArea.netInterchange", "ca")[0]) == 120
     assert _values(result, "ControlArea.pTolerance", "ca") == ["10"]
+    # the pandas version also wrote a stray (ca, index, 0) triplet
+    assert _values(result, "index") == []
 
 
 # ---------------------------------------------------------------- run_post_merge_processing on MicroGrid
