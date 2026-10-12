@@ -525,6 +525,7 @@
         "replacement": "True",
         "replacement_local":"False",
         "post_temp_fixes":"True",
+        "outage_update": "False",
         "force_outage_fix":"False",
         "scaling": "True",
         "upload_to_opdm": "True",
