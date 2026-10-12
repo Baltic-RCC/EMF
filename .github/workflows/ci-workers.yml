@@ -100,6 +100,8 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
           category: trivy-${{ matrix.worker }}
+          sha: ${{ github.sha }}
+          ref: refs/heads/main
 
       - name: Tag image as latest
         run: |
