@@ -43,7 +43,7 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
     :param skip_default_parameters: skip the default parameters
     """
     logger.info("Loading models into merged model")
-    default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'true'}
+    default_parameters = {"iidm.import.cgmes.import-node-breaker-as-bus-breaker": 'false'}
     if not skip_default_parameters:
         if not parameters:
             parameters = default_parameters
