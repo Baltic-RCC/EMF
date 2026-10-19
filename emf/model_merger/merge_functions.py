@@ -6,13 +6,17 @@ import sys
 import datetime
 import triplets
 import uuid
+import zipfile
 import xml.etree.ElementTree as ET
+from lxml import etree
 from dataclasses import dataclass, field
 from typing import List
+from emf.common.decorators import performance_counter
 from emf.common.integrations import elastic
 from emf.common.helpers.time import parse_datetime
 from emf.common.helpers.loadflow import get_model_outages, get_network_elements
-from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata
+from emf.common.helpers.opdm_objects import load_opdm_objects_to_triplets, filename_from_opdm_metadata, \
+    get_opdm_component_data_bytes
 from emf.common.helpers.utils import sanitize_nan, is_valid_uuid
 from emf.common.logging.custom_logger import set_logging_context_token
 
@@ -461,6 +465,64 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
         logger.debug(f"Changed status of boundary line {row['name']}: {row['connected']} -> False")
 
     return network
+
+
+def _non_retained_switch_ids_from_xml(xml_file) -> set:
+    """Stream one EQ file and collect IDs of switches with cim:Switch.retained false"""
+    switch_ids = set()
+    for _, element in etree.iterparse(xml_file, events=('end',)):
+        if isinstance(element.tag, str) and element.tag.endswith('}Switch.retained') and \
+                (element.text or '').strip() == 'false':
+            parent = element.getparent()
+            switch_id = parent.get('{http://www.w3.org/1999/02/22-rdf-syntax-ns#}ID') or \
+                parent.get('{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about', '')
+            switch_ids.add(switch_id.lstrip('#_'))
+        elif element.getparent() is not None and element.getparent().getparent() is None:
+            # Release finished top-level objects to keep memory flat on large EQ files
+            element.clear()
+            while element.getprevious() is not None:
+                del element.getparent()[0]
+    return switch_ids
+
+
+@performance_counter(units='seconds')
+def get_non_retained_switch_ids(opdm_objects: list) -> set:
+    """IDs of switches with cim:Switch.retained false in EQ profiles of given models"""
+    switch_ids = set()
+    for opdm_object in opdm_objects:
+        for component in opdm_object.get('opde:Component', []):
+            if component['opdm:Profile']['pmd:cgmesProfile'] != 'EQ':
+                continue
+            data = get_opdm_component_data_bytes(component)
+            if not zipfile.is_zipfile(data):
+                data.seek(0)
+                switch_ids |= _non_retained_switch_ids_from_xml(data)
+                continue
+            with zipfile.ZipFile(data) as zip_file:
+                for file_name in zip_file.namelist():
+                    with zip_file.open(file_name) as xml_file:
+                        switch_ids |= _non_retained_switch_ids_from_xml(xml_file)
+    return switch_ids
+
+
+def get_non_retained_switches_between_nodes(network: pypowsybl.network.Network, opdm_objects: list) -> pd.DataFrame:
+    """
+    Closed non-retained switches between different TopologicalNodes. In bus-breaker import every switch in network
+    connects different TNs, so only cim:Switch.retained is read from EQ. Node-breaker voltage levels are skipped.
+    """
+    switches = network.get_switches(attributes=['open', 'voltage_level_id'])
+    voltage_levels = network.get_voltage_levels(attributes=['topology_kind'])
+    bus_breaker_levels = voltage_levels.index[voltage_levels['topology_kind'] == 'BUS_BREAKER']
+    closed_switches = switches[~switches['open'] & switches['voltage_level_id'].isin(bus_breaker_levels)]
+    if closed_switches.empty:
+        return pd.DataFrame(columns=['ID'])
+
+    switch_ids = closed_switches.index.intersection(list(get_non_retained_switch_ids(opdm_objects)))
+    if len(switch_ids):
+        logger.warning(f"Found {len(switch_ids)} closed non-retained switches between topological nodes")
+        logger.debug(f"Closed non-retained switches between topological nodes: {switch_ids.tolist()}")
+
+    return pd.DataFrame({'ID': switch_ids})
 
 
 def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Network):

@@ -53,12 +53,20 @@ class HandlerMergeModels:
         self.opdm_service = None
 
     @staticmethod
-    def apply_pre_loadflow_corrections(merged_model):
+    def apply_pre_loadflow_corrections(merged_model, input_models: list | None = None):
         """Network-level fixes applied before the loadflow is solved"""
         logger.info(f"Applying pre-loadflow corrections")
         # Various corrections from igmsshvscgmssh error
         if json.loads(REMOVE_GENERATORS_FROM_SLACK_DISTRIBUTION.lower()):
             merged_model.network = handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance=merged_model.network)
+
+        # Follow IGM TP in loadflow without changing SSH: open closed non-retained switches between different TNs
+        if input_models and json.loads(OPEN_NON_RETAINED_SWITCHES.lower()):
+            switches = merge_functions.get_non_retained_switches_between_nodes(network=merged_model.network,
+                                                                               opdm_objects=input_models)
+            if not switches.empty:
+                merged_model.network = post_processing.open_switches_in_network(
+                    network_pre_instance=merged_model.network, switches_dataframe=switches)
 
         # Ensure boundary point EquivalentInjection are set to zero for paired tie lines
         merged_model.network = merge_functions.ensure_paired_equivalent_injection_compatibility(
@@ -322,7 +330,7 @@ class HandlerMergeModels:
                                                                 time_horizon=time_horizon)
 
         # Apply network-level corrections before solving loadflow
-        merged_model = self.apply_pre_loadflow_corrections(merged_model=merged_model)
+        merged_model = self.apply_pre_loadflow_corrections(merged_model=merged_model, input_models=input_models)
 
         # Run loadflow on merged model
         merged_model, pp_loadflow_parameters = self.run_loadflow(merged_model=merged_model)
