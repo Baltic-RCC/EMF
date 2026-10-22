@@ -257,6 +257,19 @@ def convert_to_timezone(date_time, from_timezone="UTC", to_timezone='Europe/Brus
     return date_time.astimezone(timezone(to_timezone))
 
 
+def add_duration_local(date_time: datetime, duration: timedelta, time_zone: str = 'Europe/Brussels') -> datetime:
+    """
+    Adds a duration to a timezone-aware datetime: whole days in local wall-clock time (keeps local midnight
+    across daylight saving changes), the remaining hours and minutes in absolute time.
+    """
+    tz = timezone(time_zone)
+    date_time = date_time.astimezone(tz)
+    sign = -1 if duration < timedelta(0) else 1
+    days = timedelta(days=abs(duration).days)
+    date_time = tz.localize(date_time.replace(tzinfo=None) + sign * days, is_dst=bool(date_time.dst()))
+    return tz.normalize(date_time + sign * (abs(duration) - days))
+
+
 def utcnow():
     return datetime.now(timezone("UTC"))
 
