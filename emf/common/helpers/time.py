@@ -10,9 +10,11 @@
 # -------------------------------------------------------------------------------
 from functools import wraps
 from datetime import datetime, timedelta
+from calendar import monthrange
 
 import aniso8601
 from aniso8601 import parse_duration as duration_parser
+from aniso8601.builders import TupleBuilder
 from pytz import timezone
 
 
@@ -255,6 +257,25 @@ def convert_to_timezone(date_time, from_timezone="UTC", to_timezone='Europe/Brus
         date_time = timezone(from_timezone).localize(date_time)
 
     return date_time.astimezone(timezone(to_timezone))
+
+
+def add_duration_local(date_time: datetime, duration: str, time_zone: str = 'Europe/Brussels') -> datetime:
+    """
+    Adds an ISO 8601 duration to a timezone-aware datetime: years and months as calendar months, whole days
+    in local wall-clock time (keeps local midnight across daylight saving changes), the rest in absolute time.
+    """
+    tz = timezone(time_zone)
+    date_time = date_time.astimezone(tz)
+    sign = -1 if duration.startswith("-") else 1
+    parts = aniso8601.parse_duration(duration.lstrip("-"), builder=TupleBuilder)
+    rest = timedelta(weeks=float(parts.PnW or 0), days=float(parts.PnD or 0), hours=float(parts.TnH or 0),
+                     minutes=float(parts.TnM or 0), seconds=float(parts.TnS or 0))
+    days = timedelta(days=rest.days)
+    year, month = divmod(date_time.month - 1 + sign * (int(parts.PnY or 0) * 12 + int(parts.PnM or 0)), 12)
+    year, month = date_time.year + year, month + 1
+    wall = date_time.replace(tzinfo=None, year=year, month=month, day=min(date_time.day, monthrange(year, month)[1]))
+    date_time = tz.localize(wall + sign * days, is_dst=bool(date_time.dst()))
+    return tz.normalize(date_time + sign * (rest - days))
 
 
 def utcnow():

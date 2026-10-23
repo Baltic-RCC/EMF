@@ -1,6 +1,6 @@
 [project]
 name = "emf"
-version = "1.8.0"
+version = "1.10.0"
 description = "Open source tool for European Merging Function"
 readme = "README.md"
 requires-python = ">=3.11"

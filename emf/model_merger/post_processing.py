@@ -818,7 +818,7 @@ def check_all_kind_of_injections(cgm_sv_data: pl.DataFrame,
     filtered = pl.concat(filtered_list, how="diagonal_relaxed").unique()
 
     if filtered.height > 0:
-        logger.warning(f"Found {filtered.height} mismatches between {injection_name} and flow values on terminals")
+        logger.info(f"Found {filtered.height} mismatches between {injection_name} and flow values on terminals")
         if fix_errors:
             logger.info(f"Updating {injection_name} values from terminal flow values")
             injections_update = injections.join(
