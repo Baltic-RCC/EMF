@@ -187,8 +187,6 @@ def test_scheduled_run_types_reconstruct_the_last_scheduled_slot(settings, freez
     assert timestamp == expected_timestamp
 
 
-@pytest.mark.xfail(strict=True, reason="previous day start is computed with replace() on the DST day's offset, "
-                                       "so on 2025-03-30 the late-night slot resolves to 2025-03-28 instead of 2025-03-29")
 def test_day_shift_run_type_on_spring_dst_day_uses_previous_day_slot(settings, freeze_now):
     freeze_now(datetime(2025, 3, 30, 8, 15, tzinfo=timezone.utc))
 

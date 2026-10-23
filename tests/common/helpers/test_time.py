@@ -4,7 +4,7 @@ import pytest
 from pytz import timezone
 
 from emf.common.helpers import time as time_helper
-from emf.common.helpers.time import (convert_to_timezone, convert_to_utc, parse_datetime, parse_duration,
+from emf.common.helpers.time import (add_duration_local, convert_to_timezone, convert_to_utc, parse_datetime, parse_duration,
                                      reference_times)
 
 BRUSSELS = timezone("Europe/Brussels")
@@ -79,6 +79,24 @@ def test_reference_times_default_to_now(monkeypatch):
 ])
 def test_parse_duration(duration, expected):
     assert parse_duration(duration) == expected
+
+
+@pytest.mark.parametrize("start, duration, expected", [
+    (datetime(2026, 1, 31), "P1M", datetime(2026, 2, 28)),  # clamped to month end
+    (datetime(2028, 3, 31, 10), "-P1M", datetime(2028, 2, 29, 10)),
+    (datetime(2026, 11, 1), "P2M", datetime(2027, 1, 1)),
+    (datetime(2028, 2, 29), "P1Y", datetime(2029, 2, 28)),
+    (datetime(2026, 10, 19), "P14D", datetime(2026, 11, 2)),  # local midnight across autumn DST
+    (datetime(2026, 10, 19), "-P1D", datetime(2026, 10, 18)),
+    (datetime(2026, 10, 24, 23), "PT25H", datetime(2026, 10, 26)),  # whole day in local time, then 1 h
+    (datetime(2026, 3, 28, 23), "PT25H", datetime(2026, 3, 30)),
+    (datetime(2026, 10, 25, 3, 30), "-PT1H", datetime(2026, 10, 25, 2, 30)),  # hours are elapsed time
+])
+def test_add_duration_local(start, duration, expected):
+    result = add_duration_local(BRUSSELS.localize(start), duration)
+
+    assert result == BRUSSELS.localize(expected)
+    assert result.utcoffset() == BRUSSELS.localize(expected).utcoffset()
 
 
 @pytest.mark.parametrize("local_time, expected_utc", [

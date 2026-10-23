@@ -244,8 +244,6 @@ def test_task_schedule_shift_is_applied_in_local_time_across_dst(generate):
     assert tasks[0]["task_properties"]["reference_schedule_start_utc"] == "2025-04-02T22:30"
 
 
-@pytest.mark.xfail(strict=True, reason="period end is computed with the UTC offset of the run time, "
-                                       "so the 23 hour spring DST day gets 24 tasks")
 def test_day_ahead_run_before_spring_dst_change_creates_23_tasks(generate):
     tasks = generate(select_runs("DayAheadCGM"), "2025-03-29T18:49:30+01:00")
 
@@ -254,14 +252,71 @@ def test_day_ahead_run_before_spring_dst_change_creates_23_tasks(generate):
     assert timestamps(tasks) == ["2025-03-29T23:30"] + [f"2025-03-30T{hour:02d}:30" for hour in range(22)]
 
 
-@pytest.mark.xfail(strict=True, reason="period end is computed with the UTC offset of the run time, "
-                                       "so the 25 hour autumn DST day gets 24 tasks")
 def test_day_ahead_run_before_autumn_dst_change_creates_25_tasks(generate):
     tasks = generate(select_runs("DayAheadCGM"), "2025-10-25T18:49:30+02:00")
 
     assert tasks[0]["job_period_start"] == "2025-10-25T22:00:00+00:00"
     assert tasks[0]["job_period_end"] == "2025-10-26T23:00:00+00:00"
     assert timestamps(tasks) == ["2025-10-25T22:30", "2025-10-25T23:30"] + [f"2025-10-26T{hour:02d}:30" for hour in range(23)]
+
+
+@pytest.mark.parametrize("now, expected_count, expected_last", [
+    ("2025-03-29T23:04:30+01:00", 23, "2025-03-30T21:30"),
+    ("2025-10-25T23:04:30+02:00", 25, "2025-10-26T22:30"),
+], ids=["spring-dst", "autumn-dst"])
+def test_intraday_h24_run_covers_the_whole_local_day_on_dst_days(generate, now, expected_count, expected_last):
+    tasks = generate(select_runs("IntraDayCGM/1"), now)
+
+    assert len(tasks) == expected_count
+    assert tasks[-1]["task_properties"]["timestamp_utc"] == expected_last
+
+
+def test_two_days_ahead_run_before_autumn_dst_covers_the_monday_after(generate):
+    tasks = generate(select_runs("TwoDaysAheadCGM"), "2025-10-25T19:49:30+02:00")
+
+    assert tasks[0]["job_period_start"] == "2025-10-26T23:00:00+00:00"
+    assert tasks[0]["job_period_end"] == "2025-10-27T23:00:00+00:00"
+    assert len(tasks) == 24
+
+
+@pytest.mark.parametrize("shift, expected_start, expected_end", [
+    (None, "2025-10-24T22:00:00+00:00", "2025-11-02T23:00:00+00:00"),
+    ("-P1D", "2025-10-24T22:00:00+00:00", "2025-11-02T23:00:00+00:00"),  # Tuesday, same week
+    ("-P3D", "2025-10-17T22:00:00+00:00", "2025-10-26T23:00:00+00:00"),  # Sunday, previous week
+    ("P7D", "2025-10-31T23:00:00+00:00", "2025-11-09T23:00:00+00:00"),
+])
+def test_process_time_shift_selects_the_week_of_a_week_ahead_run(generate, shift, expected_start, expected_end):
+    tasks = generate(select_runs("WeekAheadRMM"), "2025-10-22T17:59:30+02:00", process_time_shift=shift)
+
+    assert tasks[0]["job_period_start"] == expected_start
+    assert tasks[0]["job_period_end"] == expected_end
+    assert len(tasks) == 9  # Saturday to Sunday of the following week, 09:30Z each day
+
+
+@pytest.mark.parametrize("now, expected_start, expected_end", [
+    ("2025-09-17T22:59:30+02:00", "2025-09-30T22:00:00+00:00", "2025-10-31T23:00:00+00:00"),  # October
+    ("2026-02-17T22:59:30+01:00", "2026-02-28T23:00:00+00:00", "2026-03-31T22:00:00+00:00"),  # March, after 28 days
+], ids=["october", "march"])
+def test_month_ahead_run_covers_the_next_calendar_month(generate, now, expected_start, expected_end):
+    process_conf = select_runs("MonthAheadRMM")
+    process_conf[0]["runs"][0]["run_at"] = "00 23 17 * *"
+
+    tasks = generate(process_conf, now)
+
+    assert tasks[0]["job_period_start"] == expected_start
+    assert tasks[0]["job_period_end"] == expected_end
+    assert len(tasks) == 31
+
+
+def test_year_ahead_run_covers_the_next_calendar_year(generate):
+    process_conf = select_runs("YearAheadRMM")
+    process_conf[0]["runs"][0]["run_at"] = "0 4 1 9 *"
+
+    tasks = generate(process_conf, "2027-09-01T03:59:30+02:00")
+
+    assert tasks[0]["job_period_start"] == "2027-12-31T23:00:00+00:00"
+    assert tasks[0]["job_period_end"] == "2028-12-31T23:00:00+00:00"
+    assert len(tasks) == 8784  # 2028 is a leap year
 
 
 def test_intraday_rmm_eod_does_not_fire_on_an_ordinary_wednesday(generate):
