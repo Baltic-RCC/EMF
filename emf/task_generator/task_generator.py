@@ -38,8 +38,8 @@ def generate_tasks(task_window_duration: str,
             documentation.
         timetravel_now (str, optional): ISO-8601 datetime string to use instead of the actual current
             time, e.g. to reconstruct a specific past or manually-triggered run.
-        process_time_shift (str, optional): ISO-8601 duration string to shift the computed reference
-            time by, applied before the time frame's period_start/period_end offsets.
+        process_time_shift (str, optional): ISO-8601 duration string to shift the run time by before the
+            reference time is taken, i.e. it selects which day/week/month/year is generated.
         task_type (str): value of the task's `task_type` field, per the task schema's
             `["automatic", "manual"]` enum.
         task_initiator (str, optional): value of the task's `task_initiator` field. Falls back to the
@@ -108,15 +108,16 @@ def generate_tasks(task_window_duration: str,
                 # Get the reference time for the current timestamp in the time frame.
                 # Taken on local wall-clock time and localized after, so it gets its own daylight saving offset.
                 local_run_timestamp = convert_to_timezone(run_timestamp, from_timezone=time_zone, to_timezone=time_zone)
+
+                # Time shift moves the run time before the reference is taken, so the period only changes
+                # when the shifted time falls into another day/week/month/year.
+                if process_time_shift:
+                    local_run_timestamp = add_duration_local(local_run_timestamp, parse_duration(process_time_shift), time_zone)
+
                 local_wall_time = local_run_timestamp.replace(tzinfo=None)
                 is_dst = bool(local_run_timestamp.dst())
                 reference_time_start = timezone(time_zone).localize(reference_times[time_frame["reference_time_start"]](local_wall_time), is_dst=is_dst)
                 reference_time_end = timezone(time_zone).localize(reference_times[time_frame["reference_time_end"]](local_wall_time), is_dst=is_dst)
-
-                # Change reference time according to time shift config.
-                if process_time_shift:
-                    reference_time_start = add_duration_local(reference_time_start, parse_duration(process_time_shift), time_zone)
-                    reference_time_end = add_duration_local(reference_time_end, parse_duration(process_time_shift), time_zone)
 
                 # Calculate the start and end of the period for the current task.
                 job_period_start = add_duration_local(reference_time_start, parse_duration(time_frame["period_start"]), time_zone)
