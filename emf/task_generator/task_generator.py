@@ -112,7 +112,7 @@ def generate_tasks(task_window_duration: str,
                 # Time shift moves the run time before the reference is taken, so the period only changes
                 # when the shifted time falls into another day/week/month/year.
                 if process_time_shift:
-                    local_run_timestamp = add_duration_local(local_run_timestamp, parse_duration(process_time_shift), time_zone)
+                    local_run_timestamp = add_duration_local(local_run_timestamp, process_time_shift, time_zone)
 
                 local_wall_time = local_run_timestamp.replace(tzinfo=None)
                 is_dst = bool(local_run_timestamp.dst())
@@ -120,8 +120,8 @@ def generate_tasks(task_window_duration: str,
                 reference_time_end = timezone(time_zone).localize(reference_times[time_frame["reference_time_end"]](local_wall_time), is_dst=is_dst)
 
                 # Calculate the start and end of the period for the current task.
-                job_period_start = add_duration_local(reference_time_start, parse_duration(time_frame["period_start"]), time_zone)
-                job_period_end = add_duration_local(reference_time_end, parse_duration(time_frame["period_end"]), time_zone)
+                job_period_start = add_duration_local(reference_time_start, time_frame["period_start"], time_zone)
+                job_period_end = add_duration_local(reference_time_end, time_frame["period_end"], time_zone)
 
                 # Convert the period start and end times to UTC.
                 job_period_start_utc = convert_to_utc(job_period_start)
