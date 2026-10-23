@@ -89,9 +89,11 @@ def build_manual_run_config(process_config_json: list, timeframe_config_json: li
         # with a real clock, but cheap to guard against consistently.
         timestamp = datetime.now(tz=timezone(process["time_zone"])).replace(second=1).isoformat()
     else:
-        day_start = datetime.now(tz=timezone(process["time_zone"])).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Slot is found on naive local wall-clock time and localized after, so it gets its own daylight saving
+        # offset (croniter 6.0.0 keeps the start offset when crossing a DST change)
+        day_start = datetime.now(tz=timezone(process["time_zone"])).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
         if run_type in day_shift_run_types:
             day_start = day_start + parse_duration("-P1D")
-        timestamp = croniter.croniter(original_run_at, day_start).get_next(datetime).replace(second=1).isoformat()
+        timestamp = timezone(process["time_zone"]).localize(croniter.croniter(original_run_at, day_start).get_next(datetime)).replace(second=1).isoformat()
 
     return process_config_json, timeframe_config_json, timestamp
