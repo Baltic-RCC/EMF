@@ -59,7 +59,7 @@ def acnp_model(tso, ac_net_position, sum_conform_load=10000.0):
     pytest.param(300.5, 5000.0, 100.0, "acnp-outside-schedule-deadband", id="deviation-above-threshold"),
     pytest.param(50.0, 5000.0, -200.0, "acnp-outside-schedule-deadband", id="opposite-direction"),
     pytest.param(150.0, 200.0, 100.0, "conform-load-outside-schedule-difference", id="conform-load-too-small"),
-    pytest.param(150.0, 250.0, 100.0, "conform-load-outside-schedule-difference", id="conform-load-equal-to-deviation"),
+    pytest.param(150.0, 250.0, 100.0, None, id="conform-load-equal-to-deviation"),
 ])
 def test_filter_models_by_acnp(ac_net_position, sum_conform_load, scheduled, excluded_reason):
     merged_model = MergedModel()
@@ -83,17 +83,15 @@ def test_filter_models_by_acnp_keeps_order_and_models_without_schedule():
                                      {"tso": "TERNA", "reason": "acnp-outside-schedule-deadband"}]
 
 
-@pytest.mark.xfail(strict=True, raises=(TypeError, KeyError),
-                   reason="filter_models_by_acnp crashes when ac_net_position is None or missing (validator could not compute it)")
 @pytest.mark.parametrize("model", [
     pytest.param({"pmd:TSO": "AST", "ac_net_position": None, "sum_conform_load": 1000.0}, id="none"),
     pytest.param({"pmd:TSO": "AST", "sum_conform_load": 1000.0}, id="missing"),
 ])
-def test_filter_models_by_acnp_keeps_models_without_ac_net_position(model):
+def test_filter_models_by_acnp_excludes_models_without_ac_net_position(model):
     merged_model = MergedModel()
 
-    assert merge_functions.filter_models_by_acnp([model], merged_model, {"AST": 100.0}, "200", "0.2") == [model]
-    assert merged_model.excluded == []
+    assert merge_functions.filter_models_by_acnp([model], merged_model, {"AST": 100.0}, "200", "0.2") == []
+    assert merged_model.excluded == [{"tso": "AST", "reason": "acnp-data-missing"}]
 
 
 def test_filter_replacements_by_acnp():

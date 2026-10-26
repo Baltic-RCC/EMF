@@ -171,8 +171,6 @@ def test_get_fragmented_areas_participation_without_fragmented_areas_is_empty():
     assert result.columns == ["connected_component", "participation", "registered_resource"]
 
 
-@pytest.mark.xfail(strict=True, reason="fragment participation divides by |sum| instead of the sum of |flows|, "
-                                       "so fragments with opposite flows get participations summing to more than 1")
 def test_get_fragmented_areas_participation_of_opposite_flow_fragments_sums_to_one():
     boundary_lines = pl.DataFrame({
         "CGMES.regionName": ["BE", "BE"],
@@ -317,13 +315,15 @@ def test_scale_balance_sets_hvdc_boundary_lines_to_dc_schedule(scalable_microgri
 
 
 @pytest.mark.pypowsybl
-def test_scale_balance_raises_when_hvdc_link_in_model_has_no_schedule_value(scalable_microgrid):
-    model = scalable_microgrid(extra_boundary_lines=[{"id": "BE-HVDC", "p0": 0.0, "eic": "10T-BE-GB-HVDC01"}])
+def test_scale_balance_keeps_model_setpoint_when_hvdc_link_has_no_schedule_value(scalable_microgrid):
+    model = scalable_microgrid(extra_boundary_lines=[{"id": "BE-HVDC", "p0": 40.0, "eic": "10T-BE-GB-HVDC01"}])
     dc_schedules = [{"value": None, "in_domain": "GB", "out_domain": "BE",
                      "registered_resource": "10T-BE-GB-HVDC01", "hvdc_name": "BE-GB"}]
 
-    with pytest.raises(ValueError, match="10T-BE-GB-HVDC01"):
-        scaler.scale_balance(model, [BE_IMPORTS_285, NL_EXPORTS_285], dc_schedules, debug=False)
+    model = scaler.scale_balance(model, [BE_IMPORTS_285, NL_EXPORTS_285], dc_schedules, debug=False)
+
+    assert model.network.get_boundary_lines().loc["BE-HVDC", "p0"] == pytest.approx(40.0)
+    assert _ac_net_positions(model.network)["BE"] == pytest.approx(-285.0, abs=BALANCE_THRESHOLD)
 
 
 @pytest.mark.pypowsybl
@@ -343,7 +343,6 @@ def test_scale_balance_aligns_island_net_position_through_unpaired_lines_proport
 
 
 @pytest.mark.pypowsybl
-@pytest.mark.xfail(strict=True, reason="unpaired AC boundary lines with 0 MW give 0/0 participation, NaN is written to p0")
 def test_scale_balance_does_not_write_nan_to_unpaired_lines_without_flow(scalable_microgrid):
     model = scalable_microgrid(extra_boundary_lines=[{"id": "BE-X1", "p0": 0.0}])
     ac_schedules = [{**BE_IMPORTS_285, "value": 300.0}, {**NL_EXPORTS_285, "value": 250.0}]
@@ -354,9 +353,6 @@ def test_scale_balance_does_not_write_nan_to_unpaired_lines_without_flow(scalabl
 
 
 @pytest.mark.pypowsybl
-@pytest.mark.xfail(strict=True, raises=pl.exceptions.ColumnNotFoundError,
-                   reason="scale_balance reads boundary 'isHvdc' without the guard of get_network_elements, "
-                          "networks without HVDC boundary points fail")
 def test_scale_balance_works_on_networks_without_hvdc_boundary_points(scalable_microgrid):
     model = scalable_microgrid(hvdc_property=False)
 
@@ -366,7 +362,6 @@ def test_scale_balance_works_on_networks_without_hvdc_boundary_points(scalable_m
 
 
 @pytest.mark.pypowsybl
-@pytest.mark.xfail(strict=True, reason="report keeps only the first and last row, so 'initial-offset-acnp' is never set")
 def test_scaling_report_keeps_initial_and_final_offset_per_area(scalable_microgrid):
     model = scalable_microgrid()
 
