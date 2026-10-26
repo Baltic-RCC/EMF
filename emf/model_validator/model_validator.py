@@ -7,6 +7,8 @@ import time
 import math
 import pypowsybl as pp
 import uuid
+import ctypes
+import sys
 import triplets
 from emf.common.config_parser import parse_app_properties
 from emf.common.integrations import elastic, minio_api, edx
@@ -157,27 +159,32 @@ class PostLFValidator:
 class TemporaryPreMergeModifications:
     """Run pre-processing modification important for successful merge process"""
     # TODO needs to keep in mind that this is meant as temporary fixes and needs to be revised often
-    def __init__(self, network: pd.DataFrame, tso: str):
+    def __init__(self, network: pl.DataFrame, tso: str):
         self.network = network
         self.tso = tso
         self.report = {'modification': {}}
 
     def update_header_from_file_name(self):
         self.report['modification']['header_from_file_name'] = False
-        modified_data = triplets.cgmes_tools.update_FullModel_from_filename(self.network)
-        if not pd.concat([self.network, modified_data]).drop_duplicates(keep=False).empty:
-            self.network = modified_data
+        # Update only header and label rows, then append the added header rows to the whole model
+        header_ids = self.network.filter((pl.col('KEY') == 'Type') & (pl.col('VALUE') == 'FullModel'))['ID'].to_list()
+        header = self.network.filter(pl.col('ID').is_in(header_ids) | (pl.col('KEY') == 'label'))
+        modified_header = triplets.cgmes_tools.update_FullModel_from_filename(header)
+        new_rows = modified_header.join(header.with_columns(pl.col(['KEY', 'INSTANCE_ID']).cast(pl.Utf8)),
+                                        on=['ID', 'KEY', 'INSTANCE_ID'], how='anti')
+        if not new_rows.is_empty():
+            new_rows = new_rows.select(self.network.columns).cast(self.network.schema)
+            # Exact duplicate triplets are dropped as well
+            self.network = pl.concat([self.network, new_rows]).unique(keep='last', maintain_order=True)
             self.report['modification']['header_from_file_name'] = True
 
     def sanitize_file_name(self):
         self.report['modification']['sanitize_file_name'] = False
-        xml_extension_typo = self.network[self.network['VALUE'].str.contains('.XML', regex=False, na=False)]
-        if not xml_extension_typo.empty:
-            xml_extension_typo['VALUE'] = xml_extension_typo['VALUE'].str.replace('.XML', '.xml')
-            self.network = triplets.rdf_parser.update_triplet_from_triplet(data=self.network,
-                                                                           update_data=xml_extension_typo,
-                                                                           update=True,
-                                                                           add=False)
+        xml_extension_typo = self.network.filter(pl.col('VALUE').str.contains('.XML', literal=True))
+        if not xml_extension_typo.is_empty():
+            xml_extension_typo = xml_extension_typo.with_columns(pl.col('VALUE').str.replace_all('.XML', '.xml', literal=True))
+            self.network = triplets.tools.update_triplets_from_triplets(self.network, xml_extension_typo,
+                                                                        update=True, add=False)
             self.report['modification']['sanitize_file_name'] = True
 
     def open_non_retained_switches(self):
@@ -194,7 +201,8 @@ class TemporaryPreMergeModifications:
         self.report['modification']['update_region_names'] = False
         # Update GeographicalRegion names for Denmark
         modified_data = validator_functions.modify_region_name_for_denmark(input_data=self.network)
-        if not pd.concat([self.network, modified_data]).drop_duplicates(keep=False).empty:
+        # Returns the input frame itself when there is nothing to fix
+        if modified_data is not self.network:
             self.network = modified_data
             self.report['modification']['update_region_names'] = True
 
@@ -207,6 +215,8 @@ class TemporaryPreMergeModifications:
         if json.loads(MODIFY_DK_REGIONS.lower()) and self.tso in ['DKE', 'DKW']:
             self.update_region_names()
 
+        # Categorical KEY/INSTANCE_ID keeps the pandas copy for export small
+        self.network = self.network.with_columns(pl.col(['KEY', 'INSTANCE_ID']).cast(pl.Categorical))
         return self.network
 
 
@@ -249,7 +259,7 @@ class HandlerModelsValidator:
             try:
                 # Run pre-loadflow validations
                 network_triplets = load_opdm_objects_to_triplets(opdm_objects=[opdm_object, latest_boundary])
-                # Convert once for validator functions, pandas copy is kept for pre-merge modifications and export
+                # Convert once for validator functions and pre-merge modifications
                 network_triplets_pl = pl.from_pandas(network_triplets)
                 pre_lf_validation = PreLFValidator(network=network_triplets_pl)
                 pre_lf_validation.run_validation()
@@ -281,10 +291,10 @@ class HandlerModelsValidator:
 
             # Apply pre-processing modification to models and store in Minio
             try:
-                pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets,
+                pre_merge_modification = TemporaryPreMergeModifications(network=network_triplets_pl,
                                                                         tso=opdm_object["pmd:TSO"])
                 network_triplets = pre_merge_modification.run_pre_process_modifications()
-                cgmes_modified_model = export_to_cgmes_zip([network_triplets])
+                cgmes_modified_model = export_to_cgmes_zip([network_triplets.to_pandas(use_pyarrow_extension_array=True)])
                 for component in opdm_object['opde:Component']:
                     # Map exported modified file with initial inside opdm object
                     cgmes_file = [i for i in cgmes_modified_model if i.name == component['opdm:Profile']['pmd:fileName']][0]
@@ -344,6 +354,16 @@ class HandlerModelsValidator:
                 logger.warning(f"QAS-Level-8 not generated because report unavailable or disabled by configuration")
 
             logger.info(f"Model validation status: {valid} [duration {report['duration_s']}s]")
+
+        return message, properties
+
+
+class HandlerReleaseMemory:
+    """Gives malloc caches freed after the validator handler back to the OS"""
+
+    def handle(self, message: bytes, properties: dict, **kwargs):
+        if sys.platform == 'linux':
+            ctypes.CDLL('libc.so.6').malloc_trim(0)
 
         return message, properties
 
