@@ -69,12 +69,13 @@ def test_package_can_be_written_as_zip_file(microgrid_be_igm, tmp_path, monkeypa
     ({"iidm.import.cgmes.convert-sv-injections": "false"}, True, {"iidm.import.cgmes.convert-sv-injections": "false"}),
 ])
 def test_import_parameters_default_and_override(microgrid_be_igm, parameters, skip_defaults, expected):
-    with mock.patch.object(pp.network, "load_from_binary_buffer") as load:
+    with mock.patch.object(pp.network, "load_from_binary_buffers") as load:
         network = load_network_model([microgrid_be_igm], parameters=parameters, skip_default_parameters=skip_defaults)
 
     assert network is load.return_value
     assert load.call_args.kwargs["parameters"] == expected
-    assert zip_content(load.call_args.kwargs["buffer"]) == inner_xml_files([microgrid_be_igm])
+    assert [buffer.getvalue() for buffer in load.call_args.kwargs["buffers"]] == \
+           [component["opdm:Profile"]["DATA"] for component in microgrid_be_igm["opde:Component"]]
 
 
 @pytest.mark.pypowsybl

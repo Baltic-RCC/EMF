@@ -206,7 +206,7 @@ def model_file(file_name, tso="AST"):
 
 
 def values(data, key):
-    return dict(data.query("KEY == @key")[["ID", "VALUE"]].itertuples(index=False))
+    return dict(data.filter(pl.col("KEY") == key).select("ID", "VALUE").iter_rows())
 
 
 @pytest.mark.parametrize("file_name, sanitized", [
@@ -214,7 +214,7 @@ def values(data, key):
     ("20250706T0930Z_1D_{tso}_SSH_001.xml", False),
 ])
 def test_pre_merge_modification_fixes_uppercase_xml_extension(make_triplets, file_name, sanitized):
-    modifications = TemporaryPreMergeModifications(network=make_triplets(model_file(file_name)), tso="AST")
+    modifications = TemporaryPreMergeModifications(network=pl.from_pandas(make_triplets(model_file(file_name))), tso="AST")
 
     data = modifications.run_pre_process_modifications()
 
@@ -223,7 +223,8 @@ def test_pre_merge_modification_fixes_uppercase_xml_extension(make_triplets, fil
 
 
 def test_pre_merge_modification_fills_header_from_file_name(make_triplets):
-    modifications = TemporaryPreMergeModifications(network=make_triplets(model_file("20250706T0930Z_1D_{tso}_SSH_002.xml")), tso="AST")
+    modifications = TemporaryPreMergeModifications(
+        network=pl.from_pandas(make_triplets(model_file("20250706T0930Z_1D_{tso}_SSH_002.xml"))), tso="AST")
 
     data = modifications.run_pre_process_modifications()
 
@@ -241,7 +242,7 @@ def test_pre_merge_modification_fills_header_from_file_name(make_triplets):
 def test_pre_merge_modification_dk_region_fix_only_for_danish_tsos(make_triplets, set_config, tso, modify_dk_regions, modified):
     set_config(MODIFY_DK_REGIONS=modify_dk_regions)
     modifications = TemporaryPreMergeModifications(
-        network=make_triplets(model_file("20250706T0930Z_1D_{tso}_EQ_001.xml", tso) + DK_REGIONS), tso=tso)
+        network=pl.from_pandas(make_triplets(model_file("20250706T0930Z_1D_{tso}_EQ_001.xml", tso) + DK_REGIONS)), tso=tso)
 
     data = modifications.run_pre_process_modifications()
 
@@ -253,7 +254,8 @@ def test_pre_merge_modification_dk_region_fix_only_for_danish_tsos(make_triplets
 def test_pre_merge_modification_opens_non_retained_switches_when_configured(make_triplets, set_config, open_non_retained_switches):
     set_config(OPEN_NON_RETAINED_SWITCHES=open_non_retained_switches)
     modifications = TemporaryPreMergeModifications(
-        network=make_triplets(model_file("20250706T0930Z_1D_{tso}_EQ_001.xml") + switch_rows("sw", "tn1", "tn2")), tso="AST")
+        network=pl.from_pandas(make_triplets(model_file("20250706T0930Z_1D_{tso}_EQ_001.xml") + switch_rows("sw", "tn1", "tn2"))),
+        tso="AST")
 
     data = modifications.run_pre_process_modifications()
 
