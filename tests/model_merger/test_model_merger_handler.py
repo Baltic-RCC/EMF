@@ -216,8 +216,9 @@ def test_handle_hands_included_tso_outside_acnp_deadband_to_replacement(services
         fake_model("ELIA", ac_net_position=120.0, sum_conform_load=1000.0),
         fake_model("TENNET", ac_net_position=900.0, sum_conform_load=1000.0)]
     services.calculate_ac_net_position.return_value = {"ELIA": 100.0, "TENNET": 100.0}
+    with_schedules(services)  # ACNP filtering only runs when scaling is on and DC schedules exist
 
-    handle(services, merge_task, included=["ELIA", "TENNET"], replacement="True")
+    handle(services, merge_task, included=["ELIA", "TENNET"], replacement="True", scaling="True")
 
     replacement_args = merge_steps.run_replacement.call_args.kwargs
     assert replacement_args["missing_models"] == ["TENNET"]

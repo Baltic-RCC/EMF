@@ -44,7 +44,12 @@ def set_config(monkeypatch):
 
 def run_loadflow_validation(results):
     validator = PostLFValidator(network=mock.sentinel.network, network_triplets=None)
-    with mock.patch.object(model_validator.pp.loadflow, "run_ac", side_effect=results) as run_ac:
+    def settings_from_repo(settings_keyword):
+        # Settings come from ELK (repo default as fallback) as new objects; return the repo constants to compare the order
+        return SimpleNamespace(build_pypowsybl_parameters=lambda: getattr(loadflow_settings, settings_keyword))
+
+    with mock.patch.object(model_validator.pp.loadflow, "run_ac", side_effect=results) as run_ac, \
+            mock.patch.object(model_validator.settings_manager, "LoadflowSettingsManager", side_effect=settings_from_repo):
         validator.validate_loadflow()
     used_parameters = [call.kwargs["parameters"] for call in run_ac.call_args_list]
     return validator.report, used_parameters
