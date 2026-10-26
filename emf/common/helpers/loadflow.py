@@ -52,8 +52,14 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
             parameters = {**default_parameters, **parameters}
 
     import_report = pypowsybl.report.ReportNode()
-    network = pypowsybl.network.load_from_binary_buffer(
-        buffer=package_for_pypowsybl(opdm_objects),
+    # Per-profile zips avoid building one uncompressed copy of all models for the import
+    buffers = []
+    for opdm_object in opdm_objects:
+        for instance in opdm_object['opde:Component']:
+            logger.info(f"Adding file: {instance['opdm:Profile'].get('pmd:fileName')}")
+            buffers.append(BytesIO(instance['opdm:Profile']['DATA']))
+    network = pypowsybl.network.load_from_binary_buffers(
+        buffers=buffers,
         report_node=import_report,
         parameters=parameters
         # parameters={
