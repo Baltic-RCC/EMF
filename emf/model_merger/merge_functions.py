@@ -713,7 +713,7 @@ def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold,
             logger.warning(f"TSO '{tso}' not found in acnp dict, skipping filtering")
             return True
         acnp = acnp_dict[tso]
-        return abs(float(model['ac_net_position']) - float(acnp)) <= float(acnp_threshold)
+        return abs(pd.to_numeric(model.get('ac_net_position'), errors='coerce') - float(acnp)) <= float(acnp_threshold)
 
     def is_within_conformload_deadband(model):
         tso = model.get('pmd:TSO')
@@ -721,35 +721,40 @@ def filter_models_by_acnp(models: list, merged_model, acnp_dict, acnp_threshold,
             logger.warning(f"TSO '{tso}' not found in acnp dict, skipping filtering")
             return True
         acnp = acnp_dict[tso]
-        expected_load = model['sum_conform_load'] * float(conform_load_factor)
-        return expected_load > abs(float(model['ac_net_position']) - float(acnp))
+        expected_load = pd.to_numeric(model.get('sum_conform_load'), errors='coerce') * float(conform_load_factor)
+        return expected_load >= abs(pd.to_numeric(model.get('ac_net_position'), errors='coerce') - float(acnp))
+
+    def is_missing(model, key):
+        return pd.isna(pd.to_numeric(model.get(key), errors='coerce'))
 
     excluded_tso_ids = set()
 
     # ACNP deadband filter
     filtered_models = [model for model in models if is_within_acnp_deadband(model)]
     excluded_tsos = [
-        {'tso': model['pmd:TSO'], 'reason': 'acnp-outside-schedule-deadband'}
+        {'tso': model['pmd:TSO'],
+         'reason': 'acnp-data-missing' if is_missing(model, 'ac_net_position') else 'acnp-outside-schedule-deadband'}
         for model in models
         if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in filtered_models]
            and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
         excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
-        logger.warning(f"Exluded TSO due to incorrect schedules: {excluded_tso_ids}")
+        logger.warning(f"Excluded TSO due to incorrect schedules or missing ACNP data: {excluded_tsos}")
         merged_model.excluded.extend(excluded_tsos)
 
     # Conformload filter
     final_models = [model for model in filtered_models if is_within_conformload_deadband(model)]
     excluded_tsos = [
-        {'tso': model['pmd:TSO'], 'reason': 'conform-load-outside-schedule-difference'}
+        {'tso': model['pmd:TSO'],
+         'reason': 'conform-load-data-missing' if is_missing(model, 'sum_conform_load') else 'conform-load-outside-schedule-difference'}
         for model in filtered_models
         if model['pmd:TSO'] not in [fm['pmd:TSO'] for fm in final_models]
            and model['pmd:TSO'] not in excluded_tso_ids
     ]
     if excluded_tsos:
         excluded_tso_ids.update(model['tso'] for model in excluded_tsos)
-        logger.warning(f"Exluded TSO due to incorrect conform load: {excluded_tso_ids}")
+        logger.warning(f"Excluded TSO due to incorrect conform load or missing conform load data: {excluded_tsos}")
         merged_model.excluded.extend(excluded_tsos)
 
     return final_models
@@ -761,9 +766,9 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
     scheduled ACNP for their TSO, or whose conform load cannot cover that
     deviation.
 
-    Inputs are sanitized so malformed data (missing columns, non-numeric or
-    missing values, an invalid acnp_dict/threshold/factor) never raises -
-    rows that cannot be evaluated are kept unfiltered instead of failing.
+    Malformed data never raises: rows with missing or non-numeric values are
+    dropped, while missing columns or an invalid acnp_dict/threshold/factor
+    return the input unfiltered.
     """
     required_columns = {'pmd:TSO', 'ac_net_position', 'sum_conform_load'}
     if models.empty or not isinstance(acnp_dict, dict) or not required_columns.issubset(models.columns):
@@ -777,7 +782,7 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
     deviation = (pd.to_numeric(models['ac_net_position'], errors='coerce') - acnp).abs()
     load = pd.to_numeric(models['sum_conform_load'], errors='coerce')
 
-    keep = acnp.isna() | (deviation.notna() & (deviation <= threshold) & (load * load_factor > deviation))
+    keep = acnp.isna() | (deviation.notna() & (deviation <= threshold) & (load * load_factor >= deviation))
     return models[keep]
 
 

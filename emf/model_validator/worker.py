@@ -2,7 +2,7 @@ import logging
 import sys
 from uuid import uuid4
 from emf.common.logging import custom_logger
-from emf.model_validator.model_validator import HandlerModelsValidator
+from emf.model_validator.model_validator import HandlerModelsValidator, HandlerReleaseMemory
 
 # Initialize custom logger
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ if CONSUMER_TYPE == "SINGLE_MESSAGE":
 elif CONSUMER_TYPE == "LONG_LIVING":
     # RabbitMQ long-living consumer implementation
     consumer = rabbit.RMQConsumer(queue=INPUT_RMQ_QUEUE,
-                                  message_handlers=[HandlerModelsValidator()],
+                                  message_handlers=[HandlerModelsValidator(), HandlerReleaseMemory()],
                                   forward=OUTPUT_RMQ_EXCHANGE,
                                   )
     try:
