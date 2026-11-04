@@ -321,21 +321,31 @@ class HandlerMergeModels:
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
         merged_model.included = [model['pmd:TSO'] for model in input_models if model.get('pmd:TSO', None)]
 
-        # Crosscheck replaced model outages with latest UAP if at least one Baltic model was replaced
+        # Crosscheck replaced model outages with latest UAP if at least one outage update TSO model was replaced
         replaced_tso_list = [entity['tso'] for entity in merged_model.replaced_entity]
+        outage_update_tsos = [tso.strip() for tso in OUTAGE_UPDATE_TSO_LIST.split(",") if tso.strip()]
 
         # Update model outages
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
             tso_list = merged_model.included
-        elif outage_update and is_rmm and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+        elif outage_update and is_rmm and any(tso in outage_update_tsos for tso in
                                               replaced_tso_list):  # by default do it on RMM replaced models
             tso_list = replaced_tso_list
-        if tso_list:  # if not set force and not replaced BA then nothing to fix
+        if tso_list:  # if not set force and no outage update TSO model replaced then nothing to fix
+            outage_tso_areas = {area['party.name']: (area['area.name'], area['area.code'])
+                                for area in tsos_config_json if area.get('party.name') in outage_update_tsos}
+            excluded_eics = [eic.strip() for eic in OUTAGE_EXCLUDED_EICS.split(",") if eic.strip()]
+            ignored_unmapped_eics = [eic.strip() for eic in OUTAGE_IGNORED_UNMAPPED_EICS.split(",") if eic.strip()]
             merged_model = merge_functions.update_model_outages(merged_model=merged_model,
                                                                 tso_list=tso_list,
                                                                 scenario_datetime=scenario_datetime,
-                                                                time_horizon=time_horizon)
+                                                                time_horizon=time_horizon,
+                                                                tso_areas=outage_tso_areas,
+                                                                uap_index=UAP_OUTAGES_ELK_INDEX,
+                                                                excluded_eics=excluded_eics,
+                                                                ignored_unmapped_eics=ignored_unmapped_eics,
+                                                                min_nominal_v=float(OUTAGE_MIN_NOMINAL_V))
 
         # Apply network-level corrections before solving loadflow
         merged_model = self.apply_pre_loadflow_corrections(merged_model=merged_model)

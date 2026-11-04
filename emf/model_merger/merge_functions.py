@@ -786,7 +786,7 @@ def filter_replacements_by_acnp(models: pd.DataFrame, acnp_dict, acnp_threshold,
     return models[keep]
 
 
-def get_uap_outages(time_horizon: str):
+def get_uap_outages(time_horizon: str, index: str):
     elk_service = elastic.Elastic()
 
     # Get outage eic-mrid mapping
@@ -804,13 +804,13 @@ def get_uap_outages(time_horizon: str):
     body = {"size": 1, "query": {"bool": {"must": [{"match": {"Merge": merge_type}}]}},
             "sort": [{"reportParsedDate": {"order": "desc"}}], "fields": ["reportParsedDate"]}
     last_uap_version = \
-    elk_service.client.search(index='opc-outages-baltics*', body=body)['hits']['hits'][0]['fields']['reportParsedDate'][
+    elk_service.client.search(index=index, body=body)['hits']['hits'][0]['fields']['reportParsedDate'][
         0]
 
     # Query for latest outage UAP
     uap_query = {"bool": {"must": [{"match": {"reportParsedDate": f"{last_uap_version}"}},
                                    {"match": {"Merge": merge_type}}]}}
-    uap_outages = elk_service.get_docs_by_query(index='opc-outages-baltics*', query=uap_query, size=10000)
+    uap_outages = elk_service.get_docs_by_query(index=index, query=uap_query, size=10000)
 
     # Filter out incorrect elements
     uap_outages['mrid'] = uap_outages['mrid'].replace("None", pd.NA).str.lstrip('_')
@@ -836,22 +836,19 @@ def update_elements_connection(network: pypowsybl.network.Network, elements: pd.
     return updated, unchanged, failed
 
 
-def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str):
-    BRELL_XBORDER_EICS = ['10T-LT-RU-00001W', '10T-LT-RU-00002U', '10T-LT-RU-00003S', '10T-LV-RU-00001A',
-                         '10T-BY-LT-000053', '10T-BY-LT-00001B', '10T-BY-LT-000029',
-                         '10T-EE-RU-00001M', '10T-EE-RU-00002K', '10T-EE-RU-00003I', '10T-BY-LT-000045']
-    tso_areas = {"LITGRID": ("Lithuania", "LT"), "AST": ("Latvia", "LV"), "ELERING": ("Estonia", "EE")}
+def update_model_outages(merged_model: object, tso_list: list, scenario_datetime: str, time_horizon: str,
+                         tso_areas: dict, uap_index: str, excluded_eics: list, ignored_unmapped_eics: list,
+                         min_nominal_v: float):
     outage_areas, model_outage_areas = map(list, zip(*[tso_areas.get(tso, (tso, tso)) for tso in tso_list]))
 
-    uap_outages, mrid_map = get_uap_outages(time_horizon=time_horizon)
+    uap_outages, mrid_map = get_uap_outages(time_horizon=time_horizon, index=uap_index)
 
     # Map missing mrid by eic
     lookup = mrid_map.set_index(mrid_map[['eic', 'mrid']].columns[0])[mrid_map[['eic', 'mrid']].columns[1]]
     uap_outages.loc[:, 'mrid'] = uap_outages['mrid'].fillna(uap_outages['eic'].map(lookup))
 
     unmapped_outages = uap_outages[uap_outages['mrid'].isna()]
-    # Exception rule for old LitPol element
-    unmapped_outages = unmapped_outages[unmapped_outages['eic'] != "10T-LT-PL-000037"]
+    unmapped_outages = unmapped_outages[~unmapped_outages['eic'].isin(ignored_unmapped_eics)]
     if not unmapped_outages.empty:
         logger.warning(f"Unable to map following outage mRIDs: {unmapped_outages['name'].values}")
 
@@ -862,7 +859,7 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
     mapped_outages = filtered_outages[~filtered_outages['mrid'].isna()]
 
     # Get disconnected elements in network model
-    model_outages = pd.DataFrame(get_model_outages(network=merged_model.network))
+    model_outages = pd.DataFrame(get_model_outages(network=merged_model.network, min_nominal_v=min_nominal_v))
     mapped_model_outages = pd.merge(model_outages, mrid_map, left_on='grid_id', right_on='mrid', how='inner')
     filtered_model_outages = mapped_model_outages[mapped_model_outages['country'].isin(model_outage_areas)]
 
@@ -878,9 +875,9 @@ def update_model_outages(merged_model: object, tso_list: list, scenario_datetime
         # A shared pairing_key also matches when only the neighbour's half is disconnected -
         # keep just the local halves that are themselves actually disconnected.
         relevant_border_lines = relevant_border_lines[relevant_border_lines['grid_id'].isin(model_outages['grid_id'])]
-        # Removing any BRELL lines
+        # Removing excluded cross-border lines
         relevant_border_lines = relevant_border_lines[
-            ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].isin(BRELL_XBORDER_EICS)]
+            ~relevant_border_lines['lineEnergyIdentificationCodeEIC'].isin(excluded_eics)]
 
         if 'tie_line_id' in relevant_border_lines.columns:
             is_paired = relevant_border_lines['tie_line_id'].fillna('') != ''

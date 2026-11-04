@@ -132,7 +132,7 @@ def get_connected_components_data(network: pypowsybl.network,
     return data.to_dict('index')
 
 
-def get_model_outages(network: pypowsybl.network):
+def get_model_outages(network: pypowsybl.network, min_nominal_v: float = 330):
 
     # Get network elements
     lines = network.get_elements(element_type=pypowsybl.network.ElementType.LINE, all_attributes=True).reset_index(names=['grid_id'])
@@ -153,9 +153,9 @@ def get_model_outages(network: pypowsybl.network):
     disconnected_dlines = dlines[dlines['connected'] == False]
     disconnected_gens = gens[gens['connected'] == False]
 
-    # Filter out only 330kv and above
+    # Filter out only min_nominal_v and above
     disconnected_elements = pd.concat([disconnected_lines, disconnected_dlines, disconnected_gens])
-    disconnected_elements = disconnected_elements[disconnected_elements['nominal_v'] >= 330]
+    disconnected_elements = disconnected_elements[disconnected_elements['nominal_v'] >= min_nominal_v]
 
     return disconnected_elements.to_dict('records')
 
