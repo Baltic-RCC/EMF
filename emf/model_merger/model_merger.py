@@ -156,6 +156,7 @@ class HandlerMergeModels:
          lvl8_reporting) = astuple(merge_functions.TaskConfig.from_task(task))
         load_local = task_properties.get('load_local', False)
         export_local = task_properties.get('export_local', False)
+        is_rmm = merging_area != "EU"
 
         # Get aligned schedules. Set default time horizon and scenario timestamp if not provided
         if not schedule_time_horizon or schedule_time_horizon == "AUTO":
@@ -221,7 +222,7 @@ class HandlerMergeModels:
                     merged_model.excluded.extend([{'tso': tso, 'reason': 'missing-opdm'} for tso in missing_models])
 
                 # find RMM models:
-                missing_models_rmm = [tso for tso in missing_models if merging_area == "BA"]
+                missing_models_rmm = [tso for tso in missing_models if is_rmm]
 
                 if missing_models_rmm:
                     # Get PDN models when OPDM models missing
@@ -327,8 +328,8 @@ class HandlerMergeModels:
         tso_list = []
         if force_outage_fix:  # force outage fix on all models if set
             tso_list = merged_model.included
-        elif outage_update and merging_area == 'BA' and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
-                                                            replaced_tso_list):  # by default do it on Baltic merge replaced models
+        elif outage_update and is_rmm and any(tso in ['LITGRID', 'AST', 'ELERING'] for tso in
+                                              replaced_tso_list):  # by default do it on RMM replaced models
             tso_list = replaced_tso_list
         if tso_list:  # if not set force and not replaced BA then nothing to fix
             merged_model = merge_functions.update_model_outages(merged_model=merged_model,
@@ -375,7 +376,7 @@ class HandlerMergeModels:
             merged_model.time_horizon_id = time_horizon
 
         # Set merged model name
-        model_type = "RMM" if merging_area == "BA" else "CGM"
+        model_type = "RMM" if is_rmm else "CGM"
         merged_model.name = f"{model_type}_{time_horizon}_{version}_{parse_datetime(scenario_datetime):%Y%m%dT%H%MZ}_{merging_area}_{uuid4()}"
 
         # Crate OPDM object for merged model

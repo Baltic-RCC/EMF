@@ -611,7 +611,7 @@ def generate_merge_report(merged_model: object, task: dict):
 
 def evaluate_trustability(report, properties) -> dict:
     reason = None
-    if properties["merge_type"] == "BA":
+    if properties["merge_type"] != "EU":
         # Evaluate model trustability based on defined config and report keys
         report_keys = ['scaled', 'replaced', 'outages', 'acnp_schedule_replaced']
         property_keys = ['scaling', 'replacement']
