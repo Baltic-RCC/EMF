@@ -349,9 +349,10 @@ class HandlerModelsValidator:
 
 
 if __name__ == "__main__":
-    # TESTING
+    # LOCAL TEST of the model validation handler.
+    # Edit the dummy OPDM metadata below to point to a model that exists in MinIO (or OPDM, as fallback) and run:
+    #   python -m emf.model_validator.model_validator
     import sys
-    from emf.common.integrations.opdm import OPDM
     logging.basicConfig(
         format='%(levelname)-10s %(asctime)s.%(msecs)03d %(name)-30s %(funcName)-35s %(lineno)-5d: %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -359,34 +360,58 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
-    opdm = OPDM()
-    latest_boundary = models.get_latest_boundary()
-    available_models = models.get_latest_models_and_download(time_horizon='1D',
-                                                             scenario_date="20250706T0930",
-                                                             tso="AST",
-                                                             data_source='opdm')
-    validated_models = []
+    # Minimum OPDM metadata object structure required by the handler.
+    # Handler message is a JSON list of such objects (one object = one IGM with all its profiles).
+    # Keys marked (get_content) are used for downloading data from MinIO, (handler) for the validation/report.
+    dummy_opdm_metadata = [
+        {
+            "opde:Id": "00000000-0000-0000-0000-000000000000",           # (get_content, Elastic ID) unique object id
+            "opde:Object-Type": "IGM",                                   # (handler) anything but "BDS"
+            "data-source": "OPDM",                                       # (Elastic ID) OPDM / PDN etc.
+            "minio-bucket": "opdm-data",                                 # (get_content, handler) bucket with files
+            "pmd:TSO": "AST",                                            # (handler)
+            "pmd:scenarioDate": "2025-07-06T09:30:00Z",                  # (handler)
+            "pmd:timeHorizon": "1D",                                     # (handler)
+            "pmd:versionNumber": "1",                                    # (handler) converted to int
+            "pmd:fullModel_ID": "00000000-0000-0000-0000-000000000000",  # (handler)
+            "pmd:content-reference": "CGMES/20250706T0930Z_1D_AST_001",  # (handler)
+            "opde:Component": [                                          # one entry per profile file
+                {
+                    "opdm:Profile": {
+                        "pmd:fileName": "20250706T0930Z_1D_AST_EQ_001.zip",
+                        "pmd:content-reference": "CGMES/20250706T0930Z_1D_AST_EQ_001.zip",
+                        "pmd:cgmesProfile": "EQ",
+                    }
+                },
+                {
+                    "opdm:Profile": {
+                        "pmd:fileName": "20250706T0930Z_1D_AST_SSH_001.zip",
+                        "pmd:content-reference": "CGMES/20250706T0930Z_1D_AST_SSH_001.zip",
+                        "pmd:cgmesProfile": "SSH",
+                    }
+                },
+                {
+                    "opdm:Profile": {
+                        "pmd:fileName": "20250706T0930Z_1D_AST_TP_001.zip",
+                        "pmd:content-reference": "CGMES/20250706T0930Z_1D_AST_TP_001.zip",
+                        "pmd:cgmesProfile": "TP",
+                    }
+                },
+                {
+                    "opdm:Profile": {
+                        "pmd:fileName": "20250706T0930Z_1D_AST_SV_001.zip",
+                        "pmd:content-reference": "CGMES/20250706T0930Z_1D_AST_SV_001.zip",
+                        "pmd:cgmesProfile": "SV",
+                    }
+                },
+            ],
+        }
+    ]
 
-    # Validate models
-    for model in available_models:
-        network_triplets = load_opdm_objects_to_triplets(opdm_objects=[model, latest_boundary])
-        network = load_network_model(opdm_objects=[model, latest_boundary])
-        post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets)
-        post_lf_validation.run_validation()
+    # Handler expects message as bytes
+    test_message = json.dumps(dummy_opdm_metadata).encode("utf-8")
+    test_properties = {}
 
-        model["validation_report"] = post_lf_validation.report
-        validated_models.append(model)
-
-    # Print validation statuses
-    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('VALID'), duration=model.get('VALIDATION_STATUS', {}).get('VALIDATION_DURATION_S'))) for model in validated_models]
-
-    # With EMF IGM Validation settings
-    # {'tso': '50Hertz', 'valid': True, 'duration': 6.954386234283447}
-    # {'tso': 'D7', 'valid': None, 'duration': None}
-    # {'tso': 'ELERING', 'valid': True, 'duration': 2.1578593254089355}
-    # {'tso': 'ELES', 'valid': False, 'duration': 1.6410691738128662}
-    # {'tso': 'ELIA', 'valid': True, 'duration': 5.016804456710815}
-    # {'tso': 'REE', 'valid': None, 'duration': None}
-    # {'tso': 'SEPS', 'valid': None, 'duration': None}
-    # {'tso': 'TTG', 'valid': True, 'duration': 5.204774856567383}
-    # {'tso': 'PSE', 'valid': True, 'duration': 1.555201530456543}
+    # NB! Handler really connects to MinIO / Elastic (and EDX if ENABLE_LVL8_REPORTS is true) per app configuration
+    handler = HandlerModelsValidator()
+    handler.handle(message=test_message, properties=test_properties)
