@@ -277,7 +277,12 @@ def scale_balance(model: object,
     buses = _pl_from_pypowsybl(network.get_buses())
 
     # Get all dangling lines and define power factor
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))  # this was the original but
+    # it does not add the isHvdc column, however if I try to use the line
+    #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))
+    # then the loadflow diverges so the isHvdc column must be added like this:
+    if 'isHvdc' not in boundary_lines.columns:
+        boundary_lines['isHvdc'] = ''
     boundary_lines = boundary_lines.join(
         _elements_to_areas_map.select(['id', _country_col]), on='id', how='left'
     )
@@ -326,12 +331,14 @@ def scale_balance(model: object,
     )
 
     # Validate presence of target AC net position by areas in network model
+    # The names in present_areas must match area.code name in config_areas_mapping.json!
     present_areas = boundary_lines.select(_country_col).unique()[_country_col]
     target_registered = set(target_acnp_df['registered_resource'].to_list())
     missing_ac_schedule = [a for a in present_areas.to_list() if a not in target_registered]
     if missing_ac_schedule:
         # TODO consider exit scaling here if some schedules are missing
         logger.error(f"Missing target AC schedule for areas present in network model: {missing_ac_schedule}")
+    else: logger.info(f"Schedules have been successfully found")
 
     # Get pre-scale HVDC setpoints
     logger.info(f"Scaling HVDC network part")
@@ -425,7 +432,10 @@ def scale_balance(model: object,
             return model
 
     # Get dangling lines after HVDC scaling and loadflow
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE)) #_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))  # this was the original but  problems w isHvdc
+    if 'isHvdc' not in boundary_lines.columns:
+        boundary_lines['isHvdc'] = ''
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     ## Join buses to dangling lines in order to know dangling lines network component
     boundary_lines = boundary_lines.join(
@@ -532,7 +542,10 @@ def scale_balance(model: object,
         return model
 
     # Validate total network AC net position alignment
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))#_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))  # this was the original but  problems w isHvdc
+    if 'isHvdc' not in boundary_lines.columns:
+        boundary_lines['isHvdc'] = ''
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -665,7 +678,10 @@ def scale_balance(model: object,
             logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {_to_area_dict(postscale_losses)}")
 
         # Get post-scale AC net position
-        boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+        #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))#_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+        boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))    # this was the original but  problems w isHvdc
+        if 'isHvdc' not in boundary_lines.columns:
+            boundary_lines['isHvdc'] = ''
         boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
         boundary_lines = boundary_lines.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'

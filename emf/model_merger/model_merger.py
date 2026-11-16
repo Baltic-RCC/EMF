@@ -28,6 +28,7 @@ from emf.model_merger.replacement import run_replacement, get_tsos_available_in_
 from emf.common.logging.custom_logger import get_elk_logging_handler, set_console_log_level
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -65,7 +66,19 @@ class HandlerMergeModels:
             network=merged_model.network)
 
         # Ensure boundary line connectivity consistency for paired boundary lines
-        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+        merged_model.network, status_mismatch_report = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+        # For now will keep the connection status mismatch report as a single string for the merge report
+        if not (status_mismatch_report==None):
+            tieline_mismatch_report_str = ";".join(f"Changed boundary line {r['pairing_key']} from initial "
+                                               f"{urlparse(r['tso1']).netloc.removeprefix('www')}"
+                                               f" -{r['tso1_connected']} and "
+                                               f"{urlparse(r['tso2']).netloc.removeprefix('www')}"
+                                               f" -{r['tso2_connected']}"
+                                               f" to {r['final_connected']}" for r in status_mismatch_report
+                                               )
+        else: tieline_mismatch_report_str = ""
+        # Add the report to merged model
+        merged_model.correction_report = tieline_mismatch_report_str
 
         return merged_model
 
@@ -84,13 +97,15 @@ class HandlerMergeModels:
 
         for settings_keyword in settings_keywords:
             logger.info(f"Solving loadflow with settings: {settings_keyword}")
-            # report = pypowsybl.report.Reporter()
+            loadflow_report = pypowsybl.report.ReportNode()
             settings_mgr = settings_manager.LoadflowSettingsManager(settings_keyword=settings_keyword)
             pp_loadflow_parameters = settings_mgr.build_pypowsybl_parameters()
+            logger.debug(f"ALL LOADFLOW PARAMETERS USED ARE ",pp_loadflow_parameters)
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
                                                parameters=pp_loadflow_parameters,
-                                               # reporter=loadflow_report,
+                                               report_node=loadflow_report,
                                                )
+            #print("PMT loadflow report is ",str(loadflow_report))
             if result[0].status_text == 'Converged':
                 break
             else:
@@ -168,7 +183,7 @@ class HandlerMergeModels:
         ac_schedules = query_acnp_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start,
                                             merged_model=merged_model)
         dc_schedules = query_hvdc_schedules(time_horizon=schedule_time_horizon, scenario_timestamp=schedule_start)
-        acnp_dict = calculate_ac_net_position(ac_schedules)
+        acnp_dict = calculate_ac_net_position(ac_schedules) if model_scaling and dc_schedules else None
 
         # Create list of only the TSOs that are needed for the merge, to query Elastic only for *their* metadata
         desired_tsos = merge_functions.filter_models(tsos=full_tso_list,
@@ -184,7 +199,8 @@ class HandlerMergeModels:
             # TODO uncomment this if boundary files are not included in local folder
             # if not latest_boundary:
             #     latest_boundary = get_latest_boundary()
-
+            from emf.model_validator.model_validator import PostLFValidator
+            validated_models=[]
             for model in igm_models:
                 model['valid'] = True
 
@@ -317,7 +333,16 @@ class HandlerMergeModels:
 
         # Load network model and merge
         merge_start_time = datetime.datetime.now(datetime.UTC)
-        merged_model.network = load_network_model(opdm_objects=input_models)
+        # [AN4UX SV IGNORER:] remove later, temp:
+        skip_sv_tsos = [] # put in here the TSOs whose SV reading you want to skip,
+        # name must match party.name from config_areas_mapping.json
+        pypowsybl_input_models = [
+            {**model, 'opde:Component': [component for component in model['opde:Component']
+                                         if component['opdm:Profile'].get('pmd:cgmesProfile') != 'SV']}
+            if model.get('pmd:TSO') in skip_sv_tsos else model
+            for model in input_models
+        ]
+        merged_model.network = load_network_model(opdm_objects=pypowsybl_input_models)
         merged_model.network_meta = attr_to_dict(instance=merged_model.network, sanitize_to_strings=True)
         merged_model.included = [model['pmd:TSO'] for model in input_models if model.get('pmd:TSO', None)]
 
@@ -537,6 +562,8 @@ class HandlerMergeModels:
 
         # Send merge report and OPDM object metadata to Elastic
         merge_report = None
+        merge_report = merge_functions.generate_merge_report(merged_model=merged_model, task=task)
+
         if model_merge_report_send_to_elk:
             logger.info(f"Sending merge report to Elastic")
             try:
@@ -576,6 +603,7 @@ class HandlerMergeModels:
 
 if __name__ == "__main__":
     from emf.common.logging.custom_logger import initialize_custom_logger
+    from emf.common.logging.custom_logger import console_handler
     sample_task = {
         "@context": "https://example.com/task_context.jsonld",
         "@type": "Task",
@@ -604,15 +632,15 @@ if __name__ == "__main__":
         "job_period_start": "2024-05-24T22:00:00+00:00",
         "job_period_end": "2024-05-25T06:00:00+00:00",
         "task_properties": {
-            "timestamp_utc": "2026-08-31T15:30:00+00:00",
-            "merge_type": "EU",
+            "timestamp_utc": "2027-10-20T01:30:00+00:00",#"2027-07-21T10:30:00+00:00",
+            "merge_type": "EU",#"BA",
             "merging_entity": "BALTICRCC",
-            "included": [],
+            "included": [],#["DKE","DKW","UKRENERGO"],#
             "excluded": [],
             "local_import": [],
             "replace_tso": [],
             "time_horizon": "YR",
-            "version": "001",
+            "version": "001", #LAST PEAKS ON PROD QAS: W1 026, SPRING 007, SUMMER 008, AUTUMN 008, W2 009
             "mas": "http://www.baltic-rsc.eu/OperationalPlanning",
             "post_temp_fixes": "True",
             "replacement": "False",
@@ -620,14 +648,14 @@ if __name__ == "__main__":
             "outage_update": "False",
             "force_outage_fix": "False",
             "upload_to_opdm": "False",
-            "upload_to_minio": "True",
+            "upload_to_minio": "False",
             "send_merge_report": "True",
             "lvl8_reporting": "False",
-            "debug": "False",
+            "debug": "True",
             "load_local": "True",
-            "local_model_path": r"E:\gintautas.poderys\models\YR_2026_test",
+            "local_model_path": r"E:\Piia\models\YR_2027_test\AUTUMNoffpeak",
             "export_local": "True",
-            "export_local_path": r"E:\gintautas.poderys\models\YR_2026_test\exported"
+            "export_local_path": r"E:\Piia\models\YR_2027_test\exported"
         }
     }
     class Properties(dict):
@@ -636,6 +664,10 @@ if __name__ == "__main__":
     properties.headers = {}
 
     initialize_custom_logger(extra={'worker': 'model-merger', 'worker_uuid': str(uuid4())})  # ponytail: matches worker.py's own setup, so local runs get tagged too
+    #powsybl_logger = logging.getLogger('powsybl')
+    #powsybl_logger.setLevel(logging.INFO)
+    #powsybl_logger.propagate = False
+    #powsybl_logger.addHandler(console_handler)
 
     worker = HandlerMergeModels()
     finished_task = worker.handle(sample_task, properties)

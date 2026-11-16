@@ -57,7 +57,9 @@ class LoadflowSettingsManager:
         self.settings_keyword = settings_keyword
 
         # Decide override path from arg or env
-        env_path = os.environ.get('LOADFLOW_CONFIG_OVERRIDE_PATH')
+        env_path = "E:\Piia\pmt-YR-merge-work\config\cgm_worker\lf_override.json" #os.environ.get('LOADFLOW_CONFIG_OVERRIDE_PATH')#
+        override_path = "E:\Piia\pmt-YR-merge-work\config\cgm_worker\lf_override.json"
+        print("PMT override path written")
         self.override_path = Path(override_path or env_path) if (override_path or env_path) else None
         if self.override_path:
             logger.info(f"Loadflow settings override path: {self.override_path}")
@@ -93,6 +95,7 @@ class LoadflowSettingsManager:
         if not path.exists():
             raise FileNotFoundError(f"Override config not found: {path}")
         text = path.read_text(encoding='utf-8')
+        logger.info(f"Override LF parameters are {text}")
         lower = path.name.lower()
         if lower.endswith(('.yaml', '.yml')) and yaml is not None:
             data = yaml.safe_load(text) or {}
