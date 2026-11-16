@@ -265,7 +265,10 @@ class HandlerModelsValidator:
                 pre_lf_validation.run_validation()
 
                 # Run post-loadflow validations
-                network = load_network_model(opdm_objects=[opdm_object, latest_boundary])
+                network = load_network_model(
+                    opdm_objects=[opdm_object, latest_boundary],
+                    exclude_profiles={"SV"} if json.loads(EXCLUDE_IGM_SV.lower()) else None,
+                )
                 post_lf_validation = PostLFValidator(network=network, network_triplets=network_triplets_pl)
                 post_lf_validation.run_validation()
 
