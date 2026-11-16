@@ -10,7 +10,7 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
-def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
+def package_for_pypowsybl(opdm_objects, return_zip: bool = False, exclude_profiles: set | None = None):
     """
     Method to transform OPDM objects into sufficient format binary buffer or zip package
     :param opdm_objects: list of OPDM objects
@@ -25,6 +25,10 @@ def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
     with ZipFile(output_object, "w") as global_zip:
         for opdm_components in opdm_objects:
             for instance in opdm_components['opde:Component']:
+                #NEW: added to skip IGM SV file:
+                if exclude_profiles and instance['opdm:Profile'].get('pmd:cgmesProfile') in exclude_profiles:
+                    logger.info(f"Skipping {instance['opdm:Profile'].get('pmd:fileName')}")
+                    continue
                 with ZipFile(BytesIO(instance['opdm:Profile']['DATA'])) as instance_zip:
                     for file_name in instance_zip.namelist():
                         logger.info(f"Adding file: {file_name}")
@@ -33,7 +37,8 @@ def package_for_pypowsybl(opdm_objects, return_zip: bool = False):
     return output_object
 
 
-def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False):
+def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_default_parameters: bool = False,
+                      exclude_profiles: set | None = None):
     """
     Loads given list of models (opdm_objects) into pypowsybl using internal (known good) default_parameters
     Additional parameters can be specified as a dict in field parameters which will overwrite the default ones if keys
@@ -59,7 +64,7 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
             logger.info(f"Adding file: {instance['opdm:Profile'].get('pmd:fileName')}")
             buffers.append(BytesIO(instance['opdm:Profile']['DATA']))
     network = pypowsybl.network.load_from_binary_buffers(
-        buffers=buffers,
+        buffer=package_for_pypowsybl(opdm_objects, exclude_profiles=exclude_profiles),
         report_node=import_report,
         parameters=parameters
         # parameters={
