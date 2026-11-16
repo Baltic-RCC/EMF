@@ -28,7 +28,7 @@
   },
   {
     "area.eic": "10Y1001C--000182",
-    "area.code": "UA",
+    "area.code": "IPS",
     "area.name": "Ukraine",
     "party.name": "UA_IPS",
     "party.eic": "10X1001C--00001X",
@@ -37,7 +37,7 @@
   },
   {
     "area.eic": "10Y1001C--00100H",
-    "area.code": "XK",
+    "area.code": "CAKOSTT",
     "area.name": "Kosovo",
     "party.name": "KOSOVA-TSMO",
     "party.eic": "10XRKS-KOSTT-007",
@@ -172,7 +172,7 @@
   },
   {
     "area.eic": "10YDK-2--------M",
-    "area.code": "DK2",
+    "area.code": "DK",
     "area.name": "Denmark DK2",
     "party.name": "DKE",
     "party.eic": "10X1001A1001A248",
@@ -370,7 +370,7 @@
   },
   {
     "area.eic": "10YTR-TEIAS----W",
-    "area.code": "TR",
+    "area.code": "TEIAS_AREA",
     "area.name": "Turkey",
     "party.name": "TEIAS",
     "party.eic": "10XTR-TEIAS----9",
