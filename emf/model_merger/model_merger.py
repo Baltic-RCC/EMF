@@ -28,6 +28,7 @@ from emf.model_merger.replacement import run_replacement, get_tsos_available_in_
 from emf.common.logging.custom_logger import get_elk_logging_handler, set_console_log_level
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 parse_app_properties(caller_globals=globals(), path=config.paths.cgm_worker.merger)
@@ -65,7 +66,20 @@ class HandlerMergeModels:
             network=merged_model.network)
 
         # Ensure boundary line connectivity consistency for paired boundary lines
-        merged_model.network = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+        merged_model.network, status_mismatch_report = merge_functions.ensure_paired_boundary_line_connectivity(network=merged_model.network)
+        # For now will keep the connection status mismatch report as a single string for the merge report
+        # If you have idea for better format, have at it :)
+        if not (status_mismatch_report==None):
+            tieline_mismatch_report_str = ";".join(f"Changed boundary line {r['pairing_key']} from initial "
+                                               f"{urlparse(r['tso1']).netloc.removeprefix('www')}"
+                                               f" -{r['tso1_connected']} and "
+                                               f"{urlparse(r['tso2']).netloc.removeprefix('www')}"
+                                               f" -{r['tso2_connected']}"
+                                               f" to {r['final_connected']}" for r in status_mismatch_report
+                                               )
+        else: tieline_mismatch_report_str = ""
+        # Add the report to merged model
+        merged_model.correction_report = tieline_mismatch_report_str
 
         return merged_model
 
@@ -84,12 +98,14 @@ class HandlerMergeModels:
 
         for settings_keyword in settings_keywords:
             logger.info(f"Solving loadflow with settings: {settings_keyword}")
-            # report = pypowsybl.report.Reporter()
+            loadflow_report = pypowsybl.report.ReportNode()
             settings_mgr = settings_manager.LoadflowSettingsManager(settings_keyword=settings_keyword)
             pp_loadflow_parameters = settings_mgr.build_pypowsybl_parameters()
+            # To check in debugging what all the used parameters were, just in case:
+            logger.debug(f"ALL LOADFLOW PARAMETERS USED ARE ",pp_loadflow_parameters)
             result = pypowsybl.loadflow.run_ac(network=merged_model.network,
                                                parameters=pp_loadflow_parameters,
-                                               # reporter=loadflow_report,
+                                               report_node=loadflow_report,
                                                )
             if result[0].status_text == 'Converged':
                 break

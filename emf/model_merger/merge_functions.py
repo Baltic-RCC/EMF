@@ -426,16 +426,35 @@ def ensure_paired_equivalent_injection_compatibility(network: pypowsybl.network)
 
     return network
 
+def get_boundary_line_tso(network: pypowsybl.network) -> pd.Series:
+    """Finds the TSO name for a boundary line for reporting purposes,
+    unfortunately TSO name format is their mas url name bc the nice names are not present
+    in the data available in this module"""
+    tso_map = {}
+    for sub_network_id in network.get_sub_networks().index:
+        sub = network.get_sub_network(sub_network_id)
+        headers = sub.get_extensions('cgmesMetadataModels')    # headers of the IGM/subNW
+        # get mas (modelling authority set) of IGM to map with
+        mas = headers.loc[headers['cgmes_subset'] == 'EQUIPMENT', 'modeling_authority_set'].iloc[0]
+        # sets this mas to every boundary line of this tso's subnetwork
+        tso_map.update(dict.fromkeys(sub.get_boundary_lines(attributes=[]).index, mas))
+    return pd.Series(tso_map, name='tso')
 
 def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     logger.info("Aligning paired boundary lines connection status")
+    # Decide whether to set connection mismatches to True (connected) or False (off):
+    # (EMF reqs line 733-734 say "consider" open aka False)
+    _switch_connection_to = False
     boundary_lines = network.get_boundary_lines(all_attributes=True)
     # Add cim:Tieflow attribute to boundary lines
     boundary_lines['isTieflow'] = boundary_lines.index.isin(network.get_areas_boundaries()["element"])
+    # Add name of TSO to boundary lines for reporting
+    boundary_lines['tso'] = get_boundary_line_tso(network)
     paired_boundary_lines = boundary_lines[boundary_lines['paired'] == True]
     if paired_boundary_lines.empty:
         logger.info(f"No paired boundary lines found in network model")
-        return network
+        status_mismatch_report = None
+        return network,status_mismatch_report
 
     # Identify boundary lines pairs where the 'connected' status is inconsistent within each pairing_key group
     group = paired_boundary_lines.groupby('pairing_key')
@@ -445,6 +464,14 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     mismatched_boundary_lines_con = paired_boundary_lines[mask_connected]
     logger.info(
         f"Boundary lines with non-matching connection status: {mismatched_boundary_lines_con['pairing_key'].unique().tolist()}")
+    status_mismatch_report = (mismatched_boundary_lines_con.groupby('pairing_key')
+                              .agg(tso1=('tso', 'first'), tso1_connected=('connected', 'first'),
+                                   tso2=('tso', 'last'), tso2_connected=('connected', 'last'))
+                              .reset_index().assign(final_connected=_switch_connection_to).to_dict('records'))
+    # where groupby makes subgroups from each row that has the same pairing key, like (ABC_123, [tso1, tso2], ...)
+    # .agg compresses each made group into one row with column_name=(subgroup_list_name, which_element_to_take)
+    # with the subgroup list being the [tso1, tso2] in this example
+    # Reset_index puts pairing_key to be the first column, assign adds row of the final connection statsu
 
     mismatched_boundary_lines_tie = paired_boundary_lines[mask_tieflow]
     logger.info(
@@ -453,14 +480,14 @@ def ensure_paired_boundary_line_connectivity(network: pypowsybl.network):
     mismatched_boundary_lines = pd.concat([mismatched_boundary_lines_con, mismatched_boundary_lines_tie])
 
     # Set all mismatched lines to disconnected (False)
-    _connected = pd.Series(data=False, index=mismatched_boundary_lines.index)
+    _connected = pd.Series(data=_switch_connection_to, index=mismatched_boundary_lines.index)
     network.update_boundary_lines(id=mismatched_boundary_lines.index, connected=_connected)
 
     # Log each change (aggregate counts/keys are already logged above)
     for i, row in mismatched_boundary_lines.iterrows():
         logger.debug(f"Changed status of boundary line {row['name']}: {row['connected']} -> False")
 
-    return network
+    return network,status_mismatch_report
 
 
 def handle_igm_ssh_vs_cgm_ssh_error(network_pre_instance: pypowsybl.network.Network):
