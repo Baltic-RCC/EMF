@@ -93,6 +93,7 @@ class LoadflowSettingsManager:
         if not path.exists():
             raise FileNotFoundError(f"Override config not found: {path}")
         text = path.read_text(encoding='utf-8')
+        logger.info(f"Override loadflow parameters are {text}")
         lower = path.name.lower()
         if lower.endswith(('.yaml', '.yml')) and yaml is not None:
             data = yaml.safe_load(text) or {}
