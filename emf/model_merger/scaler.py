@@ -282,7 +282,7 @@ def scale_balance(model: object,
     #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))
     # then the loadflow diverges so the isHvdc column must be added like this:
     if 'isHvdc' not in boundary_lines.columns:
-        boundary_lines['isHvdc'] = ''
+        boundary_lines = boundary_lines.with_columns(pl.lit('').alias('isHvdc'))
     boundary_lines = boundary_lines.join(
         _elements_to_areas_map.select(['id', _country_col]), on='id', how='left'
     )
@@ -436,7 +436,7 @@ def scale_balance(model: object,
     #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE)) #_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
     boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))  # this was the original but  problems w isHvdc
     if 'isHvdc' not in boundary_lines.columns:
-        boundary_lines['isHvdc'] = ''
+        boundary_lines = boundary_lines.with_columns(pl.lit('').alias('isHvdc'))
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     ## Join buses to dangling lines in order to know dangling lines network component
     boundary_lines = boundary_lines.join(
@@ -546,7 +546,7 @@ def scale_balance(model: object,
     #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))#_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
     boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))  # this was the original but  problems w isHvdc
     if 'isHvdc' not in boundary_lines.columns:
-        boundary_lines['isHvdc'] = ''
+        boundary_lines = boundary_lines.with_columns(pl.lit('').alias('isHvdc'))
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -682,7 +682,7 @@ def scale_balance(model: object,
         #boundary_lines = _pl_from_pypowsybl(get_network_elements(network, pp.network.ElementType.BOUNDARY_LINE))#_pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
         boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))    # this was the original but  problems w isHvdc
         if 'isHvdc' not in boundary_lines.columns:
-            boundary_lines['isHvdc'] = ''
+            boundary_lines = boundary_lines.with_columns(pl.lit('').alias('isHvdc'))
         boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
         boundary_lines = boundary_lines.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
