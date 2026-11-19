@@ -63,6 +63,12 @@ def _pl_from_pypowsybl(df: pd.DataFrame, index_name: str = 'id') -> pl.DataFrame
     return pl.from_pandas(df.rename_axis(name).reset_index())
 
 
+def _get_boundary_lines(network: pp.network.Network) -> pl.DataFrame:
+    """Boundary lines with HVDC properties ensured -- they only exist when the boundary set has HVDC points."""
+    df = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    return df.with_columns([pl.lit('').alias(c) for c in ['isHvdc', 'lineEnergyIdentificationCodeEIC'] if c not in df.columns])
+
+
 def _area_key_frame(df: pl.DataFrame, value_col: str, area_col: str = _country_col) -> pl.DataFrame:
     """Build an 'area_key' column (country + "-" + connected_component) and sum value_col
     per area_key -- equivalent to pandas' string-concatenated-index + groupby(level=0)."""
@@ -277,7 +283,7 @@ def scale_balance(model: object,
     buses = _pl_from_pypowsybl(network.get_buses())
 
     # Get all dangling lines and define power factor
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(
         _elements_to_areas_map.select(['id', _country_col]), on='id', how='left'
     )
@@ -425,7 +431,7 @@ def scale_balance(model: object,
             return model
 
     # Get dangling lines after HVDC scaling and loadflow
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     ## Join buses to dangling lines in order to know dangling lines network component
     boundary_lines = boundary_lines.join(
@@ -532,7 +538,7 @@ def scale_balance(model: object,
         return model
 
     # Validate total network AC net position alignment
-    boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+    boundary_lines = _get_boundary_lines(network)
     boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
     boundary_lines = boundary_lines.join(
         buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
@@ -665,7 +671,7 @@ def scale_balance(model: object,
             logger.debug(f"[ITER {_iteration}] POST-SCALE LOSSES: {_to_area_dict(postscale_losses)}")
 
         # Get post-scale AC net position
-        boundary_lines = _pl_from_pypowsybl(network.get_boundary_lines(all_attributes=True))
+        boundary_lines = _get_boundary_lines(network)
         boundary_lines = boundary_lines.join(_elements_to_areas_map.select(['id', _country_col]), on='id', how='left')
         boundary_lines = boundary_lines.join(
             buses.select(['id', 'connected_component']).rename({'id': 'bus_id'}), on='bus_id', how='left'
