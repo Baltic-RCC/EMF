@@ -138,6 +138,17 @@ class HandlerModelsToValidator:
                 size_class = 'small' if model_size.isdigit() and int(model_size) < int(SMALL_MODEL_SIZE_LIMIT) else 'large'
                 output_queue = f"{OUTPUT_RMQ_QUEUE}.{size_class}"
 
+                # Set priority based on IGM type
+                tso = opdm_object.get('pmd:TSO')
+                if tso in HIGH_PRIORITY_TSO_LIST.split(','):
+                    properties.priority = 8
+                elif tso in MEDIUM_PRIORITY_TSO_LIST.split(','):
+                    properties.priority = 7
+                elif opdm_object.get('pmd:timeHorizon') == '1D':
+                    properties.priority = 6
+                else:
+                    properties.priority = 5
+
         # Publish to other queue/exchange
         rmq_channel = kwargs.get('channel', None)
         if rmq_channel:
