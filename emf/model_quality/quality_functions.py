@@ -1,3 +1,4 @@
+import weakref
 from io import BytesIO
 from zipfile import ZipFile
 import logging
@@ -85,12 +86,15 @@ def process_zipped_cgm(zipped_bytes, processed=None):
 def cache_tableviews(network):
     """Cache type_tableview results on this network instance - the checks request the same tableviews repeatedly."""
     cache = {}
-    compute = network.type_tableview
+    # Use unbound method + weakref: storing a bound method (strong ref to network) in a closure that is itself
+    # attached to network creates a reference cycle, so network and cache are only freed by gc full collection
+    compute = type(network).type_tableview
+    network_ref = weakref.ref(network)
 
     def cached_type_tableview(type_name, *args, **kwargs):
         key = (type_name, args, tuple(sorted(kwargs.items())))
         if key not in cache:
-            cache[key] = compute(type_name, *args, **kwargs)
+            cache[key] = compute(network_ref(), type_name, *args, **kwargs)
         result = cache[key]
         # Shallow copy is enough under pandas 3 Copy-on-Write: callers cannot modify the cached table
         return None if result is None else result.copy(deep=False)
