@@ -1,0 +1,17 @@
+{
+  "_meta": {"description": "CGM merge reports (cgm_worker) - EMF writes monthly indices emfos-merge-reports-YYYYMM"},
+  "index_patterns": ["emfos-merge-reports*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {"type": "date"}
+      }
+    }
+  }
+}

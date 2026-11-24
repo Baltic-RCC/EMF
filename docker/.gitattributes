@@ -1,0 +1,2 @@
+# Files under docker/ are mounted into Linux containers - keep LF line endings on Windows checkouts too
+* text=auto eol=lf

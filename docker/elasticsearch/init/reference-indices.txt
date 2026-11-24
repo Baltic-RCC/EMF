@@ -1,0 +1,6 @@
+# Reference indices EMF queries by exact name - created empty so lookups return no hits instead of 404.
+# Load real data into them separately if needed.
+config-network
+config-line-ratings
+config-bds-lines
+opc-outages-baltics

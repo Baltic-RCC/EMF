@@ -3,7 +3,6 @@ import config
 from io import BytesIO
 import json
 import triplets
-import time
 from emf.common.helpers.opdm_objects import create_opdm_objects
 from emf.common.helpers.utils import zip_xml
 from emf.common.config_parser import parse_app_properties
@@ -17,14 +16,16 @@ parse_app_properties(caller_globals=globals(), path=config.paths.model_retriever
 class HandlerModelsFromOPDM:
 
     def __init__(self):
-        while True:
-            try:
-                self.opdm_service = opdm.OPDM()
-                logger.info("Connected to OPDM successfully")
-                break
-            except Exception as e:
-                logger.error(f"Failed to connect to OPDM: {e}")
-                time.sleep(60)  # wait 60 seconds before retry
+        # Connected on first use, so the worker starts consuming even when OPDM is not reachable
+        self._opdm_service = None
+
+    @property
+    def opdm_service(self):
+        if self._opdm_service is None:
+            # On failure the exception propagates and the message is rejected; next message retries the connection
+            self._opdm_service = opdm.OPDM()
+            logger.info("Connected to OPDM successfully")
+        return self._opdm_service
 
     def handle(self, message: bytes, properties: object, **kwargs):
         # Load from binary to json

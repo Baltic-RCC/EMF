@@ -1,0 +1,17 @@
+{
+  "_meta": {"description": "IGM validation results (model_validator) - EMF writes monthly indices emfos-igm-validation-YYYYMM"},
+  "index_patterns": ["emfos-igm-validation*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {"type": "date"}
+      }
+    }
+  }
+}

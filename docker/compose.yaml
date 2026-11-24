@@ -1,0 +1,224 @@
+# Local EMF environment
+#
+# Starts the infrastructure that EMF tools depend on, each with an init container that provisions
+# its initial configuration:
+#   - RabbitMQ       (+ rabbitmq-init:      definitions from rabbitmq/*.def.json, application user)
+#   - Elasticsearch  (+ elasticsearch-init: index templates, reference indices, API key)
+#   - Kibana         (+ kibana-init:        data views for EMF indices)
+#   - MinIO         (+ minio-init:         buckets, application user)
+#
+# EMF tools (workers) are in compose.services.yaml - a separate project, start this one first.
+#
+# Usage (from the docker/ folder):
+#   podman compose up -d        # or: docker compose up -d
+#   podman compose ps -a
+#   podman compose down         # keep data volumes
+#   podman compose down -v      # also remove data volumes
+#
+# All settings have local development defaults and can be overridden in docker/.env (see .env.example).
+
+name: emf
+
+x-init-defaults: &init-defaults
+  restart: "no"
+  networks: [emf]
+
+services:
+
+  # --- RabbitMQ ------------------------------------------------------------------------------------
+
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE:-docker.io/library/rabbitmq:4.2.7-management-alpine}
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_ADMIN_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/90-emf.conf:ro
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      # Checks that all listeners (AMQP and management HTTP API) accept connections.
+      # Runs only once the server has created its Erlang cookie - otherwise the CLI (running as root) would create
+      # it first on a fresh volume and the server (running as rabbitmq) would crash with eacces reading it.
+      test: ["CMD-SHELL", "test -f /var/lib/rabbitmq/.erlang.cookie && rabbitmq-diagnostics -q check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 12
+    restart: unless-stopped
+    networks: [emf]
+
+  rabbitmq-init:
+    <<: *init-defaults
+    image: ${RABBITMQ_IMAGE:-docker.io/library/rabbitmq:4.2.7-management-alpine}
+    entrypoint: ["/bin/bash", "/init/init.sh"]
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_MANAGEMENT_PORT: 15672
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER:-admin}
+      RABBITMQ_ADMIN_PASSWORD: ${RABBITMQ_ADMIN_PASSWORD:-admin}
+      RABBITMQ_EMF_USER: ${RABBITMQ_EMF_USER:-emf}
+      RABBITMQ_EMF_PASSWORD: ${RABBITMQ_EMF_PASSWORD:-emf}
+      DEFINITIONS_DIR: /definitions
+    volumes:
+      - ./rabbitmq/init:/init:ro
+      - ./rabbitmq:/definitions:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # --- Elasticsearch -------------------------------------------------------------------------------
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.19.25}
+    hostname: elasticsearch
+    environment:
+      cluster.name: emf-local
+      node.name: elasticsearch
+      discovery.type: single-node
+      # Free "basic" license; security on (API keys are what EMF uses), plain HTTP for local use
+      xpack.license.self_generated.type: basic
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      xpack.ml.enabled: "false"
+      ingest.geoip.downloader.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-elastic}
+      ES_JAVA_OPTS: -Xms${ELASTICSEARCH_HEAP:-512m} -Xmx${ELASTICSEARCH_HEAP:-512m}
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${ELASTICSEARCH_PORT:-9200}:9200"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u \"elastic:$${ELASTIC_PASSWORD}\" \"http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s\" > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      start_period: 60s
+      retries: 18
+    restart: unless-stopped
+    networks: [emf]
+
+  elasticsearch-init:
+    <<: *init-defaults
+    image: ${ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.19.25}
+    # Root is needed only to write the generated API key into the bind-mounted secrets folder
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/init/init.sh"]
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-elastic}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-kibana}
+      ELASTICSEARCH_API_KEY_NAME: ${ELASTICSEARCH_API_KEY_NAME:-emf-local}
+      SECRETS_DIR: /secrets
+    volumes:
+      - ./elasticsearch/init:/init:ro
+      - ./.secrets:/secrets
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # --- Kibana --------------------------------------------------------------------------------------
+
+  kibana:
+    image: ${KIBANA_IMAGE:-docker.elastic.co/kibana/kibana:8.19.25}
+    hostname: kibana
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      # Kibana connects with the built-in kibana_system user (password set by elasticsearch-init)
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-kibana}
+      SERVER_NAME: kibana
+      SERVER_PUBLICBASEURL: http://localhost:${KIBANA_PORT:-5601}
+      # Fixed keys keep sessions and encrypted saved objects valid across restarts (min. 32 characters)
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-emf-local-kibana-encryption-key-0001}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-emf-local-kibana-encryption-key-0001}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-emf-local-kibana-encryption-key-0001}
+      TELEMETRY_OPTIN: "false"
+      NEWSFEED_ENABLED: "false"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${KIBANA_PORT:-5601}:5601"
+    healthcheck:
+      # /login answers 200 only once Kibana is ready (503 while starting)
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:5601/login"]
+      interval: 10s
+      timeout: 10s
+      start_period: 90s
+      retries: 30
+    depends_on:
+      elasticsearch-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [emf]
+
+  kibana-init:
+    <<: *init-defaults
+    image: ${KIBANA_IMAGE:-docker.elastic.co/kibana/kibana:8.19.25}
+    entrypoint: ["/bin/bash", "/init/init.sh"]
+    environment:
+      KIBANA_URL: http://kibana:5601
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-elastic}
+    volumes:
+      - ./kibana/init:/init:ro
+    depends_on:
+      kibana:
+        condition: service_healthy
+
+  # --- MinIO ---------------------------------------------------------------------------------------
+
+  minio:
+    # Official MinIO community images are no longer published; Chainguard rebuilds them from the AGPL source.
+    # Only the "latest" tag is free - pin a digest (image@sha256:...) in .env for reproducible setups.
+    image: ${MINIO_IMAGE:-docker.io/chainguard/minio:latest}
+    hostname: minio
+    command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      # MinIO requires passwords of at least 8 characters (root and users)
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 10s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
+    networks: [emf]
+
+  minio-init:
+    <<: *init-defaults
+    image: ${MINIO_IMAGE:-docker.io/chainguard/minio:latest}
+    entrypoint: ["/bin/bash", "/init/init.sh"]
+    environment:
+      MINIO_URL: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+      MINIO_EMF_USER: ${MINIO_EMF_USER:-emf}
+      MINIO_EMF_PASSWORD: ${MINIO_EMF_PASSWORD:-password}
+      MC_CONFIG_DIR: /tmp/.mc
+    volumes:
+      - ./minio/init:/init:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  rabbitmq-data:
+  elasticsearch-data:
+  minio-data:
+
+networks:
+  emf:
+    name: emf

@@ -1,0 +1,184 @@
+{
+  "queues": [
+    {
+      "name": "emf.object-storage.models.opdm",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dev.null",
+        "x-dead-letter-routing-key": "dead-model",
+        "x-delivery-limit": 3,
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "emf.validation.models.opdm",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "emf.merge.tasks.rmm",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dev.null",
+        "x-delivery-limit": 3,
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "emf.merge.tasks.cgm",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dev.null",
+        "x-delivery-limit": 3,
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "dead.letter.emf.tasks",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "dead.letter.emf.models",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 86400000,
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "opde-from.edx",
+      "vhost": "/",
+      "type": "headers",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "dev.null",
+      "vhost": "/",
+      "type": "headers",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "emf.merge.tasks",
+      "vhost": "/",
+      "type": "headers",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {
+        "alternate-exchange": "dev.null"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "emf.merge.tasks",
+      "vhost": "/",
+      "destination": "emf.merge.tasks.cgm",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "process_id": "https://example.com/processes/CGM_CREATION"
+      }
+    },
+    {
+      "source": "emf.merge.tasks",
+      "vhost": "/",
+      "destination": "emf.merge.tasks.rmm",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "process_id": "https://example.com/processes/RMM_CREATION"
+      }
+    },
+    {
+      "source": "opde-from.edx",
+      "vhost": "/",
+      "destination": "emf.object-storage.models.opdm",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "businessType": "ENTSOE-OPDM-Publish-BDS"
+      }
+    },
+    {
+      "source": "opde-from.edx",
+      "vhost": "/",
+      "destination": "emf.object-storage.models.opdm",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "businessType": "ENTSOE-OPDM-Publish-IGM"
+      }
+    },
+    {
+      "source": "dev.null",
+      "vhost": "/",
+      "destination": "dead.letter.emf.tasks",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "@type": "Task"
+      }
+    },
+    {
+      "source": "dev.null",
+      "vhost": "/",
+      "destination": "dead.letter.emf.models",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "businessType": "ENTSOE-OPDM-Publish-BDS"
+      }
+    },
+    {
+      "source": "dev.null",
+      "vhost": "/",
+      "destination": "dead.letter.emf.models",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "businessType": "ENTSOE-OPDM-Publish-CGM"
+      }
+    },
+    {
+      "source": "dev.null",
+      "vhost": "/",
+      "destination": "dead.letter.emf.models",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {
+        "businessType": "ENTSOE-OPDM-Publish-IGM"
+      }
+    }
+  ]
+}

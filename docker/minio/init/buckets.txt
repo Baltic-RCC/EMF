@@ -1,0 +1,3 @@
+# Buckets used by EMF tools (see config/*/*.properties and pypowsybl logger settings)
+opdm-data
+opde-confidential-models

@@ -1,0 +1,8 @@
+# Kibana data views for EMF indices (see config/**/*.properties), all using @timestamp as time field.
+# Format: <index pattern>|<display name>
+emfos-logs*|EMF logs
+emfos-tasks*|EMF tasks
+emfos-opde-models*|EMF OPDE models
+emfos-igm-validation*|EMF IGM validation
+emfos-merge-reports*|EMF merge reports
+emfos-schedules*|EMF schedules

@@ -1,0 +1,17 @@
+{
+  "_meta": {"description": "Tasks (task_generator) - EMF writes monthly indices emfos-tasks-YYYYMM"},
+  "index_patterns": ["emfos-tasks*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {"type": "date"}
+      }
+    }
+  }
+}

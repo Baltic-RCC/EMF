@@ -1,0 +1,4 @@
+# Local overrides and generated credentials (.secrets/ itself is kept so podman can bind-mount it)
+.env
+.secrets/*
+!.secrets/.gitkeep

@@ -159,6 +159,13 @@ class BlockingClient:
         self.close()
 
 
+def _forward_target(forward: Optional[str]) -> Optional[str]:
+    """Exchange to forward handled messages to; None, empty or "None" (e.g. OUTPUT_RMQ_EXCHANGE = None) disables forwarding"""
+    if forward is None or forward.strip() in ("", "None"):
+        return None
+    return forward
+
+
 class SingleMessageConsumer:
     def __init__(self,
                  host: str = RMQ_SERVER,
@@ -179,7 +186,7 @@ class SingleMessageConsumer:
         self._host, self._port, self._vhost = host, int(port), vhost
         self._queue = queue
         self._username, self._password = username, password
-        self.forward = forward
+        self.forward = _forward_target(forward)
         self.message_handlers = message_handlers or []
         self.message_converter = message_converter
         self.log_body = log_body
@@ -381,7 +388,7 @@ class RMQConsumer:
         self.message_converter = message_converter
         self.should_reconnect = False
         self.was_consuming = False
-        self.forward = forward
+        self.forward = _forward_target(forward)
 
         self._connection = None
         self._channel = None

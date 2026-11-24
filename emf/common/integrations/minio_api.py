@@ -55,6 +55,17 @@ class ObjectStorage:
 
     def _create_client(self):
         """Connect to Minio"""
+        if MINIO_AUTH_METHOD.upper() == "STATIC":
+            # Username/password used directly as access/secret key (e.g. local MinIO without LDAP), no token to renew
+            self.token_expiration = datetime.max
+            self.client = minio.Minio(endpoint=self.server,
+                                      access_key=self.username,
+                                      secret_key=self.password,
+                                      secure=MINIO_SECURE.lower() == "true",
+                                      http_client=self.http_client,
+                                      )
+            return
+
         credentials = self._get_credentials()
         self.token_expiration = parse_datetime(credentials['Expiration']).replace(tzinfo=None)
         self.client = minio.Minio(endpoint=self.server,

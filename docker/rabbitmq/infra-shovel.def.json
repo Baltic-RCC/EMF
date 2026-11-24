@@ -1,0 +1,39 @@
+{
+  "parameters": [
+    {
+      "vhost": "/",
+      "component": "shovel",
+      "name": "opde-edx.reply.to.rabbit",
+      "value": {
+        "ack-mode": "on-confirm",
+        "src-protocol": "amqp10",
+        "src-uri": "amqp://opde-edx-host.example:6672",
+        "src-address": "edx.endpoint.reply.rabbit",
+        "src-delete-after": "never",
+        "dest-protocol": "amqp091",
+        "dest-uri": "amqp://",
+        "dest-queue": "opde-to.edx.reply",
+        "dest-add-forward-headers": false,
+        "reconnect-delay": 10
+      }
+    },
+    {
+      "vhost": "/",
+      "component": "shovel",
+      "name": "opde-edx.to.rabbit",
+      "value": {
+        "ack-mode": "on-confirm",
+        "src-protocol": "amqp10",
+        "src-uri": "amqp://opde-edx-host.example:6672",
+        "src-address": "edx.endpoint.inbox.rabbit",
+        "src-delete-after": "never",
+        "dest-protocol": "amqp091",
+        "dest-uri": "amqp://",
+        "dest-exchange": "opde-from.edx",
+        "dest-exchange-key": "from-opde-edx",
+        "dest-add-forward-headers": false,
+        "reconnect-delay": 10
+      }
+    }
+  ]
+}

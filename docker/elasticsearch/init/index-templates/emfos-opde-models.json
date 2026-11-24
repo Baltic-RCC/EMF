@@ -1,0 +1,17 @@
+{
+  "_meta": {"description": "OPDE model metadata (model_retriever, model_validator, cgm_worker) - EMF writes monthly indices emfos-opde-models-YYYYMM"},
+  "index_patterns": ["emfos-opde-models*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {"type": "date"}
+      }
+    }
+  }
+}

@@ -1,0 +1,90 @@
+# Local EMF services (workers)
+#
+# Separate project from compose.yaml (dependencies), so workers can be started, stopped and recreated
+# without touching RabbitMQ, Elasticsearch, Kibana and MinIO. Start the dependencies first - this project
+# joins their "emf" network and reads the Elasticsearch API key written by elasticsearch-init.
+#
+# Usage (from the docker/ folder):
+#   podman compose up -d                                  # dependencies first
+#   podman compose -f compose.services.yaml up -d         # then the workers
+#   podman compose -f compose.services.yaml logs -f model-retriever
+#   podman compose -f compose.services.yaml down
+#
+# Images come from Docker Hub; local emf/ and config/ are mounted over the copies in the image, so code changes
+# apply on restart without a rebuild. Settings from config/**/*.properties are overridden with environment
+# variables of the same name.
+
+name: emf-services
+
+# Connections to the local dependencies, shared by all workers
+x-emf-environment: &emf-environment
+  RMQ_SERVER: rabbitmq
+  RMQ_PORT: 5672
+  RMQ_USERNAME: ${RABBITMQ_EMF_USER:-emf}
+  RMQ_PASSWORD: ${RABBITMQ_EMF_PASSWORD:-emf}
+  ELK_SERVER: http://elasticsearch:9200
+  ELK_SSL_VERIFY: "False"
+  MINIO_SERVER: minio:9000
+  MINIO_USERNAME: ${MINIO_EMF_USER:-emf}
+  MINIO_PASSWORD: ${MINIO_EMF_PASSWORD:-password}
+  MINIO_AUTH_METHOD: STATIC
+  MINIO_SECURE: "False"
+
+x-emf-worker: &emf-worker
+  # Waits for the API key file written by elasticsearch-init, exports it as ELK_TOKEN, then runs the service command
+  entrypoint:
+    - /bin/sh
+    - -c
+    - |
+      until [ -s /secrets/elasticsearch_api_key ]; do echo "Waiting for /secrets/elasticsearch_api_key (start compose.yaml first)"; sleep 5; done
+      export ELK_TOKEN="$$(cat /secrets/elasticsearch_api_key)"
+      exec "$$@"
+    - worker
+  volumes:
+    - ./.secrets:/secrets:ro
+    - ../emf:/src/emf:ro
+    - ../config:/src/config:ro
+  # Covers a start before the dependencies are ready (e.g. RabbitMQ refusing connections)
+  restart: unless-stopped
+  networks: [emf]
+
+services:
+
+  model-retriever:
+    <<: *emf-worker
+    image: ${MODEL_RETRIEVER_IMAGE:-docker.io/balticrcc/emfos-model-retriever:latest}
+    command: ["python", "emf/model_retriever/opdm_worker.py"]
+    environment:
+      <<: *emf-environment
+      INPUT_RMQ_QUEUE: emf.object-storage.models.opdm
+      OUTPUT_RMQ_QUEUE: emf.validation.models.opdm
+      # OPDM is not part of the local stack - the worker connects on the first message, which fails until
+      # OPDM_SERVER, OPDM_USERNAME and OPDM_PASSWORD point to a reachable OPDM
+
+  model-validator:
+    <<: *emf-worker
+    image: ${MODEL_VALIDATOR_IMAGE:-docker.io/balticrcc/emfos-model-validator:latest}
+    command: ["python", "emf/model_validator/worker.py"]
+    environment:
+      <<: *emf-environment
+      # Long-living consumer instead of SINGLE_MESSAGE (one message per run, meant for KEDA jobs)
+      CONSUMER_TYPE: LONG_LIVING
+      INPUT_RMQ_QUEUE: emf.validation.models.opdm
+      # Results are stored in Elasticsearch and MinIO only - "None" disables forwarding to a next stage
+      OUTPUT_RMQ_EXCHANGE: "None"
+
+  model-merger:
+    <<: *emf-worker
+    image: ${MODEL_MERGER_IMAGE:-docker.io/balticrcc/emfos-model-merger:latest}
+    command: ["python", "emf/model_merger/worker.py"]
+    environment:
+      <<: *emf-environment
+      CONSUMER_TYPE: LONG_LIVING
+      INPUT_RABBIT_QUEUE: emf.merge.tasks.cgm
+      # Merged models go to MinIO, metadata and merge reports to Elasticsearch - "None" disables forwarding
+      OUTPUT_RMQ_EXCHANGE: "None"
+
+networks:
+  emf:
+    name: emf
+    external: true

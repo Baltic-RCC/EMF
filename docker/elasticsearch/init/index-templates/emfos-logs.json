@@ -1,0 +1,17 @@
+{
+  "_meta": {"description": "EMF logs (custom_logger) - EMF writes monthly indices emfos-logs-YYYYMM"},
+  "index_patterns": ["emfos-logs*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {"type": "date"}
+      }
+    }
+  }
+}
