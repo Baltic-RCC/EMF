@@ -29,6 +29,9 @@ ORIGINAL_SSH = {"ELIA": "52b712d1-f3b0-4a59-9191-79f2fb1e4c4e", "TENNET": "66085
 ORIGINAL_EQ = {"ELIA": "d400c631-75a0-4c30-8aed-832b0d282e73", "TENNET": "77b55f87-fc1e-4046-9599-6c6b4f991a86"}
 ORIGINAL_TP = {"f2f43818-09c8-4252-9611-7af80c398d20", "5d32d257-1646-4906-a1f6-4d7ce3f91569"}
 BOUNDARY_TP = "2399cbd1-9a39-11e0-aa80-0800200c9a66"
+# X-node TN_Border_AL11, shared by BE-Line_3 and NL-Line_1
+AL11_TOPOLOGICAL_NODE = "d4affe50316740bdbbf4ae9c7cbf3cfd"
+RDF_RESOURCE = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
 
 
 def _run_full_merge(input_models: list) -> SimpleNamespace:
@@ -68,6 +71,8 @@ def _run_full_merge(input_models: list) -> SimpleNamespace:
         loadflow_settings=merged_model.loadflow_settings,
         loadflow_parameters=loadflow_parameters,
         bus_voltages=merged_model.network.get_bus_breaker_view_buses()[["v_mag", "v_angle"]],
+        boundary_voltages=merged_model.network.get_boundary_lines(all_attributes=True)[
+            ["pairing_key", "boundary_v_mag", "boundary_v_angle"]],
         opdm_object_meta=opdm_object_meta,
         zips=zips,
         xml_files=xml_files,
@@ -172,6 +177,19 @@ def test_full_merge_cgm_reassembles_from_igm_eq_tp_and_solves_to_the_merged_stat
     assert results[0].status == pp.loadflow.ComponentStatus.CONVERGED
     voltages = network.get_bus_breaker_view_buses()[["v_mag", "v_angle"]]
     pd.testing.assert_frame_equal(voltages.loc[full_merge.bus_voltages.index], full_merge.bus_voltages, atol=0.01, rtol=0)
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="SvVoltage of an X-node shared by two IGMs is one of the per-IGM values kept by "
+                          "remove_duplicate_sv_voltages, not the solved boundary voltage of the tie line")
+def test_full_merge_sv_voltage_of_shared_x_node_is_the_solved_boundary_voltage(full_merge):
+    sv = etree.fromstring(full_merge.xml_files[f"{SV_FILE}.zip"][f"{SV_FILE}.xml"])
+    [sv_voltage] = [element for element in sv.iterfind("{*}SvVoltage")
+                    if element.find("{*}SvVoltage.TopologicalNode").get(RDF_RESOURCE).endswith(AL11_TOPOLOGICAL_NODE)]
+    solved = full_merge.boundary_voltages.query("pairing_key == 'TN_Border_AL11'").iloc[0]
+
+    assert float(sv_voltage.findtext("{*}SvVoltage.v")) == pytest.approx(solved.boundary_v_mag, abs=0.01)
+    assert float(sv_voltage.findtext("{*}SvVoltage.angle")) == pytest.approx(solved.boundary_v_angle, abs=0.01)
 
 
 @pytest.mark.xfail(strict=True, reason="pmd:fullModel_ID of the merged model comes from the network id (an IGM EQ mRID) "
