@@ -21,7 +21,7 @@ from emf.common.loadflow_tool.load_files_general import OPDE_COMPONENT_KEYWORD, 
     BOUNDARY_OBJECT_TYPE, IGM_OBJECT_TYPE, MODEL_MESSAGE_TYPE_KEYWORD, MODEL_MODELING_ENTITY_KEYWORD, \
     MODEL_MERGING_ENTITY_KEYWORD, MODEL_SCENARIO_TIME_KEYWORD, MODEL_PROCESS_TYPE_KEYWORD, MODEL_VERSION_KEYWORD, \
     get_meta_from_filename, IGM_FILE_TYPES, SPECIAL_TSO_NAME, VALIDATION_STATUS_KEYWORD, check_the_folder_path
-from emf.model_validator import validate_model
+# from emf.model_validator import validate_model
 
 PMD_VALID_FROM_KEYWORD = 'pmd:validFrom'
 MODEL_FOR_ENTITY_KEYWORD = 'Model.forEntity'
@@ -693,12 +693,12 @@ def get_local_entsoe_files(path_to_directory: str | list,
     all_boundaries = []
     boundary = None
     for single_path in path_to_directory:
-        try:
-            full_path = check_and_get_examples(single_path)
-        except Exception as ex:
-            logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
-            sys.exit()
-        full_path = check_the_folder_path(full_path)
+        # try:
+        #     full_path = check_and_get_examples(single_path)
+        # except Exception as ex:
+        #     logger.error(f"FATAL ERROR WHEN GETTING FILES: {ex}")
+        #     sys.exit()
+        full_path = check_the_folder_path(single_path)
         file_names = next(os.walk(full_path), (None, None, []))[2]
         models_data, boundary_data = group_files_by_origin(list_of_files=file_names,
                                                            root_folder=full_path,
@@ -783,19 +783,19 @@ if __name__ == "__main__":
 
     validated_models = []
     # Validate models
-    for model in available_models:
-        tso = model['pmd:TSO']
-        try:
-            if isinstance(latest_boundary, dict):
-                response = validate_model([model, latest_boundary])
-            else:
-                response = validate_model([model])
-            model[VALIDATION_STATUS_KEYWORD] = response
-            validated_models.append(model)
-        except Exception as error:
-            validated_models.append(model)
-            logger.error(f"For {model.get('pmd:TSO')} validation failed", error)
-    # Print validation statuses
-    [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'),
-                duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in
-     validated_models]
+    # for model in available_models:
+    #     tso = model['pmd:TSO']
+    #     try:
+    #         if isinstance(latest_boundary, dict):
+    #             response = validate_model([model, latest_boundary])
+    #         else:
+    #             response = validate_model([model])
+    #         model[VALIDATION_STATUS_KEYWORD] = response
+    #         validated_models.append(model)
+    #     except Exception as error:
+    #         validated_models.append(model)
+    #         logger.error(f"For {model.get('pmd:TSO')} validation failed", error)
+    # # Print validation statuses
+    # [print(dict(tso=model['pmd:TSO'], valid=model.get('VALIDATION_STATUS', {}).get('valid'),
+    #             duration=model.get('VALIDATION_STATUS', {}).get('validation_duration_s'))) for model in
+    #  validated_models]

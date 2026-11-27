@@ -8,12 +8,12 @@ dependencies = [
     "pandas",
     "polars>=1.17.1",
     "numpy",
-    "pypowsybl==1.16.1",
+    "pypowsybl==1.17.0",
     "aniso8601",
     "lxml",
     "edx",
     "opdm-api",
-    "triplets",
+    "triplets>=0.2.0",
     "ndjson",
     "elasticsearch==8.15.0",
     "minio",
@@ -22,7 +22,7 @@ dependencies = [
     "pika",
     "saxonche",
     "croniter",
-    "pyarrow>=24.0.0",
+    "pyarrow>=25.0.1,<26",
 ]
 
 [dependency-groups]
