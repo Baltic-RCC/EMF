@@ -97,4 +97,5 @@ def test_every_run_refers_to_a_usable_time_frame(process, run):
 
     assert time_frame["reference_time_start"] in reference_times
     assert time_frame["reference_time_end"] in reference_times
-    assert (not run["run_at"] or croniter.croniter.is_valid(run["run_at"])) and croniter.croniter.is_valid(run["data_timestamps"])
+    assert not run["run_at"] or croniter.croniter.is_valid(run["run_at"])
+    assert croniter.croniter.is_valid(run["data_timestamps"])

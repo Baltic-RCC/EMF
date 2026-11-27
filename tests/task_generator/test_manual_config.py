@@ -167,7 +167,8 @@ def test_run_without_run_at_uses_current_time_and_creates_manual_tasks(settings,
 
     assert timestamp == "2025-06-10T10:15:01+02:00"
     tasks = generate(process_conf, timeframe_conf, timestamp)
-    assert tasks and {task["task_type"] for task in tasks} == {"manual"}
+    assert tasks
+    assert {task["task_type"] for task in tasks} == {"manual"}
 
 
 @pytest.mark.parametrize("run_type, utc_now, expected_timestamp", [

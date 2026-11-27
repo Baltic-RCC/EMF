@@ -68,9 +68,10 @@ def test_download_object_requests_content_from_opdm_for_missing_files(service):
 
 def test_download_object_raises_when_file_still_missing_after_get_content(service):
     service.get_file = mock.Mock(return_value=None)
+    metadata = _model("EQ.zip")
 
     with pytest.raises(Exception, match="Failure in model retrieving"):
-        service.download_object(_model("EQ.zip"))
+        service.download_object(metadata)
 
 
 @pytest.mark.parametrize("status_code, expected", [(200, b"content"), (404, None)])

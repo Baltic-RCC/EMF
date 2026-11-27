@@ -274,9 +274,10 @@ def test_outage_query_depends_on_time_horizon(time_horizon, merge_types, lookbac
 
 def test_outage_query_rejects_unknown_time_horizon():
     handler = elastic_handler({"opc-outages-baltics*": pd.DataFrame()})
+    mrid_map = eic_mrid_map("E1")
 
     with pytest.raises(TypeError, match="Incorrect time horizon"):
-        get_uap_outages_from_scenario_time(handler, "XX", "2025-07-06T09:30:00Z", eic_mrid_map("E1"))
+        get_uap_outages_from_scenario_time(handler, "XX", "2025-07-06T09:30:00Z", mrid_map)
 
 
 def node_breaker_line(line, end_1_connected=True, end_2_connected=True):
