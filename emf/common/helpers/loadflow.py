@@ -61,10 +61,13 @@ def load_network_model(opdm_objects: List[dict], parameters: dict = None, skip_d
     buffers = []
     for opdm_object in opdm_objects:
         for instance in opdm_object['opde:Component']:
+            if exclude_profiles and instance['opdm:Profile'].get('pmd:cgmesProfile') in exclude_profiles:
+                logger.info(f"Skipping {instance['opdm:Profile'].get('pmd:fileName')}")
+                continue
             logger.info(f"Adding file: {instance['opdm:Profile'].get('pmd:fileName')}")
             buffers.append(BytesIO(instance['opdm:Profile']['DATA']))
     network = pypowsybl.network.load_from_binary_buffers(
-        buffer=package_for_pypowsybl(opdm_objects, exclude_profiles=exclude_profiles),
+        buffers=buffers,
         report_node=import_report,
         parameters=parameters
         # parameters={
