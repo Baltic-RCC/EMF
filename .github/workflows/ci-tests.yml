@@ -30,4 +30,55 @@ jobs:
         run: uv sync --frozen --no-build
 
       - name: Run tests
-        run: uv run --frozen --no-build pytest --cov=emf --cov-report=term
+        run: uv run --frozen --no-build pytest --cov=emf --cov-report=term --junitxml=pytest.xml
+
+      - name: Test summary
+        if: always()
+        run: |
+          [ -f pytest.xml ] || exit 0
+          python - <<'EOF'
+          import os
+          import re
+          import xml.etree.ElementTree as ET
+
+          def escape(value, prop=False):
+              # GitHub workflow command escaping, properties also escape : and ,
+              value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return value.replace(":", "%3A").replace(",", "%2C") if prop else value
+
+          root = ET.parse("pytest.xml").getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          tests, failures, errors, skipped = (int(suite.get(key)) for key in ("tests", "failures", "errors", "skipped"))
+          broken = {}
+          for case in suite.iter("testcase"):
+              path = case.get("classname").replace(".", "/") + ".py"
+              node_id = f"{path}::{case.get('name')}"
+              for problem in case.findall("failure") + case.findall("error"):
+                  broken[node_id] = None
+                  # Deepest traceback line inside the test file, the traceback lists frames as "path:line:"
+                  lines = [line for file, line in re.findall(r"^(\S+?\.py):(\d+):", problem.text or "", re.M) if file == path]
+                  properties = [f"file={escape(path, True)}"] if os.path.isfile(path) else []
+                  properties += [f"line={lines[-1]}"] if lines and properties else []
+                  properties.append(f"title={escape(node_id, True)}")
+                  message = "\n".join((problem.get("message") or problem.tag).splitlines()[:20])[:1000]
+                  print(f"::error {','.join(properties)}::{escape(message)}")
+
+          summary = [f"## {'❌ Tests failed' if failures + errors else '✅ Tests passed'}", "",
+                     "| Passed | Failed | Errors | Skipped / xfailed | Duration |", "|---:|---:|---:|---:|---:|",
+                     f"| {tests - failures - errors - skipped} | {failures} | {errors} | {skipped} | {float(suite.get('time')):.0f} s |"]
+          if broken:
+              summary += ["", "### Failed tests", "", *(f"- `{node_id}`" for node_id in list(broken)[:50])]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as file:
+              file.write("\n".join(summary) + "\n\n")
+          EOF
+          if [ -f .coverage ]; then
+            echo "**Coverage: $(uv run --frozen --no-build coverage report --format=total)%**" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo
+              echo "<details><summary>Coverage per file</summary>"
+              echo
+              uv run --frozen --no-build coverage report --format=markdown
+              echo
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
