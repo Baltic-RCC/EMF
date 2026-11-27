@@ -14,6 +14,9 @@ on:
 jobs:
   unit_tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -68,11 +71,11 @@ jobs:
                      f"| {tests - failures - errors - skipped} | {failures} | {errors} | {skipped} | {float(suite.get('time')):.0f} s |"]
           if broken:
               summary += ["", "### Failed tests", "", *(f"- `{node_id}`" for node_id in list(broken)[:50])]
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as file:
+          with open("summary.md", "w") as file:
               file.write("\n".join(summary) + "\n\n")
           EOF
           if [ -f .coverage ]; then
-            echo "**Coverage: $(uv run --frozen --no-build coverage report --format=total)%**" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Coverage: $(uv run --frozen --no-build coverage report --format=total)%**" >> summary.md
             {
               echo
               echo "<details><summary>Coverage per file</summary>"
@@ -80,5 +83,18 @@ jobs:
               uv run --frozen --no-build coverage report --format=markdown
               echo
               echo "</details>"
-            } >> "$GITHUB_STEP_SUMMARY"
+            } >> summary.md
           fi
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment test summary on PR
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -f summary.md ] || exit 0
+          { cat summary.md; echo; echo "[Workflow run]($RUN_URL)"; } > comment.md
+          gh pr comment "$PR_NUMBER" --body-file comment.md --edit-last --create-if-none
