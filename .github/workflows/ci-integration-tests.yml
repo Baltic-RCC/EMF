@@ -35,13 +35,13 @@ jobs:
           python-version-file: .python-version
 
       - name: Install uv
-        run: pip install uv
+        run: "pip install --only-binary :all: uv==0.11.32"
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --no-build
 
       - name: Run integration tests
-        run: uv run --frozen pytest -m integration
+        run: uv run --frozen --no-build pytest -m integration
 
       - name: Show service logs
         if: failure()
