@@ -1,0 +1,53 @@
+# Services for `pytest -m integration`, ports and credentials match the defaults the integration tests use.
+#   docker compose -f tests/integration/docker-compose.yml up -d --wait
+#   uv run pytest -m integration
+#   docker compose -f tests/integration/docker-compose.yml down -v
+name: emfos-integration-tests
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    # Plain port check: rabbitmq-diagnostics runs as root and can create a root-owned .erlang.cookie before the broker
+    # does, which then fails to start with eacces
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/5672"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  elasticsearch:
+    image: elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # Official MinIO image, same tag and healthcheck as MinIO's own docker-compose example. Plain HTTP, the tests
+  # connect without TLS
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-06T17-38-46Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
