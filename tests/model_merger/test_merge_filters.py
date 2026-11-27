@@ -140,6 +140,7 @@ def flags(scaled=True, replaced=None, outages=None, acnp_schedule_replaced=None)
     pytest.param(flags(True, True, True, True), {**BA_PROPERTIES, "replacement": False}, "untrusted", "config is disabled",
                  id="replacement-disabled"),
     pytest.param(flags(False, False), {**BA_PROPERTIES, "merge_type": "EU"}, "not_evaluated", None, id="not-baltic-merge"),
+    pytest.param(flags(), {**BA_PROPERTIES, "merge_type": "XX"}, "trusted", None, id="other-rmm-area"),
 ])
 def test_evaluate_trustability(report, properties, trustability, reason):
     assert merge_functions.evaluate_trustability(report, properties) == {"trustability": trustability,

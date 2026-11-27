@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from emf.common.helpers.opdm_objects import DataSource
+from emf.common.loadflow_tool.local_file_import import LocalFileLoaderError
 from emf.common.loadflow_tool.settings_manager import LoadflowSettingsManager
 from emf.model_merger import model_merger
 from emf.model_merger.model_merger import HandlerMergeModels
@@ -118,7 +119,7 @@ def test_handle_without_igms_returns_task_as_unsuccessful(services, merge_steps,
     services.opdm.assert_not_called()
 
 
-@pytest.mark.parametrize("merge_type, model_type", [("EU", "CGM"), ("BA", "RMM")])
+@pytest.mark.parametrize("merge_type, model_type", [("EU", "CGM"), ("BA", "RMM"), ("XX", "RMM")])
 def test_handle_returns_merged_model_metadata(services, merge_steps, merge_task, merge_type, model_type):
     services.get_latest_models_and_download.return_value = [fake_model("ELIA"), fake_model("TENNET")]
 
@@ -240,6 +241,113 @@ def test_handle_baltic_merge_takes_missing_opdm_model_from_pdn(services, merge_s
     assert [(model["pmd:TSO"], model["data-source"]) for model in merged] == [
         ("ELIA", DataSource.OPDM), ("TENNET", DataSource.PDN), ("ENTSOE", DataSource.OPDM)]
     assert merge_steps.run_replacement.call_args.kwargs["missing_models"] == []
+
+
+@pytest.mark.parametrize("merge_type, from_pdn", [("XX", True), ("EU", False)])
+def test_handle_takes_missing_opdm_model_from_pdn_only_in_rmm(services, merge_steps, merge_task, merge_type, from_pdn):
+    available = {DataSource.OPDM: [fake_model("ELIA")], DataSource.PDN: [fake_model("TENNET", DataSource.PDN)]}
+    services.get_latest_models_and_download.side_effect = lambda tso, data_source, **_: [
+        model for model in available[data_source] if model["pmd:TSO"] in tso]
+
+    handle(services, merge_task, merge_type=merge_type, included=["ELIA", "TENNET"], replacement="True")
+
+    queried = [c.kwargs["data_source"] for c in services.get_latest_models_and_download.call_args_list]
+    assert queried == ([DataSource.OPDM, DataSource.PDN] if from_pdn else [DataSource.OPDM])
+    assert merge_steps.run_replacement.call_args.kwargs["missing_models"] == ([] if from_pdn else ["TENNET"])
+
+
+def replacing(*tsos):
+    """run_replacement stand-in that replaces the models of the given TSOs"""
+    def run_replacement(igm_models, merged_model, **_):
+        merged_model.replaced_entity.extend({"tso": tso} for tso in tsos)
+        return igm_models + [fake_model(tso) for tso in tsos]
+    return run_replacement
+
+
+@pytest.fixture
+def update_model_outages():
+    with mock.patch.object(model_merger.merge_functions, "update_model_outages",
+                           side_effect=lambda merged_model, **_: merged_model) as update:
+        yield update
+
+
+@pytest.mark.parametrize("merge_type, replaced_tso, updated", [
+    pytest.param("XX", "LITGRID", True, id="rmm-replaced-outage-update-tso"),
+    pytest.param("XX", "ELIA", False, id="rmm-replaced-other-tso"),
+    pytest.param("EU", "LITGRID", False, id="eu-merge"),
+])
+def test_handle_updates_outages_only_when_rmm_replaced_an_outage_update_tso(services, merge_steps, merge_task,
+                                                                           update_model_outages, merge_type,
+                                                                           replaced_tso, updated):
+    services.get_latest_models_and_download.return_value = [fake_model("TENNET")]
+    merge_steps.run_replacement.side_effect = replacing(replaced_tso)
+
+    with mock.patch.object(model_merger, "OUTAGE_UPDATE_TSO_LIST", "LITGRID"):
+        handle(services, merge_task, merge_type=merge_type, replacement="True", outage_update="True")
+
+    assert update_model_outages.called is updated
+
+
+def test_handle_passes_outage_update_settings_from_config(services, merge_steps, merge_task, update_model_outages):
+    services.get_latest_models_and_download.return_value = [fake_model("TENNET")]
+    merge_steps.run_replacement.side_effect = replacing("LITGRID")
+    merger_properties = {"OUTAGE_UPDATE_TSO_LIST": " LITGRID, ELIA,", "UAP_OUTAGES_ELK_INDEX": "uap-test*",
+                         "OUTAGE_EXCLUDED_EICS": "10T-A, 10T-B", "OUTAGE_IGNORED_UNMAPPED_EICS": "",
+                         "OUTAGE_MIN_NOMINAL_V": "220"}
+
+    with mock.patch.multiple(model_merger, **merger_properties):
+        handle(services, merge_task, merge_type="XX", replacement="True", outage_update="True")
+
+    settings = update_model_outages.call_args.kwargs
+    assert settings["tso_list"] == ["LITGRID"]
+    # (UAP area, model country) per TSO come from config_areas_mapping.json
+    assert settings["tso_areas"] == {"LITGRID": ("Lithuania", "LT"), "ELIA": ("Belgium", "BE")}
+    assert settings["uap_index"] == "uap-test*"
+    assert (settings["excluded_eics"], settings["ignored_unmapped_eics"]) == (["10T-A", "10T-B"], [])
+    assert settings["min_nominal_v"] == 220.0
+
+
+def write_files(folder, *opdm_objects):
+    for opdm_object in opdm_objects:
+        for component in opdm_object["opde:Component"]:
+            (folder / component["opdm:Profile"]["pmd:fileName"]).write_bytes(component["opdm:Profile"]["DATA"])
+
+
+def test_handle_merges_models_from_local_folder_instead_of_storage(services, merge_steps, merge_task, tmp_path,
+                                                                   microgrid_be_igm, microgrid_nl_igm, microgrid_boundary):
+    write_files(tmp_path, microgrid_be_igm, microgrid_nl_igm, microgrid_boundary)
+
+    handle(services, merge_task, load_local="True", local_model_path=str(tmp_path))
+
+    *igms, boundary = merge_steps.load_network_model.call_args.kwargs["opdm_objects"]
+    assert sorted(igm["pmd:TSO"] for igm in igms) == ["ELIA", "TENNET"]
+    assert all(igm["valid"] is True for igm in igms)
+    assert boundary["opde:Object-Type"] == "BDS"
+    services.get_latest_models_and_download.assert_not_called()
+    services.get_latest_boundary.assert_not_called()
+    merge_steps.run_replacement.assert_not_called()
+
+
+def test_handle_raises_when_local_folder_has_no_boundary_set(services, merge_steps, merge_task, tmp_path, microgrid_be_igm):
+    write_files(tmp_path, microgrid_be_igm)
+
+    with pytest.raises(LocalFileLoaderError, match="No boundary set found"):
+        handle(services, merge_task, load_local="True", local_model_path=str(tmp_path))
+
+    merge_steps.load_network_model.assert_not_called()
+
+
+@pytest.mark.parametrize("export_local, exported", [("True", True), ("False", False)])
+def test_handle_writes_merged_model_to_local_folder_only_when_configured(services, merge_steps, merge_task, tmp_path,
+                                                                         export_local, exported):
+    services.get_latest_models_and_download.return_value = [fake_model("ELIA"), fake_model("TENNET")]
+
+    body, _ = handle(services, merge_task, export_local=export_local, export_local_path=str(tmp_path / "export"))
+
+    uploaded = services.minio.upload_object.call_args.kwargs["file_path_or_file_object"]
+    file_name = json.loads(body)["pmd:content-reference"].rsplit("/", 1)[-1]
+    assert [(file.name, file.read_bytes()) for file in (tmp_path / "export").glob("*")] == \
+           ([(file_name, uploaded.getvalue())] if exported else [])
 
 
 def test_handle_does_not_replace_tsos_excluded_by_task(services, merge_steps, merge_task):
