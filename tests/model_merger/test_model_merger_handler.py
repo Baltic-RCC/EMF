@@ -76,7 +76,7 @@ def merge_steps(services):
 
     with ExitStack() as stack:
         patch = lambda target, name, **kwargs: stack.enter_context(mock.patch.object(target, name, **kwargs))
-        patch(HandlerMergeModels, "apply_pre_loadflow_corrections", side_effect=lambda merged_model: merged_model)
+        patch(HandlerMergeModels, "apply_pre_loadflow_corrections", side_effect=lambda merged_model, **_: merged_model)
         patch(HandlerMergeModels, "run_loadflow", side_effect=run_loadflow)
         patch(model_merger.scaler, "scale_balance", side_effect=scale_balance)
         patch(model_merger.merge_functions, "export_merged_model", return_value=io.BytesIO(b"exported SV"))
