@@ -21,7 +21,6 @@ SCRIPTS = {
 
 # Known import failures, strict xfail turns red once fixed so the entry gets removed
 KNOWN_BROKEN = {
-    "emf.common.loadflow_tool.local_file_import": (ImportError, "imports emf.model_validator.validate_model, which does not exist"),
     "emf.common.xslt_engine.saxonpy_api": (RuntimeError, "connects to RabbitMQ at import"),
     "emf.layout_generator.geo_functions": (ImportError, "geopandas, shapely and thefuzz are not declared in pyproject.toml"),
 }

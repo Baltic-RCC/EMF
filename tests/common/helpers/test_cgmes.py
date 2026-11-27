@@ -107,9 +107,6 @@ def test_export_skips_classes_outside_cgmes_schema(ssh_tp_sv):
     assert "x1" not in set(pd.read_RDF([exported_ssh]).ID)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="triplets read_RDF keeps XML entities escaped and the export escapes them again, "
-                          "so values with & ' < > change on every load/export cycle")
 def test_export_keeps_values_with_xml_special_characters(microgrid_be_igm):
     source = get_metadata_from_rdfxml(get_xml_from_zip(profile_file(microgrid_be_igm, "EQ")))
     assert "'" in source["Model.description"]
