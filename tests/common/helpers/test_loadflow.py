@@ -8,6 +8,7 @@ import pytest
 from emf.common.helpers.loadflow import (get_connected_components_data, get_model_outages, get_network_elements,
                                          get_slack_generators, load_network_model, package_for_pypowsybl,
                                          parse_pypowsybl_report)
+from emf.common.loadflow_tool import loadflow_settings
 
 NODE_BREAKER_AS_BUS_BREAKER = "iidm.import.cgmes.import-node-breaker-as-bus-breaker"
 
@@ -76,6 +77,27 @@ def test_import_parameters_default_and_override(microgrid_be_igm, parameters, sk
     assert load.call_args.kwargs["parameters"] == expected
     assert [buffer.getvalue() for buffer in load.call_args.kwargs["buffers"]] == \
            [component["opdm:Profile"]["DATA"] for component in microgrid_be_igm["opde:Component"]]
+
+
+def test_excluded_profiles_are_not_passed_to_pypowsybl(microgrid_be_igm):
+    # autospec makes the mock reject arguments that load_from_binary_buffers doesn't have
+    with mock.patch.object(pp.network, "load_from_binary_buffers", autospec=True) as load:
+        load_network_model([microgrid_be_igm], exclude_profiles={"SV"})
+
+    assert [buffer.getvalue() for buffer in load.call_args.kwargs["buffers"]] == \
+           [component["opdm:Profile"]["DATA"] for component in microgrid_be_igm["opde:Component"]
+            if component["opdm:Profile"]["pmd:cgmesProfile"] != "SV"]
+
+
+@pytest.mark.pypowsybl
+@pytest.mark.parametrize("exclude_profiles", [None, {"SV"}], ids=["with-sv", "without-sv"])
+def test_igm_without_sv_has_no_starting_voltages_and_still_solves(microgrid_be_igm, microgrid_boundary, exclude_profiles):
+    network = load_network_model([microgrid_be_igm, microgrid_boundary], exclude_profiles=exclude_profiles)
+
+    # Bus voltages before the load flow come only from the SV profile
+    assert network.get_buses()["v_mag"].isna().all() == (exclude_profiles is not None)
+    result, = pp.loadflow.run_ac(network, parameters=loadflow_settings.IGM_VALIDATION)
+    assert result.status == pp.loadflow.ComponentStatus.CONVERGED
 
 
 @pytest.mark.pypowsybl
@@ -194,6 +216,15 @@ def test_model_outages_voltage_limit_is_inclusive(eurostag, nominal_v, listed):
     outages = get_model_outages(eurostag)
 
     assert [outage["grid_id"] for outage in outages] == (["NHV1_NHV2_2"] if listed else [])
+
+
+@pytest.mark.pypowsybl
+@pytest.mark.parametrize("min_nominal_v, listed", [(20.0, ["NHV1_NHV2_1", "GEN"]), (400.0, [])])
+def test_model_outages_voltage_limit_can_be_set(eurostag, min_nominal_v, listed):
+    eurostag.update_lines(id="NHV1_NHV2_1", connected1=False)  # 380 kV
+    eurostag.update_generators(id="GEN", connected=False)  # 24 kV
+
+    assert [outage["grid_id"] for outage in get_model_outages(eurostag, min_nominal_v=min_nominal_v)] == listed
 
 
 @pytest.mark.pypowsybl

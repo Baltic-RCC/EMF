@@ -35,7 +35,10 @@ class FakeElastic:
 
     def query_schedules_from_elk(self, index, utc_start, utc_end, metadata, period_overlap=False):
         self.queries.append({"utc_start": utc_start, "utc_end": utc_end, "period_overlap": period_overlap, **metadata})
-        rows = self.responses.get((metadata["@time_horizon"], metadata.get(schedules.DOC_STATUS_FIELD), utc_start))
+        # A list of time horizons matches any of them, like the bool/should query Elastic builds for it
+        time_horizon = metadata["@time_horizon"]
+        rows = [row for horizon in (time_horizon if isinstance(time_horizon, list) else [time_horizon])
+                for row in self.responses.get((horizon, metadata.get(schedules.DOC_STATUS_FIELD), utc_start)) or []]
         return pd.DataFrame(rows) if rows else None
 
     def get_docs_by_query(self, index, query, size=None):
@@ -210,6 +213,17 @@ def test_query_acnp_schedules_returns_none_without_any_schedules(areas_config):
         assert schedules.query_acnp_schedules("ID", TIMESTAMP) is None
 
 
+def test_query_acnp_schedules_for_yr_accepts_both_year_ahead_labels(areas_config):
+    service = FakeElastic({("YR", None, TIMESTAMP): [_schedule("AA", "BB", 100)],
+                           ("A33", None, TIMESTAMP): [_schedule("BB", "CC", 20), _schedule("CC", "AA", 5)]})
+
+    with mock.patch.object(schedules.elastic, "Elastic", return_value=service):
+        result = schedules.query_acnp_schedules("YR", TIMESTAMP)
+
+    assert service.steps == [(["YR", "A33"], None, TIMESTAMP)]
+    assert sorted(row["value"] for row in result) == [5, 20, 100]
+
+
 HVDC_LINES = [{"IdentifiedObject.energyIdentCodeEic": "10T-HVDC-1", "IdentifiedObject.description": "Link 1"}]
 
 
@@ -225,6 +239,18 @@ def test_query_hvdc_schedules_maps_areas_and_line_names(areas_config, time_horiz
     assert service.queries[0]["TimeSeries.businessType"] == business_type
     assert result == [{"value": 350, "in_domain": "BB", "out_domain": "AA", "registered_resource": "10T-HVDC-1",
                        "hvdc_name": "Link 1"}]
+
+
+def test_query_hvdc_schedules_for_yr_accepts_both_year_ahead_labels(areas_config):
+    rows = [_schedule("AA", "BB", 300, **{"TimeSeries.connectingLine_RegisteredResource.mRID": "10T-HVDC-1"})]
+    service = FakeElastic({("A33", None, TIMESTAMP): rows}, hvdc_lines=HVDC_LINES)
+
+    with mock.patch.object(schedules.elastic, "Elastic", return_value=service):
+        result = schedules.query_hvdc_schedules("YR", TIMESTAMP)
+
+    assert service.steps == [(["YR", "A33"], None, TIMESTAMP)]
+    assert service.queries[0]["TimeSeries.businessType"] == "B67"
+    assert [row["value"] for row in result] == [300]
 
 
 def test_query_hvdc_schedules_without_line_mapping_leaves_names_empty(areas_config, caplog):

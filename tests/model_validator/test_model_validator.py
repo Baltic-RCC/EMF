@@ -396,6 +396,20 @@ def test_handler_marks_model_invalid_when_loadflow_diverges(services, ieee14_igm
 
 
 @pytest.mark.pypowsybl
+@pytest.mark.parametrize("exclude_igm_sv, exclude_profiles", [("True", {"SV"}), ("False", None)])
+def test_handler_loads_igm_without_its_sv_only_when_configured(services, ieee14_igm, set_config, exclude_igm_sv,
+                                                               exclude_profiles):
+    set_config(EXCLUDE_IGM_SV=exclude_igm_sv)
+
+    with mock.patch.object(model_validator, "load_network_model", wraps=load_network_model) as load:
+        handle([ieee14_igm])
+
+    assert load.call_args.kwargs["exclude_profiles"] == exclude_profiles
+    [report] = sent_reports(services)
+    assert report["validations"]["loadflow"] is True
+
+
+@pytest.mark.pypowsybl
 def test_handler_adds_net_position_and_conform_load_to_metadata(services, ieee14_igm):
     with mock.patch.object(model_validator, "get_ac_net_position", return_value=-123.45) as net_position, \
             mock.patch.object(model_validator, "get_sum_of_loads", return_value=678.9) as sum_of_loads:

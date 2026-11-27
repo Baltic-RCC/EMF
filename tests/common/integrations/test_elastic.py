@@ -202,6 +202,18 @@ def test_query_schedules_from_elk_builds_period_query(service, period_overlap, s
     ]}})
 
 
+def test_query_schedules_from_elk_matches_any_value_of_a_list(service):
+    with mock.patch.object(service, "get_docs_by_query", return_value=pd.DataFrame([{"value": 1}])) as get_docs:
+        service.query_schedules_from_elk("schedules", "2024-01-01T00:00:00", "2024-01-01T01:00:00",
+                                         metadata={"@time_horizon": ["YR", "A33"], "TimeSeries.businessType": "B64"})
+
+    assert get_docs.call_args.kwargs["query"]["bool"]["must"][2:] == [
+        {"bool": {"should": [{"match": {"@time_horizon": "YR"}}, {"match": {"@time_horizon": "A33"}}],
+                  "minimum_should_match": 1}},
+        {"match": {"TimeSeries.businessType": "B64"}},
+    ]
+
+
 @pytest.mark.parametrize("outcome", [{"return_value": pd.DataFrame()}, {"side_effect": RuntimeError("index missing")}],
                          ids=["no-hits", "query-error"])
 def test_query_schedules_from_elk_returns_none_without_schedules(service, outcome):
