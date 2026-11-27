@@ -8,7 +8,7 @@ dependencies = [
     "pandas",
     "polars>=1.17.1",
     "numpy",
-    "pypowsybl==1.16.1",
+    "pypowsybl==1.17.0",
     "aniso8601",
     "lxml",
     "edx",
